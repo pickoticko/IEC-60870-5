@@ -1,0 +1,15 @@
+{application, iec60870,
+ [{description, "IEC 60870 Library"},
+  {vsn, "0.1.0"},
+  {registered, []},
+  {applications,
+   [kernel,
+    stdlib,
+    lager,
+    esubscribe
+   ]},
+  {env,[]},
+  {modules, []},
+  {licenses, ["Apache-2.0"]},
+  {links, []}
+ ]}.

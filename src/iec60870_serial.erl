@@ -110,10 +110,10 @@ check_settings(Settings) ->
   Settings.
 
 check_setting(port, PortString)
-  when is_list(PortString) or is_binary(PortString) -> ok;
+  when is_list(PortString), is_binary(PortString) -> ok;
 
 check_setting(mode, Mode)
-  when Mode =:= active or Mode =:= passive -> ok;
+  when Mode =:= active, Mode =:= passive -> ok;
 
 check_setting(bitrate, Bitrate) when is_integer(Bitrate) ->
   case maps:is_key(Bitrate, ?BITRATES) of

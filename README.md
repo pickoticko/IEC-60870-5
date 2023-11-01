@@ -1,24 +1,27 @@
 IEC104 Protocol Application
 =====
+
+Description
+-----
 IEC is a standard for power system monitoring, control, and other related communications to automate electric power systems.
 [IEC104](https://en.wikipedia.org/wiki/IEC_60870-5) is an extension of the IEC 101 protocol, including transport, network, link, and physical layer extensions to enable full network access.
 This is a library for communicating with devices that use this protocol.
 
-To **start** the application use `start_client/1`, which will return the `Client` structure, which should be used for all operations.  
-To **stop** the application use `stop` and pass `Client` to it.
+Interface & Usage
+-----  
 
-Interface
------
-| Function               | Arguments                         | Description  |
-| :--------------------- |:--------------------------------- | :----------- |
-| `send_data/4`          | Client, DataObject, Group, COT    | Send data to the station |
-| `read_object_value/2`  | Client, Key                       | Read a value from the cache by key |
-| `add_subscriber/3`     | Client, SubscriberPID, Arg        | Adds a subscriber, which will receive any changes on objects |
-| `remove_subscriber/3`  | Client, SubscriberPID, Key        | Removes subscriber |  
-| `remove_subscriber/2`  | Client, SubscriberPID             | Removes subscription of SubscriberPID entirely |  
-
-> **Note**  
-> `Arg` on `add_subscriber` is an address of the data object
+| Function               | Arguments                                      | Returns    | Description  |
+| :--------------------- |:---------------------------------------------- | :--------- | :----------- |
+| **`start_client/1`**   | Settings                                       | **Client** | **Starts the client** |
+| **`start_server/1`**   | Settings                                       | **Server** | **Starts the server** |
+| **`stop/1`**           | Client / Server                                | OK         | **Starts the server** |
+| `subscribe/2`          | Client / Server, SubscriberPID                 | OK         | Subscribes to all existing addresses |
+| `subscribe/3`          | Client / Server, SubscriberPID, Address / List | OK         | Subscribes to an address or a list of addresses |
+| `unsubscribe/2`        | Client / Server, SubscriberPID                 | OK         | Removes subscription from SubscriberPID entirely |  
+| `unsubscribe/3`        | Client / Server, SubscriberPID, Address        | OK         | Removes subscription from the given address |  
+| `read/1`               | Client / Server                                | List       | Reads all existing addresses |
+| `read/2`               | Client / Server, Address                       | Object     | Read a value from the cache by an address |
+| `write/2`              | Client / Server, Address, Value                | OK         | Writes a value to the cache |
 
 Usage samples & examples
 -----
@@ -42,27 +45,24 @@ w => 8
 
 Starting the connection:
 ```erlang
-Client = iec104:start_client(ConnectionSettings).
-```
-
-Send object:
-```erlang
-iec104:send_data(Client, <Data Object>, 0, <<"non-cycle">>).
+Client = iec60870:start_client(ConnectionSettings).
+Server = iec60870:start_server(ConnectionSettings).
 ```
 
 Read object:
 ```erlang
-iec104:read_object_value(Client, <Information Object Address>).
+iec60870:read(Client, <Information Object Address>).
+iec60870:read(Client).
 ```
 
 Add subscriber:
 ```erlang
-iec104:add_subscriber(Client, SubscriberPID, <Data Object Key>).
-iec104:add_subscriber(Client, SubscriberPID, [<Information Object Address 1>, ..., <Information Object Address N>]).
+iec60870:subscribe(Client, SubscriberPID, <Address>).
+iec60870:subscribe(Client, SubscriberPID).
 ```
 
 Remove subscriber:
 ```erlang
-iec104:remove_subscriber(Client, SubscriberPID, <Information Object Address>). % Removes subscription for a specific key
-iec104:remove_subscriber(Client, SubscriberPID). % Removes subscription entirely
+iec60870:unsubscribe(Client, SubscriberPID, <Address>). 
+iec60870:unsubscribe(Client, SubscriberPID). 
 ```

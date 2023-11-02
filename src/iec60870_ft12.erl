@@ -6,11 +6,6 @@
 -module(iec60870_ft12).
 -behaviour(gen_statem).
 
--export([
-  parse_frame/1,
-  parse_control_field/2
-]).
-
 -include("iec60870.hrl").
 
 %% Function codes of unbalanced transmission from primary station
@@ -52,7 +47,12 @@ parse_frame(<<
   LinkUserData,
   CheckSum:8,
   ?END_CHAR>>) ->
-  todo;
+  %% TODO: Verification of checksum
+  #{
+    control_field => ControlField,
+    address_field => AddressField,
+    link_user_data => LinkUserData
+  };
 
 %% Frame with fixed length
 parse_frame(<<

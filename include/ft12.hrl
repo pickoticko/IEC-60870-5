@@ -2,26 +2,27 @@
 %% | Copyright (c) 2023, Faceplate LTD. All Rights Reserved.      |
 %% | Author: Tokenov Alikhan, @alikhantokenov@gmail.com           |
 %% +--------------------------------------------------------------+
--ifndef(iec60870_f12).
+
+-ifndef(iec60870_ft12).
 -define(iec608701_ft12, 1).
 
--record(cf_req,{
-  dir = 0,
+-record(control_field_request, {
+  direction = 0,
   fcb,
   fcv,
-  fcode
+  function_code
 }).
 
--record(cf_resp,{
-  dir,
+-record(control_field_response, {
+  direction,
   acd,
   dfc,
-  fcode
+  function_code
 }).
 
--record(frame,{
-  addr,
-  cf,
+-record(frame, {
+  address,
+  control_field,
   data
 }).
 

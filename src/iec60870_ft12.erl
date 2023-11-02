@@ -12,7 +12,7 @@
 %% |                           API                                |
 %% +--------------------------------------------------------------+
 -export([
-  start_link/2,
+  start_link/3,
   send/2,
   clear/1
 ]).
@@ -43,9 +43,9 @@
 -define(END_CHAR, 16#16).
 
 
-start_link( Port, Options )->
+start_link( Port, Options, Params )->
   Self = self(),
-  PID = spawn_link(fun()-> init( Self, Port, Options ) end),
+  PID = spawn_link(fun()-> init( Self, Port, Options, Params ) end),
   receive
     {ready, PID} -> PID;
     {'EXIT' ,PID, Reason}-> throw( Reason )
@@ -60,24 +60,32 @@ clear( Port )->
   Port ! { clear, self() },
   ok.
 
--record(state, { owner, port, buffer }).
-init( Owner, Port, Options )->
-  case eserial:open( Port, Options ) of
+-record(state, { owner, port, buffer, address_size }).
+init( Owner, PortName, Options, Params )->
+  case eserial:open( PortName, Options ) of
     {ok, Port} ->
       Owner ! { ready, self() },
+
+      #{
+        address_size := AddressSize
+      } = maps:merge( #{
+        address_size => 1
+      }, Params ),
+
       loop( #state{
         owner = Owner,
         port = Port,
+        address_size = AddressSize * 8,
         buffer = <<>>
       } );
     {error, Error}->
       exit( Error )
   end.
 
-loop( #state{ port = Port, buffer = Buffer, owner = Owner } = State )->
+loop( #state{ port = Port, buffer = Buffer, owner = Owner, address_size = ASize } = State )->
   receive
     {Port, data, Data}->
-      case parse_frame( <<Buffer/binary, Data/binary>> ) of
+      case parse_frame( <<Buffer/binary, Data/binary>>, ASize ) of
         { Frame, TailBuffer }->
           Owner ! { data, self(), Frame },
           loop( State#state{ buffer = TailBuffer } );
@@ -85,7 +93,7 @@ loop( #state{ port = Port, buffer = Buffer, owner = Owner } = State )->
           loop( State#state{ buffer = TailBuffer } )
       end;
     {send, Owner, Frame}->
-      Packet = build_frame( Frame ),
+      Packet = build_frame( Frame, ASize ),
       eserial:send( Port, Packet ),
       loop( State );
     {clear, Owner} ->
@@ -103,31 +111,35 @@ drop_data( Port )->
   end.
 
 %% Frame with variable length
-parse_frame(<<?START_CMD, CF, Address, CS, ?END_CHAR, Tail/binary>>) ->
-  case control_sum( <<CF, Address>> ) of
-    CS ->
-      case parse_cf( <<CF>> ) of
-        {ok, CFRec} ->
-          { #frame{
-            addr = Address,
-            cf = CFRec,
-            data = undefined
-          }, Tail };
-        error->
-          ?LOGERROR("invalid control field ~p",[ CF ]),
+parse_frame(<<?START_CMD, _/binary>> = Buffer, AddressSize) ->
+  case Buffer of
+    <<?START_CMD, CF, Address:AddressSize/little-integer, CS, ?END_CHAR, Tail/binary>> ->
+      case control_sum( <<CF, Address>> ) of
+        CS ->
+          case parse_cf( <<CF>> ) of
+            error->
+              ?LOGERROR("invalid control field ~p",[ CF ]),
+              Tail;
+            CFRec ->
+              { #frame{
+                addr = Address,
+                cf = CFRec,
+                data = undefined
+              }, Tail }
+          end;
+        Sum->
+          ?LOGERROR("invalid control sum ~p",[Sum]),
           Tail
       end;
     _->
-      ?LOGERROR("invalid control sum"),
-      Tail
+      Buffer
   end;
-
-parse_frame(<<?START_DATA, LengthL:8, LengthL:8, ?START_DATA, Body/binary >> = Buffer) ->
+parse_frame(<<?START_DATA, LengthL:8, LengthL:8, ?START_DATA, Body/binary >> = Buffer, AddressSize) ->
   case Body of
     << FrameData:LengthL/binary, CS, ?END_CHAR, Tail/binary >>->
       case control_sum( FrameData ) of
         CS ->
-          << CF, Address, Data/binary >> = FrameData,
+          << CF, Address:AddressSize/little-integer, Data/binary >> = FrameData,
           case parse_cf( <<CF>> ) of
             {ok, CFRec} ->
               { #frame{
@@ -146,13 +158,16 @@ parse_frame(<<?START_DATA, LengthL:8, LengthL:8, ?START_DATA, Body/binary >> = B
     _ ->
       Buffer
   end;
-parse_frame( Buffer )->
-  Buffer.
+parse_frame( <<?START_DATA,_/binary>> = Buffer, _AddressSize )->
+  Buffer;
+parse_frame( <<_, Tail/binary>>, AddressSize )->
+  parse_frame( Tail, AddressSize ).
 
-build_frame( #frame{addr = Address, cf = CFRec, data = Data } ) when is_binary( Data )->
+
+build_frame( #frame{addr = Address, cf = CFRec, data = Data }, AddressSize ) when is_binary( Data )->
   Body = <<
-    Address,
-    (build_cf( CFRec )),
+    Address:AddressSize/little-integer,
+    (build_cf( CFRec ))/binary,
     Data/binary
   >>,
   L = size( Body ),
@@ -160,10 +175,10 @@ build_frame( #frame{addr = Address, cf = CFRec, data = Data } ) when is_binary( 
 
   <<?START_DATA, L:8, L:8, ?START_DATA, Body/binary, CS, ?END_CHAR >>;
 
-build_frame( #frame{addr = Address, cf = CFRec } )->
+build_frame( #frame{addr = Address, cf = CFRec }, AddressSize )->
   Body = <<
-    (build_cf( CFRec )),
-    Address
+    (build_cf( CFRec ))/binary,
+    Address:AddressSize/little-integer
   >>,
   CS = control_sum( Body ),
 
@@ -174,7 +189,7 @@ control_sum( Data )->
 control_sum(<<X, Rest/binary >>, Sum)->
   control_sum( Rest, Sum + X );
 control_sum( <<>>, Sum )->
-  Sum rem 8.
+  Sum rem 256.
 
 
 parse_cf( <<Dir:1, 1:1, FCB:1, FCV:1, FCode:4>> )->

@@ -44,23 +44,23 @@
 %% Frame with variable length
 parse_frame(<<
   ?START_CHAR_A,
-  LengthL,
-  LengthL,
+  LengthL:8,
+  LengthL:8,
   ?START_CHAR_A,
-  ControlField,
-  AddressField,
+  ControlField:8,
+  AddressField:8,
   LinkUserData,
-  CheckSum,
+  CheckSum:8,
   ?END_CHAR>>) ->
   todo;
 
 %% Frame with fixed length
 parse_frame(<<
   ?START_CHAR_B,
-  ControlField,
-  AddressField,
+  ControlField:8,
+  AddressField:8,
   LinkUserData,
-  CheckSum,
+  CheckSum:8,
   ?END_CHAR>>) ->
   todo;
 
@@ -97,5 +97,4 @@ parse_control_field(secondary, <<
   };
 
 parse_control_field(_, Data) -> throw({invalid_control_field, Data}).
-
 

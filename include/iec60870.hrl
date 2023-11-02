@@ -3,23 +3,24 @@
 %% | Author: Tokenov Alikhan, @alikhantokenov@gmail.com           |
 %% +--------------------------------------------------------------+
 
-%%-define(LOGERROR(Text),           lager:error(Text)).
-%%-define(LOGERROR(Text, Params),   lager:error(Text, Params)).
-%%-define(LOGWARNING(Text),         lager:warning(Text)).
-%%-define(LOGWARNING(Text, Params), lager:warning(Text, Params)).
-%%-define(LOGINFO(Text),            lager:info(Text)).
-%%-define(LOGINFO(Text, Params),    lager:info(Text, Params)).
-%%-define(LOGDEBUG(Text),           lager:debug(Text)).
-%%-define(LOGDEBUG(Text, Params),   lager:debug(Text, Params)).
+-define(LOGERROR(Text), logger:error(Text)).
+-define(LOGERROR(Text,Params), logger:error( Text, Params)).
+-define(LOGWARNING(Text), logger:warning(Text)).
+-define(LOGWARNING(Text,Params), logger:warning(Text, Params)).
+-define(LOGINFO(Text), logger:info(Text)).
+-define(LOGINFO(Text,Params), logger:info(Text, Params)).
+-define(LOGDEBUG(Text), logger:debug(Text)).
+-define(LOGDEBUG(Text,Params), logger:debug(Text,Params)).
 
--define(LOGERROR(Text),           io:format("ERROR: "++Text++"\r\n")).
--define(LOGERROR(Text, Params),   io:format("ERROR: "++Text++"\r\n", Params)).
--define(LOGWARNING(Text),         io:format("WARNING: "++Text++"\r\n")).
--define(LOGWARNING(Text, Params), io:format("WARNING: "++Text++"\r\n", Params)).
--define(LOGINFO(Text),            io:format("INFO: "++Text++"\r\n")).
--define(LOGINFO(Text, Params),    io:format("INFO: "++Text++"\r\n", Params)).
--define(LOGDEBUG(Text),           io:format("DEBUG: "++Text++"\r\n")).
--define(LOGDEBUG(Text, Params),   io:format("DEBUG: "++Text++"\r\n", Params)).
+
+%%-define(LOGERROR(Text),           io:format("ERROR: "++Text++"\r\n")).
+%%-define(LOGERROR(Text, Params),   io:format("ERROR: "++Text++"\r\n", Params)).
+%%-define(LOGWARNING(Text),         io:format("WARNING: "++Text++"\r\n")).
+%%-define(LOGWARNING(Text, Params), io:format("WARNING: "++Text++"\r\n", Params)).
+%%-define(LOGINFO(Text),            io:format("INFO: "++Text++"\r\n")).
+%%-define(LOGINFO(Text, Params),    io:format("INFO: "++Text++"\r\n", Params)).
+%%-define(LOGDEBUG(Text),           io:format("DEBUG: "++Text++"\r\n")).
+%%-define(LOGDEBUG(Text, Params),   io:format("DEBUG: "++Text++"\r\n", Params)).
 
 -define(DATA(Connection, Data), {data, Connection, Data}).
 -define(OBJECT(Type, COT, IOA, Value), {object, Type, COT, IOA, Value}).

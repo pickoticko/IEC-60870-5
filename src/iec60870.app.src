@@ -1,6 +1,6 @@
 {application, iec60870,
- [{description, "IEC 60870 Library"},
-  {vsn, "0.1.0"},
+ [{description, "IEC 60870-5 Library"},
+  {vsn, git},
   {registered, []},
   {applications,
    [kernel,

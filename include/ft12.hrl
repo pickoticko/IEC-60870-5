@@ -6,7 +6,7 @@
 -define(iec608701_ft12, 1).
 
 -record(cf_req,{
-  dir,
+  dir = 0,
   fcb,
   fcv,
   fcode

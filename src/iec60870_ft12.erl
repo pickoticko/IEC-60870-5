@@ -12,7 +12,7 @@
 %% |                           API                                |
 %% +--------------------------------------------------------------+
 -export([
-  start_link/3,
+  start_link/1,
   send/2,
   clear/1
 ]).
@@ -23,9 +23,24 @@
 -define(END_CHAR, 16#16).
 
 
-start_link( Port, PortOptions, Options )->
+start_link( InOptions )->
+
+  Options = maps:merge( #{
+    port => required,
+    port_options => #{
+      mode => active,
+      baudrate => 9600,
+      parity => 0,
+      stopbits => 1,
+      bytesize => 8
+    },
+    address_size => 1
+  }, InOptions ),
+
+  check_options( Options ),
+
   Self = self(),
-  PID = spawn_link(fun()-> init( Self, Port, PortOptions, Options ) end),
+  PID = spawn_link(fun()-> init( Self, Options ) end),
   receive
     {ready, PID} -> PID;
     {'EXIT' ,PID, Reason}-> throw( Reason )
@@ -40,17 +55,23 @@ clear( Port )->
   Port ! { clear, self() },
   ok.
 
+check_options( #{ port := Port } = _Options ) when is_list(Port); is_binary( Port )->
+  % TODO. validate other options
+  ok;
+check_options(_Options )->
+  throw( invalid_options ).
+
+
 -record(state, { owner, port, buffer, address_size }).
-init( Owner, PortName, PortOptions, Options )->
+init( Owner, #{
+  port := PortName,
+  port_options := PortOptions,
+  address_size := AddressSize
+} )->
+
   case eserial:open( PortName, PortOptions ) of
     {ok, Port} ->
       Owner ! { ready, self() },
-
-      #{
-        address_size := AddressSize
-      } = maps:merge( #{
-        address_size => 1
-      }, Options ),
 
       loop( #state{
         owner = Owner,

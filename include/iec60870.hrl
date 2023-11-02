@@ -2,6 +2,8 @@
 %% | Copyright (c) 2023, Faceplate LTD. All Rights Reserved.      |
 %% | Author: Tokenov Alikhan, @alikhantokenov@gmail.com           |
 %% +--------------------------------------------------------------+
+-ifndef(iec60870).
+-define(iec608701, 1).
 
 -define(LOGERROR(Text), logger:error(Text)).
 -define(LOGERROR(Text,Params), logger:error( Text, Params)).
@@ -66,3 +68,5 @@
 -define(MIN_COA_BYTES, 1).
 -define(MAX_ORG_BYTES, 1).
 -define(MIN_ORG_BYTES, 0).
+
+-endif.

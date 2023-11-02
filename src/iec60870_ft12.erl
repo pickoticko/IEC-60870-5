@@ -17,35 +17,15 @@
   clear/1
 ]).
 
-%%%% Function codes of unbalanced transmission from primary station
-%%-define(RESET_REMOTE_LINK, 0).
-%%-define(RESET_USER_PROCESS, 1).
-%%-define(USER_DATA_CONFIRM, 3).
-%%-define(USER_DATA_NO_REPLY, 4).
-%%-define(EXPECTED_RESPONSE, 8).
-%%-define(REQUEST_STATUS_LINK, 9).
-%%-define(REQUEST_DATA_CLASS_ONE, 10).
-%%-define(REQUEST_DATA_CLASS_TWO, 11).
-%%-define(REMOTE_LINK_RESET, 0).
-%%
-%%%% Function codes of unbalanced transmission from secondary station
-%%-define(CONFIRM_ACKNOWLEDGEMENT, 0).
-%%-define(NOT_CONFIRMED_LINK_BUSY, 1).
-%%-define(USER_DATA, 8).
-%%-define(USER_DATA_NOT_AVAILABLE, 9).
-%%-define(STATUS_LINK_DEMAND, 11).
-%%-define(LINK_SERVICE_NOT_FUNCTIONING, 14).
-%%-define(LINK_SERVICE_NOT_IMPLEMENTED, 15).
-
 % Each packet (APDU) starts with
 -define(START_DATA, 16#68).
 -define(START_CMD, 16#10).
 -define(END_CHAR, 16#16).
 
 
-start_link( Port, Options, Params )->
+start_link( Port, PortOptions, Options )->
   Self = self(),
-  PID = spawn_link(fun()-> init( Self, Port, Options, Params ) end),
+  PID = spawn_link(fun()-> init( Self, Port, PortOptions, Options ) end),
   receive
     {ready, PID} -> PID;
     {'EXIT' ,PID, Reason}-> throw( Reason )
@@ -61,8 +41,8 @@ clear( Port )->
   ok.
 
 -record(state, { owner, port, buffer, address_size }).
-init( Owner, PortName, Options, Params )->
-  case eserial:open( PortName, Options ) of
+init( Owner, PortName, PortOptions, Options )->
+  case eserial:open( PortName, PortOptions ) of
     {ok, Port} ->
       Owner ! { ready, self() },
 
@@ -70,7 +50,7 @@ init( Owner, PortName, Options, Params )->
         address_size := AddressSize
       } = maps:merge( #{
         address_size => 1
-      }, Params ),
+      }, Options ),
 
       loop( #state{
         owner = Owner,

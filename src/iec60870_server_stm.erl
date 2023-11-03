@@ -32,7 +32,6 @@
 %% +--------------------------------------------------------------+
 -define(RUNNING, running).
 
-
 %% +--------------------------------------------------------------+
 %% |                   OTP gen_statem behaviour                   |
 %% +--------------------------------------------------------------+
@@ -77,11 +76,11 @@ handle_event(info, {Scope, update, {IOA, Value}, _Node, Actor}, ?RUNNING, #data{
       send_asdu( Connection, ASDU )
    end || {Type, TypeUpdates} <- maps:to_list( ByTypes )],
 
-  iec60870_connection:cmd(Connection, {write_object, IOA, Value, spontaneous}),
+  %iec60870_connection:cmd(Connection, {write_object, IOA, Value, spontaneous}),
   keep_state_and_data;
 
 % Group request {object, Type, ValueCOT, Address, Value}
-handle_event(info, ?DATA(Connection, ?OBJECT(?C_IC_NA_1, activation, _IOA, GroupID)), ?RUNNING, #data{
+handle_event(info, ?DATA(Connection, ?OBJECT(?C_IC_NA_1, ?COT_ACT, _IOA, GroupID)), ?RUNNING, #data{
   connection = Connection,
   cache = Cache
 }) ->
@@ -112,7 +111,6 @@ handle_event(info, {asdu, Connection, ASDU}, ?RUNNING, #data{
   cache = Cache
 } = Data)->
 
-
   case parse_asdu( ASDU ) of
     {ok, {Type, TypeData} }->
       handle_type( Type, TypeData, Data );
@@ -130,7 +128,7 @@ handle_event(info, {_Scope, update, _, _, _Self}, _AnyState, _Data) ->
 handle_event(info, {'DOWN', _, process, Connection, Error}, _AnyState, #data{
   connection = Connection
 }) ->
-  ?LOGINFO("stop server gen_statem, reason: ~p", [Error] ),
+  ?LOGINFO("stop incoming connection, reason: ~p", [Error] ),
   {stop, Error};
 
 % Log unexpected events
@@ -156,6 +154,9 @@ code_change(_OldVsn, State, _Extra) ->
 %% +--------------------------------------------------------------+
 %% |             Internal helpers                                 |
 %% +--------------------------------------------------------------+
+handle_asdu( #asdu{}  )->
+  todo.
+
 update_value(Scope, Cache, Type, IOA, InValue) when is_map( InValue )->
 
   Group =

@@ -149,7 +149,13 @@ parse_frame(<<
           Tail
       end;
     _ ->
-      Buffer
+      if
+        size( Buffer ) < (4 + AddressSize) -> % Frame length
+          Buffer;
+        true ->
+          <<_,TailBuffer/binary>> = Buffer,
+          parse_frame( TailBuffer, AddressSize)
+      end
   end;
 
 parse_frame(<<
@@ -180,7 +186,13 @@ parse_frame(<<
           Tail
       end;
     _ ->
-      Buffer
+      if
+        size( Body ) < (2 + LengthL) -> % Frame length
+          Buffer;
+        true ->
+          <<_,TailBuffer/binary>> = Buffer,
+          parse_frame( TailBuffer, AddressSize)
+      end
   end;
 
 parse_frame(<<?START_DATA_CHAR,_/binary>> = Buffer, _AddressSize) ->

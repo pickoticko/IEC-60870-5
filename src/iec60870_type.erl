@@ -12,7 +12,7 @@
 ]).
 
 parse_information_element(?C_IC_NA_1, <<GroupID:8>>) ->
-  GroupID - 20;
+  GroupID;
 
 parse_information_element(?M_EI_NA_1, <<COI:8>>) ->
   #{value => 0, qds => COI};
@@ -63,7 +63,7 @@ parse_information_element(_Type, _Value) ->
 %% +--------------------------------------------------------------+
 
 create_information_element(?C_IC_NA_1, GroupID) ->
-  <<(GroupID + 20)>>;
+  <<GroupID>>;
 
 create_information_element(?M_SP_NA_1, #{
   value := Value,
@@ -176,26 +176,3 @@ get_cp56(Value) ->
       ?LOGERROR("get_cp56 error: ~p, Timestamp: ~p", [Value, Error]),
       none
   end.
-
-%% TODO: Do we need this function?x
-%%get_type_max_count(COT, COAByteSize, COTByteSize, IOAByteSize) ->
-%%  PayLoadByteSize = 249 - 2 - COAByteSize - COTByteSize,
-%%  MaxCount =
-%%    case COT of
-%%      ?M_SP_NA_1 -> PayLoadByteSize div (1 + IOAByteSize);
-%%      ?M_DP_NA_1 -> PayLoadByteSize div (1 + IOAByteSize);
-%%      ?M_ME_NA_1 -> PayLoadByteSize div (3 + IOAByteSize);
-%%      ?M_ME_NB_1 -> PayLoadByteSize div (3 + IOAByteSize);
-%%      ?M_ME_NC_1 -> PayLoadByteSize div (5 + IOAByteSize);
-%%      ?M_SP_TB_1 -> PayLoadByteSize div (8 + IOAByteSize);
-%%      ?M_DP_TB_1 -> PayLoadByteSize div (8 + IOAByteSize);
-%%      ?M_ME_TF_1 -> PayLoadByteSize div (12 + IOAByteSize);
-%%      ?C_IC_NA_1 -> PayLoadByteSize div (1 + IOAByteSize);
-%%      _ -> throw({unsupported_type, COT})
-%%    end,
-%%  if
-%%    MaxCount > ?MAX_PACKETS ->
-%%      ?MAX_PACKETS;
-%%    true ->
-%%      MaxCount
-%%  end.

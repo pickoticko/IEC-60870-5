@@ -6,8 +6,7 @@
 
 %% API
 -export([
-  check_options/1,
-  start_link/1
+  start/2
 ]).
 
 -define(ACKNOWLEDGE_FRAME(Address),#frame{
@@ -21,39 +20,34 @@
 }).
 
 -record(data, {
+  root,
   address,
   port,
   fcb,
   sent_frame,
-  connection_options,
   connection
 }).
+.
 
-check_options( Options )->
-  % TODO
-  Options.
-
-start_link(Options) ->
-  Self = self(),
-  PID = spawn_link( fun() -> init(Self, Options) end),
+start(Root, Options) ->
+  PID = spawn_link( fun() -> init(Root, Options) end),
   receive
     {ready, PID} -> PID;
     {'EXIT', PID, Reason} -> throw(Reason)
   end.
 
-init(Owner, #{
-  address := Address,
-  connection_options := ConnectionOptions
+init(Root, #{
+  address := Address
 } = Options) ->
 
   Port = iec60870_ft12:start_link( maps:with([ port, port_options, address_size ], Options) ),
 
-  Owner ! { ready, self()},
+  Root ! { ready, self()},
 
   loop(#data{
+    root = Root,
     address = Address,
     port = Port,
-    connection_options = ConnectionOptions,
     connection = undefined,
     fcb = undefined
   }).
@@ -62,7 +56,8 @@ loop(#data{
   port = Port,
   address = Address,
   fcb = FCB,
-  sent_frame = SentFrame
+  sent_frame = SentFrame,
+  connection = Connection
 } = Data) ->
 
   receive
@@ -77,8 +72,11 @@ loop(#data{
           Data1 = handle_request( CF#control_field_request.function_code, UserData, Data ),
           loop( Data1#data{ fcb = NextFCB } );
         error->
-          iec60870_ft12:send( Port, SentFrame )
-      end
+          iec60870_ft12:send( Port, SentFrame ),
+          loop( Data )
+      end;
+    {'DOWN', _, process, Connection, _Error}->
+      loop( Data#data{ connection = undefined } )
   end.
 
 check_fcb( #control_field_request{ fcv = 0, fcb = ReqFCB } , _FCB )->
@@ -120,7 +118,7 @@ handle_request(?USER_DATA_CONFIRM, ASDU, #data{
         sent_frame = send_response( Port, ?ACKNOWLEDGE_FRAME(Address) )
       };
     true ->
-      ?LOGWARNING("user data received on not initialized connection ~p",[ UserData ] ),
+      ?LOGWARNING("user data received on not initialized connection ~p",[ ASDU ] ),
       Data
   end;
 
@@ -131,7 +129,7 @@ handle_request(?USER_DATA_NO_REPLY, ASDU, #data{
     is_pid( Connection )->
       Connection ! { asdu, self(), ASDU };
     true ->
-      ?LOGWARNING("user data received on not initialized connection ~p",[ UserData ] )
+      ?LOGWARNING("user data received on not initialized connection ~p",[ ASDU ] )
   end,
   Data;
 
@@ -152,10 +150,10 @@ handle_request(?ACCESS_DEMAND, _UserData, #data{
   };
 
 handle_request(?REQUEST_STATUS_LINK, _UserData, #data{
+  root = Root,
   port = Port,
   address = Address,
-  connection = Connection,
-  connection_options = ConnectionOptions
+  connection = Connection
 } = Data)->
 
   if
@@ -163,18 +161,18 @@ handle_request(?REQUEST_STATUS_LINK, _UserData, #data{
     true -> ignore
   end,
 
-  try
-    NewConnection = iec60870_server_stm:start_link( ConnectionOptions ),
-    Data#data{
-      connection = NewConnection,
-      sent_frame = send_response( Port, ?ACKNOWLEDGE_FRAME(Address) )
-    }
-  catch
-    _:Error ->
-      ?LOGERROR("unable to start process for incoming connection request, error ~p",[ Error ]),
+  case iec60870_server:start_connection(Root, self(), self() ) of
+    {ok, NewConnection} ->
+
+      erlang:monitor(process, NewConnection),
 
       Data#data{
         connection = NewConnection,
+        sent_frame = send_response( Port, ?ACKNOWLEDGE_FRAME(Address) )
+      };
+    error->
+      Data#data{
+        connection = undefined,
         sent_frame = send_response( Port, #frame{
           address = Address,
           control_field = #control_field_response{

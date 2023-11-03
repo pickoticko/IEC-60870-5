@@ -69,8 +69,8 @@ handle_event(info, {Scope, update, {IOA, Value}, _Node, Actor}, ?RUNNING, #data{
   connection = Connection
 }) when Actor =/= self() ->
 
-  Updates = get_all_updates( Scope ),
-  ByTypes = group_by_types( Updates ),
+  Items = get_all_updates( Scope ),
+  ByTypes = group_by_types( Items ),
 
   [ begin
       ASDU = build_asdu( Type, ?COT_SPONT, TypeUpdates ),
@@ -87,24 +87,38 @@ handle_event(info, ?DATA(Connection, ?OBJECT(?C_IC_NA_1, activation, _IOA, Group
 }) ->
 
   Confirm = build_asdu( ?C_IC_NA_1, ?COT_ACTCON, [{_IOA = 0, GroupID}] ),
-  iec60870_connection:cmd(Connection, {group_request_confirm, GroupID}),
+  %iec60870_connection:cmd(Connection, {group_request_confirm, GroupID}),
 
   Items = find_group_items( GroupID, Cache ),
 
-  [ iec60870_connection:cmd(Connection, {write_object, IOA, Value, {group, GroupID}}) || { IOA, Value } <- Items ],
+  ByTypes = group_by_types( Items ),
 
-  iec60870_connection:cmd(Connection, {group_request_terminate, GroupID}),
+  [ begin
+      ASDU = build_asdu( Type, ?COT_GROUP( GroupID ), TypeUpdates ),
+      send_asdu( Connection, ASDU )
+    end || {Type, TypeUpdates} <- maps:to_list( ByTypes )],
+
+  %[ iec60870_connection:cmd(Connection, {write_object, IOA, Value, {group, GroupID}}) || { IOA, Value } <- Items ],
+
+  Confirm = build_asdu( ?C_IC_NA_1, ?COT_ACTTERM, [{_IOA = 0, GroupID}] ),
+  %iec60870_connection:cmd(Connection, {group_request_terminate, GroupID}),
 
   keep_state_and_data;
 
 % From the connection
-handle_event(info, ?DATA(Connection, ?OBJECT(Type, _COT, IOA, Value)), ?RUNNING, #data{
+handle_event(info, {asdu, Connection, ASDU}, ?RUNNING, #data{
   settings = #{name := Name},
   connection = Connection,
   cache = Cache
-}) when is_map( Value )->
+} = Data)->
 
-  update_value(Name, Cache, Type, IOA, Value),
+
+  case parse_asdu( ASDU ) of
+    {ok, {Type, TypeData} }->
+      handle_type( Type, TypeData, Data );
+    {error, Error} ->
+      ?LOGERROR("invalid ASDU received: ~p",[ASDU])
+  end,
 
   keep_state_and_data;
 
@@ -142,16 +156,6 @@ code_change(_OldVsn, State, _Extra) ->
 %% +--------------------------------------------------------------+
 %% |             Internal helpers                                 |
 %% +--------------------------------------------------------------+
-wait_connection( Server, Connection, #{
-  settings := Settings
-} =Transport )->
-
-  iec60870_connection:start_link(Connection, Transport#{
-    settings =>Settings#{
-      server => Server
-    }
-  }).
-
 update_value(Scope, Cache, Type, IOA, InValue) when is_map( InValue )->
 
   Group =

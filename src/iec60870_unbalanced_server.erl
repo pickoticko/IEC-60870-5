@@ -252,7 +252,7 @@ send_response(Port, Frame )->
 
 check_data( Connection )->
   receive
-    {send, Connection, Data} -> {ok, Data}
+    {asdu, Connection, Data} -> {ok, Data}
   after
     0-> undefined
   end.

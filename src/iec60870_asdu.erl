@@ -1,6 +1,7 @@
 -module(iec60870_asdu).
 
 -export([
+  get_settings/1,
   parse/2,
   build/3
 ]).
@@ -8,6 +9,18 @@
 % SQ (Structure Qualifier) bit specifies how information are addressed
 -define(SQ_DISCONTINUOUS, 0).
 -define(SQ_CONTINUOUS, 1).
+
+get_settings( #{
+  coa_size := COASize,
+  org_size := ORGSize,
+  ioa_size := IOASize
+} = Settings )->
+  Settings#{
+    coa_size => COASize * 8,
+    org_size => ORGSize * 8,
+    ioa_size => IOASize * 8
+  }.
+
 
 check_sq([{IOA, _} | Rest]) ->
   check_sq(Rest, IOA).

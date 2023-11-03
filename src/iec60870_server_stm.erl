@@ -112,8 +112,8 @@ handle_event(info, {asdu, Connection, ASDU}, ?RUNNING, #data{
 } = Data)->
 
   case parse_asdu( ASDU ) of
-    {ok, {Type, TypeData} }->
-      handle_type( Type, TypeData, Data );
+    {ok, #asdu{} }->
+      handle_type( #asdu{ type = T, cot = COT, objects = Objects }, Data );
     {error, Error} ->
       ?LOGERROR("invalid ASDU received: ~p",[ASDU])
   end,

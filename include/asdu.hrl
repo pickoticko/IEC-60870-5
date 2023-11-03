@@ -19,6 +19,9 @@
 -define(SET_COT_GROUP(ID), ?COT_GROUP_MIN + ID).
 -define(GET_COT_GROUP(ID), ID - ?COT_GROUP_MIN).
 
+-define(SET_COT_GROUP_COUNTER(ID), ?COT_GROUP_COUNTER_MIN + ID).
+-define(GET_COT_GROUP_COUNTER(ID), ID - ?COT_GROUP_COUNTER_MIN).
+
 %% Cause of transmission (COT) values
 -define(COT_PER, 1).
 -define(COT_BACK, 2).

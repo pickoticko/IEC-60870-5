@@ -131,10 +131,6 @@
 -define(S_TYPE, 2#01).
 -define(I_TYPE, 2#00).
 
-% SQ (Structure Qualifier) bit specifies how information are addressed
--define(SQ_DISCONTINUOUS, 0).
--define(SQ_CONTINUOUS, 1).
-
 % Unnumbered control functions
 -define(START_DT_ACTIVATE,   2#000001).
 -define(START_DT_CONFIRM,    2#000010).
@@ -142,29 +138,6 @@
 -define(STOP_DT_CONFIRM,     2#001000).
 -define(TEST_FRAME_ACTIVATE, 2#010000).
 -define(TEST_FRAME_CONFIRM,  2#100000).
-
-%% Cause of transmission (COT) values
--define(COT_PER, 1).
--define(COT_BACK, 2).
--define(COT_SPONT, 3).
--define(COT_INIT, 4).
--define(COT_REQ, 5).
--define(COT_ACT, 6).
--define(COT_ACTCON, 7).
--define(COT_DEACT, 8).
--define(COT_DEACTCON, 9).
--define(COT_ACTTERM, 10).
--define(COT_RETREM, 11).
--define(COT_RETLOC, 12).
--define(COT_FILE, 13).
--define(COT_GROUP_MIN, 20).
--define(COT_GROUP_MAX, 36).
--define(COT_GROUP_COUNTER_MIN, 37).
--define(COT_GROUP_COUNTER_MAX, 41).
--define(COT_UNKNOWN_TYPE, 44).
--define(COT_UNKNOWN_CAUSE, 45).
--define(COT_UNKNOWN_ASDU_ADDRESS, 46).
--define(COT_UNKNOWN_OBJECT_ADDRESS, 47).
 
 %% +--------------------------------------------------------------+
 %% |                             API                              |
@@ -523,16 +496,6 @@ parse_dui(COASize, ORGSize,
 parse_dui(_COASize, _ORGSize, InvalidASDU)->
   throw({invalid_asdu_format, InvalidASDU}).
 
-split_objects(#{sq := ?SQ_CONTINUOUS, no := NumberOfObjects}, IOASize, ObjectsBin) ->
-  <<Start:IOASize/little-integer, Sequence/binary>> = ObjectsBin,
-  ObjectSize = round(iec60870_lib:bytes_to_bits(size(Sequence) / NumberOfObjects)),
-  ObjectsList = [<<Object:ObjectSize>> || <<Object:ObjectSize>> <= Sequence],
-  lists:zip(lists:seq(Start, Start + NumberOfObjects - 1), ObjectsList);
-
-split_objects(#{sq := ?SQ_DISCONTINUOUS, no := NumberOfObjects}, IOASize, ObjectsBin) ->
-  ObjectSize = round((iec60870_lib:bytes_to_bits(size(ObjectsBin)) - IOASize * NumberOfObjects) / NumberOfObjects),
-  [{Address, <<Object:ObjectSize>>} || <<Address:IOASize/little-integer, Object:ObjectSize>> <= ObjectsBin].
-
 parse_cot_value(COT, PN)->
   case COT of
     ?COT_PER      -> periodic;
@@ -669,22 +632,6 @@ create_i_packet(Type, COT, DataObjects, #state{
     InformationObjects /binary
   >>).
 
-create_information_objects(_SQ = ?SQ_CONTINUOUS, Type, DataObjects, IOABitSize) ->
-  InformationObjectsList =
-    [iec60870_type:create_information_element(Type, Value) || {_, Value} <- DataObjects],
-  InformationObjects =
-    <<<<Value/binary>> || Value <- InformationObjectsList>>,
-  {StartAddress, _} = hd(DataObjects),
-  <<
-    StartAddress:IOABitSize /little-integer,
-    InformationObjects      /binary
-  >>;
-
-create_information_objects(_SQ = ?SQ_DISCONTINUOUS, Type, DataObjects, IOABitSize) ->
-  InformationObjectsList =
-    [{IOA, iec60870_type:create_information_element(Type, Value)} || {IOA, Value} <- DataObjects],
-  <<<<Address:IOABitSize/little-integer, Value/binary>> || {Address, Value} <- InformationObjectsList>>.
-
 %% +--------------------------------------------------------------+
 %% |                      Validate settings                       |
 %% +--------------------------------------------------------------+
@@ -728,13 +675,6 @@ check_setting(Key, Value)->
 %% +--------------------------------------------------------------+
 %% |                       Helper functions                       |
 %% +--------------------------------------------------------------+
-
-check_sq([{IOA, _} | Rest]) ->
-  check_sq(Rest, IOA).
-check_sq([{IOA, _} | Rest], PrevIOA) when IOA =:= PrevIOA + 1 ->
-  check_sq(Rest, IOA);
-check_sq([], _) -> ?SQ_CONTINUOUS;
-check_sq(_, _) -> ?SQ_DISCONTINUOUS.
 
 check_timer(Timer)->
   % Reset the acknowledge timer

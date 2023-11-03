@@ -15,8 +15,8 @@
   save_data_object/2
 ]).
 
-get_driver_module('104') -> iec60870_tcp;
-get_driver_module('101') -> iec60870_serial;
+get_driver_module('104') -> iec60870_104;
+get_driver_module('101') -> iec60870_101;
 get_driver_module(Type)  -> throw({invalid_type, Type}).
 
 bytes_to_bits(Bytes) -> Bytes * 8.

@@ -54,6 +54,7 @@
 %%    type => '101',
 %%    connection => #{
 %%      port => "/dev/ttyUSB0",
+%%      balanced => false,
 %%      port_options =>#{
 %%        baudrate => 9600,
 %%        parity => 0,
@@ -82,13 +83,14 @@
 -define(DEFAULT_SETTINGS,maps:merge( #{
   name => ?REQUIRED,
   type => ?REQUIRED,
-  connection => ?REQUIRED
+  connection => ?REQUIRED,
+  groups => []
 }, ?DEFAULT_ASDU_SETTINGS )).
 
 
 start(InSettings) ->
 
-  Settings = check_setting( maps:merge(?DEFAULT_SETTINGS, InSettings) ),
+  Settings = check_settings( maps:merge(?DEFAULT_SETTINGS, InSettings) ),
 
   Self = self(),
   PID = spawn_link(fun()->init_server(Self, Settings) end),
@@ -165,7 +167,7 @@ update_value( #?MODULE{ name = Name, storage = Storage }, ID, InValue)->
 %% +--------------------------------------------------------------+
 %% |                           Internal stuff                     |
 %% +--------------------------------------------------------------+
-check_setting( Settings )->
+check_settings( Settings )->
   SettingsList = maps:to_list( Settings ),
 
   case [S || {S, ?REQUIRED} <- SettingsList] of
@@ -184,6 +186,11 @@ check_setting( Settings )->
 check_setting(name, ConnectionName)
   when is_atom(ConnectionName) -> ConnectionName;
 
+check_setting(type, Type)
+  when Type =:= '101'; Type =:= '104' -> Type;
+
+check_setting(connection, Settings)
+  when is_map(Settings) -> Settings;
 
 check_setting(groups, Groups) when is_list(Groups) ->
   [case Group of
@@ -212,7 +219,7 @@ init_server(Owner, #{
 
   Module = iec60870_lib:get_driver_module( Type ),
 
-  Server = Module:start_server( Connection ),
+  Server = Module:start_server(_Root = self(), Connection ),
 
   Storage = ets:new(data_objects, [
     set,

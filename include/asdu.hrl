@@ -8,11 +8,16 @@
 
 -record(asdu, {
   type,
+  t,
+  pn,
   cot,
   org,
   coa,
   objects
 }).
+
+-define(SET_COT_GROUP(ID), ?COT_GROUP_MIN + ID).
+-define(GET_COT_GROUP(ID), ID - ?COT_GROUP_MIN).
 
 %% Cause of transmission (COT) values
 -define(COT_PER, 1).

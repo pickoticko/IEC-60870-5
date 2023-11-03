@@ -65,6 +65,7 @@
 -module(iec60870_connection).
 
 -include("iec60870.hrl").
+-include("asdu.hrl").
 
 -export([
   check_settings/1,
@@ -209,7 +210,7 @@ loop(#state{
     {'EXIT', PID, Reason} ->
       ?LOGWARNING("unexpected exit signal from ~p, reaason ~p", [PID, Reason]),
       loop(State);
-    {cmd, OwnerPID, Command} ->
+    {asdu, OwnerPID, Command} ->
       % Owner commands
       UpdatedState = handle_command(Command, State),
       loop(UpdatedState);
@@ -296,19 +297,10 @@ handle_command(heartbeat, #state{
 }) ->
   throw(heartbeat_timeout);
 
-handle_command({group_request, GroupID}, State) ->
-  send_i_packet(?C_IC_NA_1, ?COT_ACT, [{_IOA = 0, GroupID}], State);
-
-handle_command({group_request_confirm, GroupID}, State) ->
-  send_i_packet(?C_IC_NA_1, ?COT_ACTCON, [{_IOA = 0, GroupID}], State);
-
-handle_command({group_request_terminate, GroupID}, State) ->
-  send_i_packet(?C_IC_NA_1, ?COT_ACTTERM, [{_IOA = 0, GroupID}], State);
-
-handle_command({write_object, IOA, #{type := Type} = Value, COT}, #state{owner = Owner} = State) ->
-  Objects = group_objects(Owner, COT, Type),
-  COTCode = build_cot_value(COT),
-  send_i_packet(Type, COTCode, [{IOA, Value} | Objects], State);
+handle_command(heartbeat, #state{
+  heartbeat = {confirm, _Timer}
+}) ->
+  throw(heartbeat_timeout);
 
 handle_command(InvalidCommand, _State) ->
   throw({invalid_command, InvalidCommand}).
@@ -472,88 +464,6 @@ parse_apdu(APDU, #parser{
    end || {Address, Object} <- Objects],
   ok.
 
-parse_dui(COASize, ORGSize, 
-  <<Type:8,
-    SQ:1, NumberOfObjects:7,
-    T:1, PN:1, COT:6,
-    Rest/binary>>
-) ->
-  <<ORG:ORGSize,
-    COA:COASize/little-integer,
-    Body/binary>> = Rest,
-  DUI = #{
-    type => Type,
-    sq   => SQ,
-    no   => NumberOfObjects,
-    t    => T,
-    pn   => PN,
-    cot  => COT,
-    org  => ORG,
-    coa  => COA
-  },
-  {DUI, Body};
-
-parse_dui(_COASize, _ORGSize, InvalidASDU)->
-  throw({invalid_asdu_format, InvalidASDU}).
-
-parse_cot_value(COT, PN)->
-  case COT of
-    ?COT_PER      -> periodic;
-    ?COT_BACK     -> background_interrogation;
-    ?COT_SPONT    -> spontaneous;
-    ?COT_INIT     -> initialized;
-    ?COT_REQ      -> interrogation;
-    ?COT_ACT      -> activation;
-    ?COT_ACTCON   -> 
-      if
-        PN =:= 0  -> confirmation_activation;
-        true      -> confirmation_activation_reject
-      end;
-    ?COT_DEACT    -> deactivation;
-    ?COT_DEACTCON -> 
-      if
-        PN =:= 0  -> confirmation_deactivation;
-        true      -> confirmation_deactivation_reject
-      end;
-    ?COT_ACTTERM  -> termination_activation;
-    ?COT_RETREM   -> feedback_remote;
-    ?COT_RETLOC   -> feedback_local;
-    ?COT_FILE     -> file;
-    _ when COT >= ?COT_GROUP_MIN, COT =< ?COT_GROUP_MAX-> {group, COT - ?COT_GROUP_MIN};
-    _ when COT >= ?COT_GROUP_COUNTER_MIN, COT =< ?COT_GROUP_COUNTER_MAX-> {group_counter, COT - ?COT_GROUP_COUNTER_MIN};
-    ?COT_UNKNOWN_TYPE            -> unknown_type;
-    ?COT_UNKNOWN_CAUSE           -> unknown_cause;
-    ?COT_UNKNOWN_ASDU_ADDRESS    -> unknown_asdu_address;
-    ?COT_UNKNOWN_OBJECT_ADDRESS  -> unknown_object_address;
-    _-> throw({invalid_cot, COT})
-  end.
-
-build_cot_value( COT )->
-  case COT of
-    periodic                      -> ?COT_PER;
-    background_interrogation      -> ?COT_BACK;
-    spontaneous                   -> ?COT_SPONT;
-    initialized                   -> ?COT_INIT;
-    interrogation                 -> ?COT_REQ;
-    activation                    -> ?COT_ACT;
-    confirmation_activation       -> ?COT_ACTCON;
-    confirmation_activation_reject-> ?COT_ACTCON bor 1 bsl 6; % PN = 1
-    deactivation                  -> ?COT_DEACT;
-    confirmation_deactivation     -> ?COT_DEACTCON;
-    confirmation_deactivation_reject->?COT_DEACTCON bor 1 bsl 6; % PN = 1
-    termination_activation        -> ?COT_ACTTERM;
-    feedback_remote               -> ?COT_RETREM;
-    feedback_local                -> ?COT_RETLOC;
-    file                          -> ?COT_FILE;
-    {group, GroupID}              -> ?COT_GROUP_MIN + GroupID;
-    {group_counter, CounterID}    -> ?COT_GROUP_COUNTER_MIN + CounterID;
-    unknown_type                  -> ?COT_UNKNOWN_TYPE;
-    unknown_cause                 -> ?COT_UNKNOWN_CAUSE;
-    unknown_asdu_address          -> ?COT_UNKNOWN_ASDU_ADDRESS;
-    unknown_object_address        -> ?COT_UNKNOWN_OBJECT_ADDRESS;
-    _-> throw({invalid_cot, COT})
-  end.
-
 send_i_packet(Type, COT, DataObjects, #state{
   counters = #counters{
     vs = VS
@@ -609,27 +519,25 @@ create_i_packet(Type, COT, DataObjects, #state{
     org := ORG
   }
 }) ->
-  NumberOfObjects = length(DataObjects),
-  SQ =
-    if
-      NumberOfObjects > 1 -> check_sq(DataObjects);
-      true -> 0
-    end,
   <<MSB_R:8, LSB_R:7>> = <<VR:15>>,
   <<MSB_S:8, LSB_S:7>> = <<VS:15>>,
-  InformationObjects = create_information_objects(SQ, Type, DataObjects, IOABitSize),
+  ASDU = iec60870_asdu:build(#asdu{
+    type = Type,
+    cot = COT,
+    org = ORG,
+    coa = COA,
+    objects = DataObjects
+  }, #{
+    ioa_bits = IOABitSize,
+    org_bits = ORGBitSize,
+    coa_bits = COABitSize
+  }),
   create_apdu(<<
     LSB_S:7, 0:1,
     MSB_S:8,
     LSB_R:7, 0:1,
     MSB_R:8,
-    Type:8             /integer,
-    SQ:1               /integer,
-    NumberOfObjects:7  /integer,
-    0:1, 0:1, COT:6    /little-integer,
-    ORG:ORGBitSize     /little-integer,
-    COA:COABitSize     /little-integer,
-    InformationObjects /binary
+    ASDU/binary
   >>).
 
 %% +--------------------------------------------------------------+
@@ -686,38 +594,28 @@ check_timer(Timer)->
       ignore
   end.
 
-clear_timer()->
+clear_timer() ->
   receive
     {internal, Self, acknowledge} when Self =:= self() -> clear_timer()
   after
     0 -> ok
   end.
 
-check_heartbeat( #state{ heartbeat = { confirm,_ } } = State )->
+check_heartbeat(#state{heartbeat = { confirm,_ }} = State) ->
   % The connection is waiting for heartbeat confirmation
   State;
 
-check_heartbeat( #state{
+check_heartbeat(#state{
   heartbeat = HeartBeat,
-  settings = #{ t3 := T3 }
-  } = State )->
-
+  settings = #{t3 := T3}
+} = State) ->
   case HeartBeat of
-    {_, Timer}->
+    {_, Timer} ->
       timer:cancel(Timer);
-    _-> ignore
+    _ ->
+      ignore
   end,
-
   {ok, NewTimer} = timer:send_after(T3, {internal, self(), heartbeat}),
-
-  State#state{ heartbeat = {init, NewTimer} }.
-
-group_objects(Owner, COT, Type)->
-  receive
-    {cmd, Owner, {write_object, IOA, #{type := Type} = Value, COT}} ->
-      [{IOA, Value} | group_objects( Owner, COT, Type )]
-  after
-    0 -> []
-  end.
+  State#state{heartbeat = {init, NewTimer}}.
 
 

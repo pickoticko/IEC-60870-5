@@ -14,7 +14,7 @@ Interface & Usage
 | :--------------------- |:---------------------------------------------- | :--------- | :----------- |
 | **`start_client/1`**   | Settings                                       | **Client** | **Starts the client** |
 | **`start_server/1`**   | Settings                                       | **Server** | **Starts the server** |
-| **`stop/1`**           | Client / Server                                | OK         | **Starts the server** |
+| **`stop/1`**           | Client / Server                                | OK         | **Stops a server or a client** |
 | `subscribe/2`          | Client / Server, SubscriberPID                 | OK         | Subscribes to all existing addresses |
 | `subscribe/3`          | Client / Server, SubscriberPID, Address / List | OK         | Subscribes to an address or a list of addresses |
 | `unsubscribe/2`        | Client / Server, SubscriberPID                 | OK         | Removes subscription from SubscriberPID entirely |  

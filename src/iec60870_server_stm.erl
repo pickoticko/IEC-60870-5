@@ -69,7 +69,7 @@ handle_event(info, {Name, update, {IOA, Value}, _, Actor}, ?RUNNING, #data{
   connection = Connection
 }) when Actor =/= self() ->
   %% Getting all updates
-  Items = [Object || {Object, _, Actor} <- esubscribe:lookup(Name, update), Actor =/= self()],
+  Items = [Object || {Object, _Node, A} <- esubscribe:lookup(Name, update), A =/= self()],
   send_items([{IOA, Value} | Items], Connection, ?COT_SPONT, ASDUSettings),
   keep_state_and_data;
 
@@ -128,7 +128,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 handle_asdu(#asdu{
   type = ?C_IC_NA_1,
-  objects = [{_IOA, GroupID}]
+  objects = [{IOA, GroupID}]
 }, #data{
   settings = #{
     asdu := ASDUSettings,
@@ -141,7 +141,7 @@ handle_asdu(#asdu{
     type = ?C_IC_NA_1,
     pn = ?POSITIVE_PN,
     cot = ?COT_SPONT,
-    objects = [{_IOA = 0, GroupID}]
+    objects = [{IOA, GroupID}]
   }, ASDUSettings),
   send_asdu(Connection, Confirmation),
 
@@ -154,18 +154,17 @@ handle_asdu(#asdu{
     type = ?C_IC_NA_1,
     pn = ?POSITIVE_PN,
     cot = ?COT_ACTTERM,
-    objects = [{_IOA = 0, GroupID}]
+    objects = [{IOA, GroupID}]
   }, ASDUSettings),
   send_asdu(Connection, Termination),
   Data;
 
 handle_asdu(#asdu{
   type = ?C_CI_NA_1,
-  objects = [{_IOA, GroupID}]
+  objects = [{IOA, GroupID}]
 }, #data{
   settings = #{
-    asdu := ASDUSettings,
-    root := Root
+    asdu := ASDUSettings
   },
   connection = Connection
 } = Data) ->
@@ -174,7 +173,7 @@ handle_asdu(#asdu{
     type = ?C_CI_NA_1,
     pn = ?POSITIVE_PN,
     cot = ?COT_SPONT,
-    objects = [{_IOA = 0, GroupID}]
+    objects = [{IOA, GroupID}]
   }, ASDUSettings),
   send_asdu(Connection, Confirmation),
   %% --------------------------------------------
@@ -184,7 +183,7 @@ handle_asdu(#asdu{
     type = ?C_CI_NA_1,
     pn = ?POSITIVE_PN,
     cot = ?COT_ACTTERM,
-    objects = [{_IOA = 0, GroupID}]
+    objects = [{IOA, GroupID}]
   }, ASDUSettings),
   send_asdu(Connection, Termination),
   Data;

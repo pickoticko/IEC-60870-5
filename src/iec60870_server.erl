@@ -23,6 +23,7 @@
 %% +--------------------------------------------------------------+
 -export([
   start_connection/3,
+  find_group_items/2,
   update_value/3
 ]).
 

@@ -102,18 +102,13 @@ handle_event(info, {_Scope, update, _, _, _Self}, _AnyState, _Data) ->
 handle_event(info, {update_group, GroupID, Timer}, ?RUNNING, #data{
   settings = #{
     root := Root,
-    groups := Groups,
     asdu := ASDUSettings
   },
   connection = Connection
 }) ->
-
   timer:send_after( Timer, {update_group, GroupID, Timer} ),
-
-  %% ----- Sending items -----
   Items = iec60870_server:find_group_items(Root, GroupID),
   send_items(Items, Connection, ?COT_PER, ASDUSettings),
-
   keep_state_and_data;
 
 

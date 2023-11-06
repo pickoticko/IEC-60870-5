@@ -76,6 +76,7 @@ loop(#data{
           Data1 = handle_request( CF#control_field_request.function_code, UserData, Data ),
           loop( Data1#data{ fcb = NextFCB } );
         error->
+          ?LOGWARNING("check fcb error, cf ~p, FCB ~p",[CF, FCB]),
           iec60870_ft12:send( Port, SentFrame ),
           loop( Data )
       end;
@@ -85,12 +86,12 @@ loop(#data{
       iec60870_ft12:stop( port )
   end.
 
-check_fcb( #control_field_request{ fcv = 0, fcb = ReqFCB } , _FCB )->
-  {ok, ReqFCB};
+check_fcb( #control_field_request{ fcv = 0, fcb = _ReqFCB } , _FCB )->
+  {ok, 0};  % TODO. Is itv wright to handled fcv = 0 as reset?
 check_fcb( #control_field_request{ fcv = 1, fcb = FCB } , FCB )->
   error;
-check_fcb( #control_field_request{ fcv = 1 } , FCB )->
-  {ok, FCB}.
+check_fcb( #control_field_request{ fcv = 1, fcb = RecFCB } , _FCB )->
+  {ok, RecFCB}.
 
 
 handle_request(?RESET_REMOTE_LINK, _UserData, #data{

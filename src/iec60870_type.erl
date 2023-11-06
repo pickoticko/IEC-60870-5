@@ -60,9 +60,6 @@ parse_information_element(?M_DP_TB_1, <<QDS:6, Value:2, Timestamp/binary>>) ->
 parse_information_element(?M_ME_TF_1, <<Value:32/little-float, QDS:8, Timestamp/binary>>) ->
   #{value => Value, qds => QDS, ts => parse_cp56(Timestamp)};
 
-parse_information_element(103, _Value) ->
-  ignore_this;
-
 parse_information_element(_Type, _Value) ->
   % TODO: throw({invalid_type_or_value, Type, Value}).
   ignore_this.

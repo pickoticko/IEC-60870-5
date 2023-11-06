@@ -47,15 +47,16 @@ start_link( Options )->
     {error, Error} -> throw(Error)
   end.
 
-init( {Connection, #{name := Name} = Settings} ) ->
+init( {Connection, #{name := Name, groups:=Groups} = Settings} ) ->
   esubscribe:subscribe(Name, update, self()),
   erlang:monitor(process, Connection),
+  [begin
+     timer:send_after(0, {update_group, GroupID, T})
+   end || #{id := GroupID, update := T} <- Groups, is_integer(T)],
   {ok, ?RUNNING, #data{
     settings = Settings,
     connection = Connection
   }}.
-
-% --------------------------------------------
 
 handle_event(enter, _PrevState, ?RUNNING, _Data) ->
   keep_state_and_data;
@@ -74,7 +75,7 @@ handle_event(info, {Name, update, {IOA, Value}, _, Actor}, ?RUNNING, #data{
   keep_state_and_data;
 
 % From the connection
-handle_event(info, {asdu, Connection, ASDU}, ?RUNNING, #data{
+handle_event(info, {asdu, Connection, ASDU}, _AnyState, #data{
   settings = #{
     name := Name,
     asdu := ASDUSettings
@@ -95,6 +96,19 @@ handle_event(info, {asdu, Connection, ASDU}, ?RUNNING, #data{
 % Ignore self notifications
 handle_event(info, {_Scope, update, _, _, _Self}, _AnyState, _Data) ->
   keep_state_and_data;
+
+handle_event(info, {update_group, GroupID, Timer}, ?RUNNING, #data{
+  settings = #{
+    root := Root,
+    asdu := ASDUSettings
+  },
+  connection = Connection
+}) ->
+  timer:send_after( Timer, {update_group, GroupID, Timer} ),
+  Items = iec60870_server:find_group_items(Root, GroupID),
+  send_items(Items, Connection, ?COT_PER, ASDUSettings),
+  keep_state_and_data;
+
 
 % The server is down
 handle_event(info, {'DOWN', _, process, Connection, Error}, _AnyState, #data{

@@ -6,7 +6,8 @@
 
 %% API
 -export([
-  start/2
+  start/2,
+  stop/1
 ]).
 
 -define(ACKNOWLEDGE_FRAME(Address),#frame{
@@ -35,6 +36,9 @@ start(Root, Options) ->
     {'EXIT', PID, Reason} -> throw(Reason)
   end.
 
+stop( PID )->
+  PID ! { stop, self() }.
+
 init(Root, #{
   address := Address
 } = Options) ->
@@ -52,6 +56,7 @@ init(Root, #{
   }).
 
 loop(#data{
+  root = Root,
   port = Port,
   address = Address,
   fcb = FCB,
@@ -75,7 +80,9 @@ loop(#data{
           loop( Data )
       end;
     {'DOWN', _, process, Connection, _Error}->
-      loop( Data#data{ connection = undefined } )
+      loop( Data#data{ connection = undefined } );
+    {stop, Root }->
+      iec60870_ft12:stop( port )
   end.
 
 check_fcb( #control_field_request{ fcv = 0, fcb = ReqFCB } , _FCB )->
@@ -160,7 +167,7 @@ handle_request(?REQUEST_STATUS_LINK, _UserData, #data{
     true -> ignore
   end,
 
-  case iec60870_server:start_connection(Root, self(), self() ) of
+  case iec60870_server:start_connection(Root, {?MODULE,self()}, self() ) of
     {ok, NewConnection} ->
 
       erlang:monitor(process, NewConnection),

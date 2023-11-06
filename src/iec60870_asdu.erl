@@ -37,9 +37,9 @@ get_settings( #{
 %% +--------------------------------------------------------------+
 
 parse(ASDU, #{
-  ioa_bits := IOABitSize,
-  org_bits := ORGBitSize,
-  coa_bits := COABitSize
+  ioa_size := IOABitSize,
+  org_size := ORGBitSize,
+  coa_size := COABitSize
 }) ->
   {DUI, ObjectsBinary} = parse_dui(COABitSize, ORGBitSize, ASDU),
   Objects = split_objects(DUI, IOABitSize, ObjectsBinary),
@@ -72,9 +72,9 @@ build(#asdu{
 }, #{
   org := ORG,
   coa := COA,
-  ioa_bits := IOABitSize,
-  org_bits := ORGBitSize,
-  coa_bits := COABitSize
+  ioa_size := IOABitSize,
+  org_size := ORGBitSize,
+  coa_size := COABitSize
 }) ->
   NumberOfObjects = length(DataObjects),
   SQ =

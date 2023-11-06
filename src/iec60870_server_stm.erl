@@ -82,11 +82,12 @@ handle_event(info, {asdu, Connection, ASDU}, ?RUNNING, #data{
   connection = Connection
 } = Data)->
   NewData =
-    case iec60870_asdu:parse(ASDU, ASDUSettings) of
-      {ok, ParsedASDU} ->
-        handle_asdu(ParsedASDU, Data);
-      {error, Error} ->
-        ?LOGERROR("~p invalid ASDU received: ~p, error: ~p", [Name, ASDU, Error]),
+    try
+      ParsedASDU = iec60870_asdu:parse(ASDU, ASDUSettings),
+      handle_asdu(ParsedASDU, Data)
+    catch
+      _:E ->
+        ?LOGERROR("~p invalid ASDU received: ~p, error: ~p", [Name, ASDU, E]),
         Data
     end,
   {keep_state, NewData};

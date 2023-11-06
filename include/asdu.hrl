@@ -8,7 +8,7 @@
 
 -record(asdu, {
   type,
-  t,
+  t = 0,
   pn,
   cot,
   org,
@@ -24,8 +24,8 @@
   ioa_size => 3
 }).
 
-
-
+-define(POSITIVE_PN, 0).
+-define(NEGATIVE_PN, 1).
 
 %% Cause of transmission (COT) values
 -define(COT_PER, 1).

@@ -15,7 +15,8 @@
   check_options/1,
   start_link/1,
   send/2,
-  clear/1
+  clear/1,
+  stop/1
 ]).
 
 %% +--------------------------------------------------------------+
@@ -75,6 +76,9 @@ check_options(#{port := Port} = _Options) when is_list(Port); is_binary(Port) ->
 check_options(_Options)->
   throw(invalid_options).
 
+stop( Port )->
+  Port ! {stop, self()}.
+
 %% +--------------------------------------------------------------+
 %% |                      Internal functions                      |
 %% +--------------------------------------------------------------+
@@ -122,7 +126,9 @@ loop(#state{
       % TODO. ClearWindow should be calculated from the baudrate
       timer:sleep(_ClearWindow = 100),
       drop_data(Port),
-      loop(State#state{buffer = <<>>})
+      loop(State#state{buffer = <<>>});
+    {stop, Owner}->
+      eserial:close( Port )
   end.
 
 parse_frame(<<
@@ -171,7 +177,7 @@ parse_frame(<<
         Checksum ->
           <<ControlField, Address:AddressSize/little-integer, Data/binary>> = FrameData,
           case parse_control_field(<<ControlField>>) of
-            {ok, CFRec} ->
+            #control_field_request{} = CFRec ->
               {#frame{
                 address = Address,
                 control_field = CFRec,

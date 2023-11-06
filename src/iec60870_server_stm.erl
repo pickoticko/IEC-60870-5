@@ -69,7 +69,7 @@ handle_event(info, {Name, update, {IOA, Value}, _, Actor}, ?RUNNING, #data{
   connection = Connection
 }) when Actor =/= self() ->
   %% Getting all updates
-  Items = [Object || {Object, _, Actor} <- esubscribe:lookup(Name, update), Actor =/= self()],
+  Items = [Object || {Object, _Node, A} <- esubscribe:lookup(Name, update), A =/= self()],
   send_items([{IOA, Value} | Items], Connection, ?COT_SPONT, ASDUSettings),
   keep_state_and_data;
 
@@ -82,11 +82,12 @@ handle_event(info, {asdu, Connection, ASDU}, ?RUNNING, #data{
   connection = Connection
 } = Data)->
   NewData =
-    case iec60870_asdu:parse(ASDU, ASDUSettings) of
-      {ok, ParsedASDU} ->
-        handle_asdu(ParsedASDU, Data);
-      {error, Error} ->
-        ?LOGERROR("~p invalid ASDU received: ~p, error: ~p", [Name, ASDU, Error]),
+    try
+      ParsedASDU = iec60870_asdu:parse(ASDU, ASDUSettings),
+      handle_asdu(ParsedASDU, Data)
+    catch
+      _:E ->
+        ?LOGERROR("~p invalid ASDU received: ~p, error: ~p", [Name, ASDU, E]),
         Data
     end,
   {keep_state, NewData};
@@ -128,7 +129,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 handle_asdu(#asdu{
   type = ?C_IC_NA_1,
-  objects = [{_IOA, GroupID}]
+  objects = [{IOA, GroupID}]
 }, #data{
   settings = #{
     asdu := ASDUSettings,
@@ -141,7 +142,7 @@ handle_asdu(#asdu{
     type = ?C_IC_NA_1,
     pn = ?POSITIVE_PN,
     cot = ?COT_SPONT,
-    objects = [{_IOA = 0, GroupID}]
+    objects = [{IOA, GroupID}]
   }, ASDUSettings),
   send_asdu(Connection, Confirmation),
 
@@ -154,18 +155,17 @@ handle_asdu(#asdu{
     type = ?C_IC_NA_1,
     pn = ?POSITIVE_PN,
     cot = ?COT_ACTTERM,
-    objects = [{_IOA = 0, GroupID}]
+    objects = [{IOA, GroupID}]
   }, ASDUSettings),
   send_asdu(Connection, Termination),
   Data;
 
 handle_asdu(#asdu{
   type = ?C_CI_NA_1,
-  objects = [{_IOA, GroupID}]
+  objects = [{IOA, GroupID}]
 }, #data{
   settings = #{
-    asdu := ASDUSettings,
-    root := Root
+    asdu := ASDUSettings
   },
   connection = Connection
 } = Data) ->
@@ -174,7 +174,7 @@ handle_asdu(#asdu{
     type = ?C_CI_NA_1,
     pn = ?POSITIVE_PN,
     cot = ?COT_SPONT,
-    objects = [{_IOA = 0, GroupID}]
+    objects = [{IOA, GroupID}]
   }, ASDUSettings),
   send_asdu(Connection, Confirmation),
   %% --------------------------------------------
@@ -184,7 +184,7 @@ handle_asdu(#asdu{
     type = ?C_CI_NA_1,
     pn = ?POSITIVE_PN,
     cot = ?COT_ACTTERM,
-    objects = [{_IOA = 0, GroupID}]
+    objects = [{IOA, GroupID}]
   }, ASDUSettings),
   send_asdu(Connection, Termination),
   Data;

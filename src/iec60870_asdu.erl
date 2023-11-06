@@ -37,9 +37,9 @@ get_settings( #{
 %% +--------------------------------------------------------------+
 
 parse(ASDU, #{
-  ioa_bits := IOABitSize,
-  org_bits := ORGBitSize,
-  coa_bits := COABitSize
+  ioa_size := IOABitSize,
+  org_size := ORGBitSize,
+  coa_size := COABitSize
 }) ->
   {DUI, ObjectsBinary} = parse_dui(COABitSize, ORGBitSize, ASDU),
   Objects = split_objects(DUI, IOABitSize, ObjectsBinary),
@@ -72,9 +72,9 @@ build(#asdu{
 }, #{
   org := ORG,
   coa := COA,
-  ioa_bits := IOABitSize,
-  org_bits := ORGBitSize,
-  coa_bits := COABitSize
+  ioa_size := IOABitSize,
+  org_size := ORGBitSize,
+  coa_size := COABitSize
 }) ->
   NumberOfObjects = length(DataObjects),
   SQ =
@@ -85,15 +85,19 @@ build(#asdu{
   HeaderSize = (
       4 %% Transport Constant Cost
     + 3 %% ASDU Constant Cost
-    + ORGBitSize * 8
-    + COABitSize * 8
-    + SQ * IOABitSize * 8),
+    + ORGBitSize div 8
+    + COABitSize div 8
+    + SQ * IOABitSize div 8),
   [{_IOA, Value} | _] = DataObjects,
   ElementSize =
-    size(iec60870_type:create_information_element(Type, Value)) + (abs(SQ - 1) * IOABitSize * 8),
+    size(iec60870_type:create_information_element(Type, Value)) + (abs(SQ - 1) * IOABitSize div 8),
   AvailableSize = ?MAX_PACKET_BYTE_SIZE - HeaderSize,
   MaxObjectsNumber = AvailableSize div ElementSize,
-  InformationObjectsList = split(DataObjects, MaxObjectsNumber),
+  InformationObjectsList =
+    if
+      length( DataObjects ) > MaxObjectsNumber -> split(DataObjects, MaxObjectsNumber);
+      true -> [DataObjects]
+    end,
   [begin
     <<Type:8            /integer,
       SQ:1              /integer,

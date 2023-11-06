@@ -23,6 +23,7 @@
 %% +--------------------------------------------------------------+
 -export([
   start_connection/3,
+  find_group_items/2,
   update_value/3
 ]).
 
@@ -175,12 +176,16 @@ check_settings( Settings )->
     Required -> throw( {required, Required} )
   end,
 
-  case maps:keys( Settings ) -- ?DEFAULT_SETTINGS of
+  case maps:keys( Settings ) -- maps:keys(?DEFAULT_SETTINGS) of
     []-> ok;
     InvalidParams -> throw( {invalid_params, InvalidParams} )
   end,
 
-  maps:map(fun check_setting/2, Settings ).
+  OwnSettings = maps:without(maps:keys(?DEFAULT_ASDU_SETTINGS), Settings),
+  maps:merge(
+    maps:map(fun check_setting/2, OwnSettings ),
+    maps:with( maps:keys(?DEFAULT_ASDU_SETTINGS), Settings )
+  ).
 
 
 check_setting(name, ConnectionName)
@@ -272,7 +277,10 @@ wait_connection( #state{
     {'EXIT' ,_, StopReason}->
       ?LOGINFO("stop server, reason: ~p", [StopReason] ),
       Module:stop_server( Server ),
-      exit(StopReason)
+      exit(StopReason);
+    Unexpected ->
+      ?LOGWARNING( "unexpected mesaage ~p", [ Unexpected] ),
+      wait_connection( State )
   end.
 
 

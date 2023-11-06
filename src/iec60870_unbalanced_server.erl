@@ -6,7 +6,8 @@
 
 %% API
 -export([
-  start/2
+  start/2,
+  stop/1
 ]).
 
 -define(ACKNOWLEDGE_FRAME(Address),#frame{
@@ -35,6 +36,9 @@ start(Root, Options) ->
     {'EXIT', PID, Reason} -> throw(Reason)
   end.
 
+stop( PID )->
+  PID ! { stop, self() }.
+
 init(Root, #{
   address := Address
 } = Options) ->
@@ -52,6 +56,7 @@ init(Root, #{
   }).
 
 loop(#data{
+  root = Root,
   port = Port,
   address = Address,
   fcb = FCB,
@@ -71,19 +76,22 @@ loop(#data{
           Data1 = handle_request( CF#control_field_request.function_code, UserData, Data ),
           loop( Data1#data{ fcb = NextFCB } );
         error->
+          ?LOGWARNING("check fcb error, cf ~p, FCB ~p",[CF, FCB]),
           iec60870_ft12:send( Port, SentFrame ),
           loop( Data )
       end;
     {'DOWN', _, process, Connection, _Error}->
-      loop( Data#data{ connection = undefined } )
+      loop( Data#data{ connection = undefined } );
+    {stop, Root }->
+      iec60870_ft12:stop( port )
   end.
 
-check_fcb( #control_field_request{ fcv = 0, fcb = ReqFCB } , _FCB )->
-  {ok, ReqFCB};
+check_fcb( #control_field_request{ fcv = 0, fcb = _ReqFCB } , _FCB )->
+  {ok, 0};  % TODO. Is itv wright to handled fcv = 0 as reset?
 check_fcb( #control_field_request{ fcv = 1, fcb = FCB } , FCB )->
   error;
-check_fcb( #control_field_request{ fcv = 1 } , FCB )->
-  {ok, FCB}.
+check_fcb( #control_field_request{ fcv = 1, fcb = RecFCB } , _FCB )->
+  {ok, RecFCB}.
 
 
 handle_request(?RESET_REMOTE_LINK, _UserData, #data{
@@ -160,7 +168,7 @@ handle_request(?REQUEST_STATUS_LINK, _UserData, #data{
     true -> ignore
   end,
 
-  case iec60870_server:start_connection(Root, self(), self() ) of
+  case iec60870_server:start_connection(Root, {?MODULE,self()}, self() ) of
     {ok, NewConnection} ->
 
       erlang:monitor(process, NewConnection),

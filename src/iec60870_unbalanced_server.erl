@@ -120,7 +120,7 @@ handle_request(?USER_DATA_CONFIRM, ASDU, #data{
         sent_frame = send_response( Port, ?ACKNOWLEDGE_FRAME(Address) )
       };
     true ->
-      ?LOGWARNING("user data received on not initialized connection ~p",[ UserData ] ),
+      ?LOGWARNING("user data received on not initialized connection ~p", [ ASDU ] ),
       Data
   end;
 
@@ -131,7 +131,7 @@ handle_request(?USER_DATA_NO_REPLY, ASDU, #data{
     is_pid( Connection )->
       Connection ! { asdu, self(), ASDU };
     true ->
-      ?LOGWARNING("user data received on not initialized connection ~p",[ UserData ] )
+      ?LOGWARNING("user data received on not initialized connection ~p",[ ASDU ] )
   end,
   Data;
 
@@ -172,9 +172,8 @@ handle_request(?REQUEST_STATUS_LINK, _UserData, #data{
   catch
     _:Error ->
       ?LOGERROR("unable to start process for incoming connection request, error ~p",[ Error ]),
-
       Data#data{
-        connection = NewConnection,
+        connection = undefined,
         sent_frame = send_response( Port, #frame{
           address = Address,
           control_field = #control_field_response{

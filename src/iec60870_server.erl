@@ -112,13 +112,13 @@ get_pid(#?MODULE{pid = PID}) -> PID.
 write(Ref, ID, Value )->
   update_value( Ref, ID, Value ).
 
-read(Ref) ->
+read(#?MODULE{} = Ref) ->
   find_group_items(Ref, 0);
-read(_) -> bad_arg.
+read(_) -> throw(bad_arg).
 
 read(#?MODULE{storage = Cache}, Address) ->
   iec60870_lib:read_data_object(Cache, Address);
-read(_, _) -> bad_arg.
+read(_, _) -> throw(bad_arg).
 
 find_group_items(#?MODULE{ storage = Storage }, _GroupID = 0 )->
   ets:tab2list( Storage );

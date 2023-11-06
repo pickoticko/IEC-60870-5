@@ -11,8 +11,14 @@
   create_information_element/2
 ]).
 
+parse_information_element(?C_CS_NA_1, CP56) ->
+  parse_cp56(CP56);
+
 parse_information_element(?C_IC_NA_1, <<GroupID:8>>) ->
   GroupID;
+
+parse_information_element(?C_CI_NA_1, <<GroupCounterID:8>>) ->
+  GroupCounterID;
 
 parse_information_element(?M_EI_NA_1, <<COI:8>>) ->
   #{value => 0, qds => COI};
@@ -62,8 +68,14 @@ parse_information_element(_Type, _Value) ->
 
 %% +--------------------------------------------------------------+
 
+create_information_element(?C_CS_NA_1, CP56) ->
+  get_cp56(CP56);
+
 create_information_element(?C_IC_NA_1, GroupID) ->
   <<GroupID>>;
+
+create_information_element(?C_CI_NA_1, GroupCounterID) ->
+  <<GroupCounterID>>;
 
 create_information_element(?M_SP_NA_1, #{
   value := Value,

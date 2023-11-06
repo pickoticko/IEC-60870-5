@@ -248,6 +248,7 @@ init_server(Owner, #{
     name => Name,
     storage => Storage,
     root => Ref,
+    groups => maps:get( groups, Settings ),
     asdu => iec60870_asdu:get_settings( maps:with(maps:keys(?DEFAULT_ASDU_SETTINGS), Settings))
   },
 

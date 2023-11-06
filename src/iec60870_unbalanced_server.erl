@@ -27,7 +27,6 @@
   sent_frame,
   connection
 }).
-.
 
 start(Root, Options) ->
   PID = spawn_link( fun() -> init(Root, Options) end),

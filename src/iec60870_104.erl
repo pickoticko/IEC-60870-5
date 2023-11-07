@@ -78,56 +78,17 @@
 %% +--------------------------------------------------------------+
 %% |                           Macros                             |
 %% +--------------------------------------------------------------+
+-define(DEFAULT_PORT, 2404).
+-define(MAX_PORT_VALUE, 65535).
+-define(MIN_PORT_VALUE, 0).
 
--record(parser, {
-  coa_bits,
-  org_bits,
-  ioa_bits
-}).
-
--record(transport, {
-  module,
-  channel
-}).
-
--record(counters, {
-  vs,
-  vr,
-  vw
-}).
-
--record(state, {
-  socket,
-  connection,
-  settings,
-  buffer,
-  timer,
-  heartbeat,
-  vs = 0,
-  vr = 0,
-  vw,
-  sent = []
-%%  % +-----------------------+
-%%  % |  Connection Settings  |
-%%  % +-----------------------+
-%%  owner,
-%%  settings,
-%%  parser,
-%%  transport,
-%%  % +------------------------+
-%%  % |  Connection Variables  |
-%%  % +------------------------+
-%%  timer,
-%%  heartbeat,
-%%  buffer,
-%%  counters,
-%%  sent
-}).
+-define(REQUIRED,{?MODULE, required}).
 
 -define(DEFAULT_SETTINGS, #{
-  t1 => 10000,
-  t2 => 10000,
-  t3 => infinity,
+  port => ?DEFAULT_PORT,
+  t1 => 30000,
+  t2 => 5000,
+  t3 => 15000,
   k => 12,
   w => 8
 }).
@@ -149,6 +110,21 @@
 -define(TEST_FRAME_CONFIRM,  2#100000).
 
 -define(WAIT_ACTIVATE, 5000).
+
+
+-record(state, {
+  socket,
+  connection,
+  settings,
+  buffer,
+  t1,
+  t2,
+  t3,
+  vs = 0,
+  vr = 0,
+  vw,
+  sent = []
+}).
 
 %% +--------------------------------------------------------------+
 %% |                             API                              |
@@ -172,10 +148,10 @@ stop_server( ListenSocket )->
   gen_tcp:shutdown( ListenSocket, read_write ).
 
 
-start_client( Settings )->
+start_client( _Settings )->
   todo.
 
-stop_client( Settings )->
+stop_client( _Settings )->
   todo.
 
 
@@ -229,7 +205,7 @@ wait_activate( Socket, Buffer )->
         <<?START_BYTE, 4:8, ?START_DT_ACTIVATE:6, ?U_TYPE:2, _:3/binary, RestBuffer/binary>> ->
           Confirmation = create_u_packet(?START_DT_CONFIRM),
           case gen_tcp:send( Socket, Confirmation ) of
-            ok -> {Socket, RestBuffer};
+            ok -> {ok, RestBuffer};
             {error, ConfirmError}->
               {error, ConfirmError}
           end;
@@ -252,116 +228,87 @@ wait_activate( Socket, Buffer )->
 %% |                      Internal functions                      |
 %% +--------------------------------------------------------------+
 
-init_loop(#state{
-} = State) ->
+init_loop( #state{
+  connection = Connection,
+  settings = #{ w := W }
+} = State0 ) ->
 
+  process_flag(trap_exit, true),
+  link( Connection ),
 
+  State = check_t3( State0 ),
 
-  case DriverModule:start(TransportSettings) of
-    {ok, Channel} ->
-      % Connection is ready
-      OwnerPID ! {connected, self()},
-      % We need to trap exit from owner to be able to close the transport channel explicitly
-      process_flag(trap_exit,true),
-      % Enter the loop
-      loop(#state{
-        settings = maps:without([coa_bytesize, org_bytesize, ioa_bytesize], Settings),
-        owner = OwnerPID,
-        timer = undefined,
-        heartbeat = undefined,
-        buffer = <<>>,
-        transport = #transport{
-          module = DriverModule,
-          channel = Channel
-        },
-        parser = #parser{
-          coa_bits = iec60870_lib:bytes_to_bits(maps:get(coa_bytesize, Settings)),
-          org_bits = iec60870_lib:bytes_to_bits(maps:get(org_bytesize, Settings)),
-          ioa_bits = iec60870_lib:bytes_to_bits(maps:get(ioa_bytesize, Settings))
-        },
-        counters = #counters{
-          vs = 0,
-          vr = 0,
-          vw = maps:get(w, Settings)
-        },
-        sent = []
-      });
-    {error, Error} ->
-      throw({transport_error, Error})
-  end.
+  loop( State#state{
+    vs = 0,
+    vr = 0,
+    vw = W,
+    sent = []
+  }).
+
 
 loop(#state{
-  buffer = Buffer
+  connection = Connection,
+  buffer = Buffer,
+  socket = Socket
 } = State) ->
   receive
-    {'EXIT', OwnerPID, _Reason} ->
-      transport_stop(Transport);
-    {'EXIT', PID, Reason} ->
-      ?LOGWARNING("unexpected exit signal from ~p, reaason ~p", [PID, Reason]),
-      loop(State);
-    {asdu, OwnerPID, Command} ->
-      % Owner commands
-      UpdatedState = handle_command(Command, State),
-      loop(UpdatedState);
-    {internal, Self, Command} when Self =:= self() ->
-      % Internal commands
-      UpdatedState = handle_command(Command, State),
-      loop(UpdatedState);
-    Message ->
-      UpdatedState =
-        case transport_recv(Transport, Message) of
-          {data, Data} ->
-            % Data from the transport level is received
-            {Packets, TailBuffer} = split_into_packets( <<Buffer/binary, Data/binary>> ),
-            State1 = handle_packets(Packets, State),
-            State2 = check_heartbeat( State1 ),
-            State2#state{buffer = TailBuffer};
-
-          {closed, Reason} ->
-            throw({connection_closed, Reason});
-          _ ->
-            ?LOGWARNING("unexpected message ~p", [Message]),
-            State
-        end,
-      loop(UpdatedState)
+    {tcp, Socket, Data}->
+      % Data from the transport level is received
+      {Packets, TailBuffer} = split_into_packets( <<Buffer/binary, Data/binary>> ),
+      State1 = handle_packets(Packets, State),
+      State2 = check_t3( State1 ),
+      loop( State2#state{buffer = TailBuffer} );
+    {asdu, Connection, ASDU} ->
+      State1 = send_i_packet( ASDU, State ),
+      State2 = check_t1( State1 ),
+      loop( State2 );
+    {Self, Command} when Self=:=self()->
+      State1 = handle_command(Command, State),
+      loop( State1 );
+    {tcp_closed, Socket}->
+      exit( closed );
+    {tcp_error, Socket, Reason}->
+      exit( Reason );
+    {tcp_passive, Socket}->
+      exit( tcp_passive );
+    {'EXIT', Connection, _Reason} ->
+      gen_tcp:close( Socket );
+    Unexpected->
+      ?LOGWARNING("unexpected message ~p", [Unexpected]),
+      loop( State )
   end.
 
+handle_command(t1, _State) ->
+  throw( confirm_timeout );
 
-
-handle_command(acknowledge, #state{
-  counters = #counters{
-    vr = VR
-  } = Counters,
+handle_command(t2, #state{
+  socket = Socket,
+  vr = VR,
   settings = #{
     w := W
-  },
-  timer = Timer,
-  transport = Transport
+  }
 } = State) ->
+
   UpdatedVR = create_s_packet(VR),
-  transport_send(Transport, UpdatedVR),
-  check_timer(Timer),
+  socket_send(Socket, UpdatedVR ),
+
   State#state{
-    counters = Counters#counters{vw = W},
-    timer = undefined
+    vw = W
   };
 
-handle_command(heartbeat, #state{
-  heartbeat = { init, _Timer },
-  transport = Transport,
+handle_command(t3, #state{
+  t3 = { init, _Timer },
+  socket = Socket,
   settings = #{ t3 := T3 }
 } = State) ->
-  transport_send(Transport, create_u_packet(?TEST_FRAME_ACTIVATE)),
-  {ok, Timer} = timer:send_after(T3, {internal, self(), heartbeat}),
-  State#state{heartbeat = {confirm, Timer}};
 
-handle_command(heartbeat, #state{
-  heartbeat = {confirm, _Timer}
-}) ->
-  throw(heartbeat_timeout);
+  socket_send(Socket, create_u_packet(?TEST_FRAME_ACTIVATE)),
 
-handle_command(heartbeat, #state{
-  heartbeat = {confirm, _Timer}
+  {ok, Timer} = timer:send_after(T3, {self(), t3}),
+  State#state{t3 = {confirm, Timer}};
+
+handle_command(t3, #state{
+  t3 = {confirm, _Timer}
 }) ->
   throw(heartbeat_timeout);
 
@@ -401,18 +348,8 @@ handle_packets([], State)->
 parse_packet(<<
   Load:6, ?U_TYPE:2, % Control Field 1
   _Ignore:3/binary   % Control Field 2..Control Field 4
->> = Frame) ->
-  Data =
-    case Load of
-      ?TEST_FRAME_ACTIVATE -> test_frame_activate;
-      ?TEST_FRAME_CONFIRM  -> test_frame_confirm;
-      ?START_DT_ACTIVATE   -> start_dt_activate;
-      ?START_DT_CONFIRM    -> start_dt_confirm;
-      ?STOP_DT_ACTIVATE    -> stop_dt_activate;
-      ?STOP_DT_CONFIRM     -> stop_dt_confirm;
-      _-> throw({invalid_u_packet, Frame})
-    end,
-  {u, Data};
+>>) ->
+  {u, Load};
 
 %% S-type APCI
 parse_packet(<<
@@ -443,24 +380,24 @@ parse_packet(InvalidFrame)->
 %% |                        U-type packet                         |
 %% +--------------------------------------------------------------+
 
-handle_packet(u, start_dt_confirm, #state{owner = Owner} = State)->
-  owner_send(Owner, start_dt_confirm),
-  check_heartbeat(State);
-
-handle_packet(u, test_frame_activate, #state{
-  transport = Transport
+handle_packet(u, ?START_DT_CONFIRM, State)->
+  ?LOGWARNING("unexpected START_DT_CONFIRM packet received"),
+  State;
+handle_packet(u, ?TEST_FRAME_ACTIVATE, #state{
+  socket = Socket
 } = State)->
-  transport_send(Transport, create_u_packet(?TEST_FRAME_CONFIRM)),
+
+  socket_send( Socket, create_u_packet(?TEST_FRAME_CONFIRM) ),
+
   State;
 
-handle_packet(u, test_frame_confirm, #state{
-  heartbeat = {confirm, Timer}
+handle_packet(u, ?TEST_FRAME_CONFIRM, #state{
+  t3 = {confirm, Timer}
 } = State) ->
-  timer:cancel(Timer),
-  State#state{heartbeat = undefined};
-
-handle_packet(u, Data, #state{owner = Owner} = State)->
-  owner_send(Owner, Data),
+  reset_timer(t3, Timer),
+  State#state{t3 = undefined};
+handle_packet(u, _Data, State)->
+  % TODO. Is it correct to ignore other types of U packets?
   State;
 
 %% +--------------------------------------------------------------+
@@ -470,90 +407,68 @@ handle_packet(u, Data, #state{owner = Owner} = State)->
 handle_packet(s, ReceiveCounter, #state{
   sent = Sent
 } = State) ->
-  State#state{ sent = lists:delete( ReceiveCounter, Sent ) };
+  State1 = check_t1( State ),
+  State1#state{ sent = lists:delete( ReceiveCounter, Sent ) };
 
 %% +--------------------------------------------------------------+
 %% |                        I-type packet                         |
 %% +--------------------------------------------------------------+
 
 handle_packet(i, Packet, #state{
-  counters = #counters{vw = 1} = Counters
+  vw = 1
 } = State) ->
-  State1 = handle_packet(i, Packet, State#state{counters = Counters#counters{vw = 0}}),
-  handle_command(acknowledge, State1);
 
-handle_packet(i, {SendCounter, ReceiveCounter, APDU}, #state{
-  counters = #counters{vr = VR, vw = VW} = Counters,
-  parser = Parser,
-  owner = Owner,
-  timer = Timer,
-  settings = #{
-    t2 := T2
-  },
+  State1 = handle_packet(i, Packet, State#state{vw = 0}),
+
+  % Send an acknowledge because the limit of unacknowledged i-packets is reached
+  handle_command(t2, State1);
+
+handle_packet(i, {SendCounter, ReceiveCounter, ASDU}, #state{
+  vr = VR,
+  vw = VW,
+  connection = Connection,
+  t1 = T1,
   sent = Sent
 } = State) ->
+
   if
     SendCounter =:= VR -> ok;
     true -> throw({invalid_receive_counter, SendCounter, VR})
   end,
-  parse_apdu(APDU, Parser, Owner),
-  check_timer(Timer),
-  {ok, NewTimer} = timer:send_after(T2, {internal, self(), acknowledge}),
-  State#state{
-    counters = Counters#counters{
-      vr = VR + 1,
-      vw = VW - 1
-    },
-    timer = NewTimer,
+
+  Connection ! { asdu, self(), ASDU },
+
+  reset_timer( t1, T1 ),
+  State1 = check_t2( State ),
+
+  State1#state{
+    vr = VR + 1,
+    vw = VW - 1,
     sent = lists:delete(ReceiveCounter, Sent)
   }.
 
-parse_apdu(APDU, #parser{
-  coa_bits = COASize,
-  org_bits = ORGSize,
-  ioa_bits = IOASize
-}, Owner)->
-  {DUI, ObjectsBin} = parse_dui(COASize, ORGSize, APDU),
-  Objects = split_objects(DUI, IOASize, ObjectsBin),
-  #{
-    type := Type,
-    cot := COT,
-    pn := PN
-  } = DUI,
-  ValueCOT = parse_cot_value(COT, PN),
-  [begin
-     Value = iec60870_type:parse_information_element(Type, Object),
-     owner_send(Owner, {object, Type, ValueCOT, Address, Value})
-   end || {Address, Object} <- Objects],
-  ok.
-
-send_i_packet(Type, COT, DataObjects, #state{
-  counters = #counters{
-    vs = VS
-  } = Counters,
+send_i_packet(ASDU, #state{
+  vs = VS,
   settings = #{
     w := W,
     k := K
   },
-  timer = Timer,
-  transport = Transport,
+  socket = Socket,
   sent = Sent
-} = State) when length(Sent) < K->
-  APDU = create_i_packet(Type, COT, DataObjects, State),
-  transport_send(Transport, APDU),
-  check_timer(Timer),
+} = State)->
+  if
+    length(Sent) < K ->
+      APDU = create_i_packet(ASDU, State),
+      socket_send(Socket, APDU);
+    true ->
+      throw({max_number_of_unconfirmed_packets_reached, K})
+  end,
+
   State#state{
-    counters = Counters#counters{
-      vs = VS + 1,
-      vw = W
-    },
-    timer = undefined,
+    vs = VS + 1,
+    vw = W,
     sent = [ VS+1 | Sent]
-  };
-send_i_packet(_Type, _COT, _DataObjects, #state{
-  settings = #{ k := K }
-}) ->
-  throw({max_number_of_unconfirmed_packets_reached, K}).
+  }.
 
 create_u_packet(Code) ->
   create_apdu(<<Code:6, 1:1, 1:1, 0:24>>).
@@ -567,34 +482,12 @@ create_s_packet(VR) ->
     MSB:8
   >>).
 
-create_i_packet(Type, COT, DataObjects, #state{
-  counters = #counters{
-    vr = VR,
-    vs = VS
-  },
-  parser = #parser{
-    ioa_bits = IOABitSize,
-    org_bits = ORGBitSize,
-    coa_bits = COABitSize
-  },
-  settings = #{
-    coa := COA,
-    org := ORG
-  }
+create_i_packet(ASDU, #state{
+  vr = VR,
+  vs = VS
 }) ->
   <<MSB_R:8, LSB_R:7>> = <<VR:15>>,
   <<MSB_S:8, LSB_S:7>> = <<VS:15>>,
-  ASDU = iec60870_asdu:build(#asdu{
-    type = Type,
-    cot = COT,
-    org = ORG,
-    coa = COA,
-    objects = DataObjects
-  }, #{
-    ioa_bits = IOABitSize,
-    org_bits = ORGBitSize,
-    coa_bits = COABitSize
-  }),
   create_apdu(<<
     LSB_S:7, 0:1,
     MSB_S:8,
@@ -607,38 +500,39 @@ create_i_packet(Type, COT, DataObjects, #state{
 %% |                      Validate settings                       |
 %% +--------------------------------------------------------------+
 
-check_settings(InSettings) ->
-  Settings0 = maps:with(maps:keys(?DEFAULT_SETTINGS), InSettings),
-  Settings = maps:merge(?DEFAULT_SETTINGS, Settings0),
-  [check_setting(K, V) || {K, V} <- maps:to_list(Settings)],
-  Settings.
+check_settings(Settings) ->
 
-check_setting(coa_bytesize, COAByteSize)
-  when is_number(COAByteSize), COAByteSize >= ?MIN_COA_BYTES, COAByteSize =< ?MAX_COA_BYTES -> ok;
+  SettingsList = maps:to_list( maps:merge(?DEFAULT_SETTINGS, Settings) ),
 
-check_setting(org_bytesize, OrgByteSize)
-  when is_number(OrgByteSize), OrgByteSize >= ?MIN_ORG_BYTES, OrgByteSize =< ?MAX_ORG_BYTES -> ok;
+  case [S || {S, ?REQUIRED} <- SettingsList] of
+    [] -> ok;
+    Required -> throw( {required, Required} )
+  end,
 
-check_setting(ioa_bytesize, IOAByteSize)
-  when is_number(IOAByteSize), IOAByteSize >= ?MIN_IOA_BYTES, IOAByteSize =< ?MAX_IOA_BYTES -> ok;
+  case maps:keys( Settings ) -- maps:keys(?DEFAULT_SETTINGS) of
+    []-> ok;
+    InvalidParams -> throw( {invalid_params, InvalidParams} )
+  end,
 
-check_setting(org, Address)
-  when is_number(Address), Address >= ?MIN_ORG, Address =< ?MAX_ORG -> ok;
+  maps:from_list( [{K, check_setting(K, V)} || {K, V} <- SettingsList] ).
 
-check_setting(coa, Address)
-  when is_number(Address), Address >= ?MIN_COA, Address =< ?MAX_COA -> ok;
+check_setting(port, Port)
+  when is_number(Port), Port >= ?MIN_PORT_VALUE, Port =< ?MAX_PORT_VALUE -> Port;
 
 check_setting(k, Value)
-  when is_number(Value), Value >= ?MIN_FRAME_LIMIT, Value =< ?MAX_FRAME_LIMIT -> ok;
+  when is_number(Value), Value >= ?MIN_FRAME_LIMIT, Value =< ?MAX_FRAME_LIMIT -> Value;
 
 check_setting(w, Value)
-  when is_number(Value), Value >= ?MIN_FRAME_LIMIT, Value =< ?MAX_FRAME_LIMIT -> ok;
+  when is_number(Value), Value >= ?MIN_FRAME_LIMIT, Value =< ?MAX_FRAME_LIMIT -> Value;
+
+check_setting(t1, Timeout)
+  when is_number(Timeout) -> Timeout;
 
 check_setting(t2, Timeout)
-  when is_number(Timeout) -> ok;
+  when is_number(Timeout) -> Timeout;
 
 check_setting(t3, Timeout)
-  when is_number(Timeout); Timeout =:= infinity -> ok;
+  when is_number(Timeout); Timeout =:= infinity -> Timeout;
 
 check_setting(Key, Value)->
   throw({invalid_param, Key, Value}).
@@ -647,38 +541,69 @@ check_setting(Key, Value)->
 %% |                       Helper functions                       |
 %% +--------------------------------------------------------------+
 
-check_timer(Timer)->
-  % Reset the acknowledge timer
+check_t1(#state{
+  t1 = Timer,
+  settings = #{ t1 := T1 }
+}  = State)->
+  reset_timer( t1, Timer ),
+  {ok, NewTimer} = timer:send_after(T1, {self(), t1}),
+  State#state{
+    t1 = NewTimer
+  }.
+
+check_t2( #state{
+  t2 = Timer,
+  settings = #{ t2 := T2 }
+} = State)->
+  reset_timer( t1, Timer ),
+  {ok, NewTimer} = timer:send_after(T2, {self(), t2}),
+  State#state{
+    t2= NewTimer
+  }.
+
+check_t3( #state{
+  t3 = { confirm,_ }
+} = State)->
+  State;
+check_t3( #state{
+  t3 = Heartbeat,
+  settings = #{t3 := T3}
+} = State)->
+  case Heartbeat of
+    {_, Timer} ->
+      reset_timer( t3, Timer );
+    _ ->
+      ignore
+  end,
+
+  {ok, NewTimer} = timer:send_after(T3, {self(), t3}),
+
+  State#state{
+    t3 = {init, NewTimer}
+  }.
+
+
+reset_timer(Type, Timer)->
   if
     Timer =/= undefined ->
       timer:cancel(Timer),
-      clear_timer();
+      clear_timer( Type );
     true ->
       ignore
-  end.
+  end,
+  ok.
 
-clear_timer() ->
+clear_timer( Type ) ->
   receive
-    {internal, Self, acknowledge} when Self =:= self() -> clear_timer()
+    {Self, Type} when Self =:= self() -> clear_timer( Type )
   after
     0 -> ok
   end.
 
-check_heartbeat(#state{heartbeat = { confirm,_ }} = State) ->
-  % The connection is waiting for heartbeat confirmation
-  State;
-
-check_heartbeat(#state{
-  heartbeat = HeartBeat,
-  settings = #{t3 := T3}
-} = State) ->
-  case HeartBeat of
-    {_, Timer} ->
-      timer:cancel(Timer);
-    _ ->
-      ignore
-  end,
-  {ok, NewTimer} = timer:send_after(T3, {internal, self(), heartbeat}),
-  State#state{heartbeat = {init, NewTimer}}.
+socket_send(Socket, Data) ->
+  case gen_tcp:send(Socket, Data) of
+    ok -> ok;
+    {error, Error} -> throw({send_error, Error})
+  end.
 
 

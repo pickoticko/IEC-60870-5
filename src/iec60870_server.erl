@@ -133,7 +133,7 @@ find_group_items(#?MODULE{ storage = Storage }, GroupID )->
 %% |                           Cross module API                   |
 %% +--------------------------------------------------------------+
 start_connection(Root, Server, Connection )->
-  Root ! { start_connection, Server, self(), Connection },
+  Root ! {start_connection, Server, self(), Connection },
   receive
     {Root, PID} when is_pid( PID )-> {ok, PID};
     {Root, error}-> error
@@ -266,7 +266,7 @@ wait_connection( #state{
   connection_settings = ConnectionSettings
 } = State)->
   receive
-    { start_connection, Server, From, Connection } ->
+    {start_connection, Server, From, Connection } ->
       case gen_statem:start(iec60870_server_stm, {Connection, ConnectionSettings}, []) of
         {ok, PID} ->
           From ! {self(), PID};

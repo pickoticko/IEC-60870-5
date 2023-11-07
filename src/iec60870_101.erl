@@ -18,12 +18,15 @@
 
 %% API
 -export([
-  start_server/2,
+  start_server/1,
   stop_server/1
 ]).
 
 
-start_server(Root, InSettings )->
+start_server(InSettings )->
+
+  Root = self(),
+
   Settings = check_settings( maps:merge(?DEFAULT_SETTINGS, InSettings) ),
 
   Module =

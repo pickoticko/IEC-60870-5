@@ -68,7 +68,7 @@
 -include("asdu.hrl").
 
 -export([
-  start_server/2,
+  start_server/1,
   stop_server/1,
 
   start_client/1,
@@ -109,6 +109,7 @@
 -define(TEST_FRAME_ACTIVATE, 2#010000).
 -define(TEST_FRAME_CONFIRM,  2#100000).
 
+-define(CONNECT_TIMEOUT, 5000).
 -define(WAIT_ACTIVATE, 5000).
 
 
@@ -130,7 +131,9 @@
 %% |                             API                              |
 %% +--------------------------------------------------------------+
 
-start_server(Root, InSettings) ->
+start_server(InSettings) ->
+
+  Root = self(),
 
   Settings = #{
     port := Port
@@ -148,8 +151,20 @@ stop_server( ListenSocket )->
   gen_tcp:shutdown( ListenSocket, read_write ).
 
 
-start_client( _Settings )->
-  todo.
+start_client(InSettings )->
+
+  Owner = self(),
+
+  Settings = check_settings( maps:merge(?DEFAULT_SETTINGS#{
+    host => ?REQUIRED
+  }, InSettings) ),
+
+  PID = spawn_link(fun()-> init_client(Owner, Settings ) end),
+
+  receive
+    {ready, PID}  -> PID;
+    {'EXIT', PID, Reason} -> throw(Reason)
+  end.
 
 stop_client( _Settings )->
   todo.
@@ -169,8 +184,10 @@ wait_connection( ListenSocket, Settings, Root )->
         unlink( Root ),
         wait_connection( ListenSocket, Settings, Socket ),
 
-        case wait_activate( Socket, <<>> ) of
+        case wait_activate( Socket, ?START_DT_ACTIVATE, <<>> ) of
           {ok, Buffer} ->
+
+            socket_send(Socket, create_u_packet(?START_DT_CONFIRM)),
 
             case iec60870_server:start_connection(Root, ListenSocket, self() ) of
               {ok, Connection} ->
@@ -197,20 +214,50 @@ wait_connection( ListenSocket, Settings, Root )->
 
   end).
 
+%%----------------------------------------------------------------------------------
+%%  Init client socket
+%%----------------------------------------------------------------------------------
+init_client(Owner, #{
+  host := Host,
+  port := Port
+} = Settings)->
 
-wait_activate( Socket, Buffer )->
+  case gen_tcp:connect(Host, Port, [binary, {active, true}, {packet, raw}], ?CONNECT_TIMEOUT) of
+    {ok, Socket}->
+
+      socket_send( Socket, create_u_packet( ?START_DT_ACTIVATE ) ),
+
+      case wait_activate( Socket, ?START_DT_CONFIRM, <<>>) of
+        {ok, Buffer} ->
+
+          Owner ! {ready, self()},
+
+          % Enter the loop
+          init_loop( #state{
+            socket = Socket,
+            connection = Owner,
+            settings = Settings,
+            buffer = Buffer
+          });
+
+        {error, ActivateError} ->
+          ?LOGWARNING("activation error ~p",[ ActivateError ]),
+          gen_tcp:close( Socket ),
+          throw( ActivateError )
+      end;
+    {error, ConnectError}->
+      throw( ConnectError )
+  end.
+
+%-----------------Waiting for connection activation---------------------------
+wait_activate( Socket, Code, Buffer )->
   receive
     {tcp, Socket, Data} ->
       case <<Buffer/binary, Data/binary>> of
-        <<?START_BYTE, 4:8, ?START_DT_ACTIVATE:6, ?U_TYPE:2, _:3/binary, RestBuffer/binary>> ->
-          Confirmation = create_u_packet(?START_DT_CONFIRM),
-          case gen_tcp:send( Socket, Confirmation ) of
-            ok -> {ok, RestBuffer};
-            {error, ConfirmError}->
-              {error, ConfirmError}
-          end;
+        <<?START_BYTE, 4:8, Code:6, ?U_TYPE:2, _:3/binary, RestBuffer/binary>> ->
+          {ok, RestBuffer};
         Head = <<?START_BYTE, _/binary>> when size( Head ) < 6 ->
-          wait_activate( Socket, Head );
+          wait_activate( Socket, Code, Head );
         Unexpected->
           {error, {unexpected_request, Unexpected}}
       end;
@@ -223,6 +270,7 @@ wait_activate( Socket, Buffer )->
   after
     ?WAIT_ACTIVATE->{error, timeout}
   end.
+
 
 %% +--------------------------------------------------------------+
 %% |                      Internal functions                      |
@@ -515,6 +563,16 @@ check_settings(Settings) ->
   end,
 
   maps:from_list( [{K, check_setting(K, V)} || {K, V} <- SettingsList] ).
+
+check_setting(host, Host) when is_tuple( Host) ->
+  case tuple_to_list(Host) of
+    IP when length(IP) =:= 4 ->
+      case [Octet || Octet <- IP, is_integer(Octet), Octet > 0, Octet < 255] of
+        IP -> ok;
+        _  -> throw({invalid_host, Host})
+      end;
+    _ -> throw({invalid_host, Host})
+  end;
 
 check_setting(port, Port)
   when is_number(Port), Port >= ?MIN_PORT_VALUE, Port =< ?MAX_PORT_VALUE -> Port;

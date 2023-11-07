@@ -82,16 +82,14 @@ handle_event(info, {asdu, Connection, ASDU}, _AnyState, #data{
   },
   connection = Connection
 } = Data)->
-  NewData =
-    try
-      ParsedASDU = iec60870_asdu:parse(ASDU, ASDUSettings),
-      handle_asdu(ParsedASDU, Data)
-    catch
-      _:E ->
-        ?LOGERROR("~p invalid ASDU received: ~p, error: ~p", [Name, ASDU, E]),
-        Data
-    end,
-  {keep_state, NewData};
+  try
+    ParsedASDU = iec60870_asdu:parse(ASDU, ASDUSettings),
+    handle_asdu(ParsedASDU, Data)
+  catch
+    _:E ->
+      ?LOGERROR("~p invalid ASDU received: ~p, error: ~p", [Name, ASDU, E]),
+      keep_state_and_data
+  end;
 
 % Ignore self notifications
 handle_event(info, {_Scope, update, _, _, _Self}, _AnyState, _Data) ->
@@ -150,7 +148,7 @@ handle_asdu(#asdu{
     root := Root
   },
   connection = Connection
-} = Data) ->
+}) ->
   %% ----- Send initialization -----
   [Confirmation] = iec60870_asdu:build(#asdu{
     type = ?C_IC_NA_1,
@@ -172,7 +170,7 @@ handle_asdu(#asdu{
     objects = [{IOA, GroupID}]
   }, ASDUSettings),
   send_asdu(Connection, Termination),
-  Data;
+  keep_state_and_data;
 
 handle_asdu(#asdu{
   type = ?C_CI_NA_1,
@@ -182,7 +180,7 @@ handle_asdu(#asdu{
     asdu := ASDUSettings
   },
   connection = Connection
-} = Data) ->
+}) ->
   %% ----- Send initialization -----
   [Confirmation] = iec60870_asdu:build(#asdu{
     type = ?C_CI_NA_1,
@@ -201,7 +199,7 @@ handle_asdu(#asdu{
     objects = [{IOA, GroupID}]
   }, ASDUSettings),
   send_asdu(Connection, Termination),
-  Data;
+  keep_state_and_data;
 
 handle_asdu(#asdu{
   type = ?C_CS_NA_1,
@@ -211,7 +209,7 @@ handle_asdu(#asdu{
     asdu := ASDUSettings
   },
   connection = Connection
-} = Data) ->
+}) ->
   %% ----- Send initialization -----
   [Confirmation] = iec60870_asdu:build(#asdu{
     type = ?C_CS_NA_1,
@@ -220,7 +218,7 @@ handle_asdu(#asdu{
     objects = Objects
   }, ASDUSettings),
   send_asdu(Connection, Confirmation),
-  Data;
+  keep_state_and_data;
 
 handle_asdu(#asdu{
   type = Type,
@@ -229,29 +227,21 @@ handle_asdu(#asdu{
   settings = #{
     root := Root
   }
-} = Data) when Type >= ?M_SP_NA_1, Type =< ?M_EP_TF_1 ->
+}) when Type >= ?M_SP_NA_1, Type =< ?M_EP_TF_1 ->
   [iec60870_server:update_value(Root, IOA, Value) || {IOA, Value} <- Objects],
-  Data;
+  keep_state_and_data;
 
 handle_asdu(#asdu{
   type = Type
 }, #data{
   settings = #{name := Name}
-} = Data) ->
+}) ->
   ?LOGWARNING("~p unsupported ASDU type is received: ~p", [Name, Type]),
-  Data.
+  keep_state_and_data.
 
 send_asdu(Connection, ASDU) ->
   Connection ! {asdu, self(), ASDU}, ok.
 
-group_by_types(Objects) ->
-  group_by_types(Objects, #{}).
-group_by_types([{IOA, #{type := Type} =Value }|Rest], Acc) ->
-  TypeAcc = maps:get(Type,Acc,#{}),
-  Acc1 = Acc#{Type => TypeAcc#{IOA => Value}},
-  group_by_types(Rest, Acc1);
-group_by_types([], Acc) ->
-  [{Type, lists:sort(maps:to_list(Objects))} || {Type, Objects} <- maps:to_list(Acc)].
 
 send_items(Items, Connection, COT, ASDUSettings) ->
   ByTypes = group_by_types(Items),
@@ -264,3 +254,12 @@ send_items(Items, Connection, COT, ASDUSettings) ->
      }, ASDUSettings),
      [send_asdu(Connection, ASDU) || ASDU <- ListASDU]
    end || {Type, Objects} <- ByTypes].
+
+group_by_types(Objects) ->
+  group_by_types(Objects, #{}).
+group_by_types([{IOA, #{type := Type} =Value }|Rest], Acc) ->
+  TypeAcc = maps:get(Type,Acc,#{}),
+  Acc1 = Acc#{Type => TypeAcc#{IOA => Value}},
+  group_by_types(Rest, Acc1);
+group_by_types([], Acc) ->
+  [{Type, lists:sort(maps:to_list(Objects))} || {Type, Objects} <- maps:to_list(Acc)].

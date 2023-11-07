@@ -135,7 +135,7 @@ handle_event(enter, _PrevState, {?GROUP_REQUEST, init, #{id := GroupID}, _}, #da
   [GroupRequest] = iec60870_asdu:build(#asdu{
     type = ?C_IC_NA_1,
     pn = ?POSITIVE_PN,
-    cot = ?COT_GROUP(GroupID),
+    cot = ?COT_ACT,
     objects = [{_IOA = 0, GroupID}]
   }, ASDUSettings),
 

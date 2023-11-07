@@ -53,7 +53,7 @@ start( InSettings ) ->
   } = Settings = check_settings(InSettings),
 
   PID =
-    case gen_statem:start_link(iec60870_client, {_OwnerPID = self(), Settings}, []) of
+    case gen_statem:start_link(iec60870_client_stm, {_OwnerPID = self(), Settings}, []) of
       {ok, _PID} -> _PID;
       {error, Error} -> throw(Error)
     end,

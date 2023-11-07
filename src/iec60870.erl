@@ -15,7 +15,7 @@ start_server(ConnectionSettings) ->
   iec60870_server:start(ConnectionSettings).
 
 start_client(ConnectionSettings) ->
-  iec60870_client:start_link(ConnectionSettings).
+  iec60870_client:start(ConnectionSettings).
 
 stop(ClientOrServer) ->
   Module = element(1, ClientOrServer),

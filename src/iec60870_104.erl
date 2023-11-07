@@ -453,10 +453,16 @@ handle_packet(u, _Data, State)->
 %% +--------------------------------------------------------------+
 
 handle_packet(s, ReceiveCounter, #state{
-  sent = Sent
+  sent = Sent,
+  t1 = T1
 } = State) ->
-  State1 = check_t1( State ),
-  State1#state{ sent = lists:delete( ReceiveCounter, Sent ) };
+
+  reset_timer( t1, T1 ),
+
+  State#state{
+    t1 = undefined,
+    sent = lists:delete( ReceiveCounter, Sent )
+  };
 
 %% +--------------------------------------------------------------+
 %% |                        I-type packet                         |
@@ -557,7 +563,7 @@ check_settings(Settings) ->
     Required -> throw( {required, Required} )
   end,
 
-  case maps:keys( Settings ) -- maps:keys(?DEFAULT_SETTINGS) of
+  case maps:keys( Settings ) -- [host|maps:keys(?DEFAULT_SETTINGS)] of
     []-> ok;
     InvalidParams -> throw( {invalid_params, InvalidParams} )
   end,
@@ -568,7 +574,7 @@ check_setting(host, Host) when is_tuple( Host) ->
   case tuple_to_list(Host) of
     IP when length(IP) =:= 4 ->
       case [Octet || Octet <- IP, is_integer(Octet), Octet > 0, Octet < 255] of
-        IP -> ok;
+        IP -> Host;
         _  -> throw({invalid_host, Host})
       end;
     _ -> throw({invalid_host, Host})

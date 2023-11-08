@@ -179,7 +179,15 @@ handle_request(?REQUEST_STATUS_LINK, _UserData, #data{
 
       Data#data{
         connection = NewConnection,
-        sent_frame = send_response( Port, ?ACKNOWLEDGE_FRAME(Address) )
+        sent_frame = send_response( Port, send_response( Port, #frame{
+          address = Address,
+          control_field = #control_field_response{
+            direction = 0,
+            acd = 0,
+            dfc = 0,
+            function_code = ?STATUS_LINK_ACCESS_DEMAND
+          }
+        }))
       };
     error->
       Data#data{

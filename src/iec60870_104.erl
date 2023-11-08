@@ -71,8 +71,7 @@
   start_server/1,
   stop_server/1,
 
-  start_client/1,
-  stop_client/1
+  start_client/1
 ]).
 
 %% +--------------------------------------------------------------+
@@ -165,9 +164,6 @@ start_client(InSettings )->
     {ready, PID}  -> PID;
     {'EXIT', PID, Reason} -> throw(Reason)
   end.
-
-stop_client( _Settings )->
-  todo.
 
 
 %%----------------------------------------------------------------------------------

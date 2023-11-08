@@ -86,6 +86,8 @@ init(Owner, Dir, #{
   Connection =
     receive { connection, Owner, _Connection } -> _Connection end,
 
+  send_delayed_asdu( Connection ),
+
   loop( Data#data{ connection = Connection } ).
 
 
@@ -103,6 +105,15 @@ init_connect( Data0 )->
       exit( connect_error )
   end.
 
+send_delayed_asdu( Connection )->
+  receive
+    { asdu, Self, ASDU } when Self =:= self()->
+      Connection ! {asdu, Self, ASDU},
+      send_delayed_asdu( Connection )
+  after
+    0-> ok
+  end.
+
 loop(#data{
   owner = Owner,
   port = Port,
@@ -115,7 +126,7 @@ loop(#data{
     {data, Port, #frame{ address = ReqAddress }} when ReqAddress =/= Address ->
       loop( Data );
     {data, Port, Unexpected = #frame{ control_field = #control_field_response{ }}}->
-      ?LOGWARNING("unexpected response frame received 2 ~p",[ Unexpected ] ),
+      ?LOGWARNING("unexpected response frame received ~p",[ Unexpected ] ),
       loop( Data );
     {data, Port, #frame{ control_field =  CF, data = UserData }} ->
       case check_fcb( CF, FCB ) of
@@ -138,7 +149,10 @@ loop(#data{
           exit( transaction_error )
       end;
     {stop, Owner }->
-      iec60870_ft12:stop( port )
+      iec60870_ft12:stop( port );
+    Unexpected->
+      ?LOGWARNING("unexpected message received: ~p",[Unexpected]),
+      loop( Data )
   end.
 
 transaction(FC, Data)->
@@ -153,61 +167,69 @@ transaction(Attempts, FC, UserData, #data{
   out_fcb = FCB,
   dir = Dir,
   timeout = Timeout
-}=Data) when Attempts > 0->
+} = Data) when Attempts > 0->
+
+  ReqFCB = fcb( FC, FCB ),
 
   iec60870_ft12:send( Port, #frame{
     address = Address,
     control_field = #control_field_request{
       direction = Dir,
-      fcb = ?NOT( FCB ),
+      fcb = ReqFCB,
       fcv = fcv( FC ),
       function_code = FC
     },
     data = UserData
   }),
 
-  ResponseFC = response_fc( FC ),
+  Response = ?RESPONSE( Address, ?NOT(Dir), response_fc( FC ) ),
 
-  case wait_acknowledge(Timeout, ResponseFC, Data) of
+  case wait_response(Timeout, Response, Data#data{ out_fcb = ReqFCB }) of
     #data{} = Data1 ->
-      Data1#data{ out_fcb = ?NOT(FCB) };
-    error->
-      transaction( Attempts - 1, FC, UserData, Data )
+      Data1;
+    {error, Data1}->
+      transaction( Attempts - 1, FC, UserData, Data1 )
   end;
 transaction(_Attempts, _FC, _UserData, _Data)->
   error.
 
-wait_acknowledge(_Timeout, undefined, Data)->
+wait_response(_Timeout, ?RESPONSE( _, _, undefined ), Data)->
   Data;
-wait_acknowledge(Timeout, FC,  #data{
+wait_response(Timeout, Response,  #data{
   port = Port,
-  address = Address,
-  dir = Dir
+  address = Address
 } = Data) when Timeout > 0->
   T0 = ?TS,
   receive
-    {data, Port, ?RESPONSE( Address, Dir, FC )}->
+    {data, Port, Response}->
       Data;
     {data, Port, #frame{ address = ReqAddress } = Unexpected} when ReqAddress =/= Address->
       ?LOGWARNING("unexpected address frame received ~p",[ Unexpected ] ),
-      wait_acknowledge( Timeout - ?DUR(T0), FC, Data );
+      wait_response( Timeout - ?DUR(T0), Response, Data );
     {data, Port, #frame{ control_field = #control_field_response{} } = Unexpected}->
-      ?LOGWARNING("unexpected response frame received 3 ~p",[ Unexpected ] ),
-      wait_acknowledge( Timeout - ?DUR(T0), FC, Data );
+      ?LOGWARNING("unexpected response frame received ~p, wait for ~p",[ Unexpected, Response ] ),
+      wait_response( Timeout - ?DUR(T0), Response, Data );
     {data, Port, #frame{ control_field = CF, data = UserData }}->
       Data1 = handle_request( CF#control_field_request.function_code, UserData, Data ),
-      wait_acknowledge( Timeout - ?DUR(T0), FC, Data1 )
+      wait_response( Timeout - ?DUR(T0), Response, Data1 )
   after
-    Timeout-> error
+    Timeout-> {error,Data}
   end;
-wait_acknowledge(_Timeout, _FC, _Data)->
-  error.
+wait_response(_Timeout, _FC, Data)->
+  {error, Data}.
 
 fcv( FC )->
   case FC of
     ?LINK_TEST -> 1;
     ?USER_DATA_CONFIRM -> 1;
     _-> 0
+  end.
+
+fcb( FC, FCB )->
+  case FC of
+    ?RESET_REMOTE_LINK -> 0;
+    ?REQUEST_STATUS_LINK -> 0;
+    _-> ?NOT(FCB)
   end.
 
 response_fc( FC )->
@@ -233,7 +255,7 @@ handle_request(?RESET_REMOTE_LINK, _UserData, #data{
 } = Data)->
 
   Data#data{
-    sent_frame = send_response( Port, ?ACKNOWLEDGE_FRAME(Address, ?NOT(Dir)) )
+    sent_frame = send_response( Port, ?ACKNOWLEDGE_FRAME(Address, Dir) )
   };
 
 handle_request(?RESET_USER_PROCESS, _UserData, #data{
@@ -244,7 +266,7 @@ handle_request(?RESET_USER_PROCESS, _UserData, #data{
 
   % TODO. Do we need to do anything? May be restart connection?
   Data#data{
-    sent_frame = send_response( Port, ?ACKNOWLEDGE_FRAME(Address, ?NOT(Dir)) )
+    sent_frame = send_response( Port, ?ACKNOWLEDGE_FRAME(Address, Dir) )
   };
 
 handle_request(?USER_DATA_CONFIRM, ASDU, #data{
@@ -258,11 +280,11 @@ handle_request(?USER_DATA_CONFIRM, ASDU, #data{
     is_pid( Connection )->
       Connection ! { asdu, self(), ASDU };
     true ->
-      ignore
+      self() ! { asdu, self(), ASDU }
   end,
 
   Data#data{
-    sent_frame = send_response( Port, ?ACKNOWLEDGE_FRAME(Address, ?NOT(Dir)) )
+    sent_frame = send_response( Port, ?ACKNOWLEDGE_FRAME(Address, Dir) )
   };
 
 handle_request(?USER_DATA_NO_REPLY, ASDU, #data{
@@ -272,7 +294,7 @@ handle_request(?USER_DATA_NO_REPLY, ASDU, #data{
     is_pid( Connection )->
       Connection ! { asdu, self(), ASDU };
     true ->
-      ?LOGWARNING("user data received on not initialized connection ~p",[ ASDU ] )
+      self() ! { asdu, self(), ASDU }
   end,
   Data;
 
@@ -285,7 +307,7 @@ handle_request(?ACCESS_DEMAND, _UserData, #data{
     sent_frame = send_response( Port, #frame{
       address = Address,
       control_field = #control_field_response{
-        direction = ?NOT(Dir),
+        direction = Dir,
         acd = 0,
         dfc = 0,
         function_code = ?STATUS_LINK_ACCESS_DEMAND
@@ -301,12 +323,21 @@ handle_request(?REQUEST_STATUS_LINK, _UserData, #data{
 } = Data)->
 
   if
-    Linked =:= true ->
+    Linked =:= true, Dir =:= 1 ->
+      % If server, then link request is accepted as reset connection command
       exit( reset_connection );
     true ->
       Data#data{
         linked = true,
-        sent_frame = send_response( Port, ?ACKNOWLEDGE_FRAME(Address, ?NOT(Dir)) )
+        sent_frame = send_response( Port, #frame{
+          address = Address,
+          control_field = #control_field_response{
+            direction = Dir,
+            acd = 0,
+            dfc = 0,
+            function_code = ?STATUS_LINK_ACCESS_DEMAND
+          }
+        })
       }
   end;
 

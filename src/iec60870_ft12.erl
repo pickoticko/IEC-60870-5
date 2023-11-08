@@ -228,8 +228,8 @@ parse_control_field(_Invalid) ->
 
 build_frame(#frame{address = Address, control_field = CFRec, data = Data}, AddressSize) when is_binary(Data) ->
   Body = <<
-    Address:AddressSize/little-integer,
     (build_control_field(CFRec))/binary,
+    Address:AddressSize/little-integer,
     Data/binary
   >>,
   Length = size(Body),

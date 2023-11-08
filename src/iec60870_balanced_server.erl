@@ -35,7 +35,8 @@ wait_connection( Root, Port, Options )->
     { connected, Port } ->
       case iec60870_server:start_connection(Root, {?MODULE,self()}, Port ) of
         {ok, Connection} ->
-          Port ! { connection, self(), Connection };
+          Port ! { connection, self(), Connection },
+          wait_connection( Root, Port, Options );
         error->
           unlink( Port ),
           exit(Port, shutdown),

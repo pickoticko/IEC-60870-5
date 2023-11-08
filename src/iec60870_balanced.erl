@@ -45,7 +45,8 @@
   out_fcb,
   in_fcb,
   sent_frame,
-  connection
+  connection,
+  linked
 }).
 
 start(Dir, Options ) ->
@@ -77,6 +78,7 @@ init(Owner, Dir, #{
     attempts = Attempts,
     port = Port,
     connection = undefined,
+    linked = false,
     out_fcb = 1
   }),
 
@@ -294,12 +296,19 @@ handle_request(?ACCESS_DEMAND, _UserData, #data{
 handle_request(?REQUEST_STATUS_LINK, _UserData, #data{
   port = Port,
   address = Address,
-  dir = Dir
+  dir = Dir,
+  linked = Linked
 } = Data)->
 
-  Data#data{
-    sent_frame = send_response( Port, ?ACKNOWLEDGE_FRAME(Address, ?NOT(Dir)) )
-  };
+  if
+    Linked =:= true ->
+      exit( reset_connection );
+    true ->
+      Data#data{
+        linked = true,
+        sent_frame = send_response( Port, ?ACKNOWLEDGE_FRAME(Address, ?NOT(Dir)) )
+      }
+  end;
 
 handle_request(InvalidFC, _UserData, Data)->
   ?LOGERROR("invalid request function code received ~p",[ InvalidFC ]),

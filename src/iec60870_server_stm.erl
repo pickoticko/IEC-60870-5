@@ -48,6 +48,7 @@ start_link( Options )->
   end.
 
 init( {Connection, #{name := Name, groups:=Groups} = Settings} ) ->
+  ?LOGINFO("~p start incoming connection",[ Name ]),
   esubscribe:subscribe(Name, update, self()),
   erlang:monitor(process, Connection),
   [begin
@@ -113,7 +114,7 @@ handle_event(info, {'DOWN', _, process, Connection, Error}, _AnyState, #data{
   connection = Connection
 }) ->
   ?LOGINFO("stop incoming connection, reason: ~p", [Error] ),
-  {stop, Error};
+  {stop, shutdown};
 
 % Log unexpected events
 handle_event(EventType, EventContent, _AnyState, _Data) ->

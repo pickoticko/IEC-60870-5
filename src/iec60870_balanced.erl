@@ -21,6 +21,16 @@
   }
 }).
 
+-define(RESPONSE(Address, Dir, FC), #frame{
+  address = Address,
+  control_field = #control_field_response{
+    direction = Dir,
+    acd = 0,
+    dfc = 0,
+    function_code = FC
+  }
+}).
+
 -define(NOT(X), abs(X-1)).
 -define(TS, erlang:system_time(millisecond)).
 -define(DUR(T),(?TS - T) ).
@@ -35,7 +45,6 @@
   out_fcb,
   in_fcb,
   sent_frame,
-  linked,
   connection
 }).
 
@@ -60,7 +69,7 @@ init(Owner, Dir, #{
 
   Owner ! { ready, self()},
 
-  Data0 = init_connect(#data{
+  Data = init_connect(#data{
     owner = Owner,
     address = Address,
     dir = Dir,
@@ -70,8 +79,6 @@ init(Owner, Dir, #{
     connection = undefined,
     out_fcb = 1
   }),
-
-  Data = wait_connect(Timeout, Data0 ),
 
   Owner ! { connected, self() },
   Connection =
@@ -94,33 +101,6 @@ init_connect( Data0 )->
       exit( connect_error )
   end.
 
-wait_connect(_Timeout, #data{ linked = true } = Data )->
-  Data;
-wait_connect(Timeout, #data{
-  port = Port,
-  address = Address,
-  dir = Dir
-} = Data ) when Timeout > 0 ->
-  T0 = ?TS,
-  receive
-    {data, Port, #frame{ address = ReqAddress } = Unexpected} when ReqAddress =/= Address->
-      ?LOGWARNING("unexpected address frame received ~p",[ Unexpected ] ),
-      wait_connect( Timeout - ?DUR(T0), Data );
-    {data, Port, #frame{ control_field = #control_field_response{} } = Unexpected}->
-      ?LOGWARNING("unexpected response frame received ~p",[ Unexpected ] ),
-      wait_connect( Timeout - ?DUR(T0), Data );
-    {data, Port, #frame{ control_field = #control_field_request{ direction = Dir } } = Unexpected} ->
-      ?LOGWARNING("unexpected request frame direction received ~p",[ Unexpected ] ),
-      wait_connect( Timeout - ?DUR(T0), Data );
-    {data, Port, #frame{ control_field = CF, data = UserData }}->
-      Data1 = handle_request( CF#control_field_request.function_code, UserData, Data ),
-      wait_connect( Timeout - ?DUR(T0), Data1 )
-  after
-    Timeout-> error
-  end;
-wait_connect(_Timeout, _Data)->
-  exit( connect_error ).
-
 loop(#data{
   owner = Owner,
   port = Port,
@@ -133,7 +113,7 @@ loop(#data{
     {data, Port, #frame{ address = ReqAddress }} when ReqAddress =/= Address ->
       loop( Data );
     {data, Port, Unexpected = #frame{ control_field = #control_field_response{ }}}->
-      ?LOGWARNING("unexpected response frame received ~p",[ Unexpected ] ),
+      ?LOGWARNING("unexpected response frame received 2 ~p",[ Unexpected ] ),
       loop( Data );
     {data, Port, #frame{ control_field =  CF, data = UserData }} ->
       case check_fcb( CF, FCB ) of
@@ -184,7 +164,9 @@ transaction(Attempts, FC, UserData, #data{
     data = UserData
   }),
 
-  case wait_acknowledge(Timeout,  Data) of
+  ResponseFC = response_fc( FC ),
+
+  case wait_acknowledge(Timeout, ResponseFC, Data) of
     #data{} = Data1 ->
       Data1#data{ out_fcb = ?NOT(FCB) };
     error->
@@ -193,31 +175,30 @@ transaction(Attempts, FC, UserData, #data{
 transaction(_Attempts, _FC, _UserData, _Data)->
   error.
 
-wait_acknowledge(Timeout,  #data{
+wait_acknowledge(_Timeout, undefined, Data)->
+  Data;
+wait_acknowledge(Timeout, FC,  #data{
   port = Port,
   address = Address,
   dir = Dir
 } = Data) when Timeout > 0->
   T0 = ?TS,
   receive
-    {data, Port, ?ACKNOWLEDGE_FRAME( Address, Dir )}->
-      ok;
+    {data, Port, ?RESPONSE( Address, Dir, FC )}->
+      Data;
     {data, Port, #frame{ address = ReqAddress } = Unexpected} when ReqAddress =/= Address->
       ?LOGWARNING("unexpected address frame received ~p",[ Unexpected ] ),
-      wait_acknowledge( Timeout - ?DUR(T0), Data );
+      wait_acknowledge( Timeout - ?DUR(T0), FC, Data );
     {data, Port, #frame{ control_field = #control_field_response{} } = Unexpected}->
-      ?LOGWARNING("unexpected response frame received ~p",[ Unexpected ] ),
-      wait_acknowledge( Timeout - ?DUR(T0), Data );
-    {data, Port, #frame{ control_field = #control_field_request{ direction = Dir } } = Unexpected} ->
-      ?LOGWARNING("unexpected request frame direction received ~p",[ Unexpected ] ),
-      wait_acknowledge( Timeout - ?DUR(T0), Data );
+      ?LOGWARNING("unexpected response frame received 3 ~p",[ Unexpected ] ),
+      wait_acknowledge( Timeout - ?DUR(T0), FC, Data );
     {data, Port, #frame{ control_field = CF, data = UserData }}->
       Data1 = handle_request( CF#control_field_request.function_code, UserData, Data ),
-      wait_acknowledge( Timeout - ?DUR(T0), Data1 )
+      wait_acknowledge( Timeout - ?DUR(T0), FC, Data1 )
   after
     Timeout-> error
   end;
-wait_acknowledge(_Timeout, _Data)->
+wait_acknowledge(_Timeout, _FC, _Data)->
   error.
 
 fcv( FC )->
@@ -225,6 +206,14 @@ fcv( FC )->
     ?LINK_TEST -> 1;
     ?USER_DATA_CONFIRM -> 1;
     _-> 0
+  end.
+
+response_fc( FC )->
+  case FC of
+    ?USER_DATA_NO_REPLY -> undefined;
+    ?ACCESS_DEMAND -> ?STATUS_LINK_ACCESS_DEMAND;
+    ?REQUEST_STATUS_LINK -> ?STATUS_LINK_ACCESS_DEMAND;
+    _-> ?ACKNOWLEDGE
   end.
 
 check_fcb( #control_field_request{ fcv = 0, fcb = _ReqFCB } , _FCB )->
@@ -262,16 +251,17 @@ handle_request(?USER_DATA_CONFIRM, ASDU, #data{
   address = Address,
   dir = Dir
 } = Data)->
+
   if
     is_pid( Connection )->
-      Connection ! { asdu, self(), ASDU },
-      Data#data{
-        sent_frame = send_response( Port, ?ACKNOWLEDGE_FRAME(Address, ?NOT(Dir)) )
-      };
+      Connection ! { asdu, self(), ASDU };
     true ->
-      ?LOGWARNING("user data received on not initialized connection ~p",[ ASDU ] ),
-      Data
-  end;
+      ignore
+  end,
+
+  Data#data{
+    sent_frame = send_response( Port, ?ACKNOWLEDGE_FRAME(Address, ?NOT(Dir)) )
+  };
 
 handle_request(?USER_DATA_NO_REPLY, ASDU, #data{
   connection = Connection
@@ -304,19 +294,12 @@ handle_request(?ACCESS_DEMAND, _UserData, #data{
 handle_request(?REQUEST_STATUS_LINK, _UserData, #data{
   port = Port,
   address = Address,
-  linked = Linked,
   dir = Dir
 } = Data)->
 
-  if
-    Linked->
-      exit( reset_connection );
-    true ->
-      Data#data{
-        linked = true,
-        sent_frame = send_response( Port, ?ACKNOWLEDGE_FRAME(Address, ?NOT(Dir)) )
-      }
-  end;
+  Data#data{
+    sent_frame = send_response( Port, ?ACKNOWLEDGE_FRAME(Address, ?NOT(Dir)) )
+  };
 
 handle_request(InvalidFC, _UserData, Data)->
   ?LOGERROR("invalid request function code received ~p",[ InvalidFC ]),

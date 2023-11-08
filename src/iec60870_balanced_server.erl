@@ -25,7 +25,7 @@ init(Root, Options)->
 
   process_flag(trap_exit, true),
 
-  Port = iec60870_balanced:start( Options ),
+  Port = iec60870_balanced:start(_Dir=1, Options ),
   Root ! { ready, self() },
 
   wait_connection( Root, Port, Options ).
@@ -33,13 +33,13 @@ init(Root, Options)->
 wait_connection( Root, Port, Options )->
   receive
     { connected, Port } ->
-      case iec60870_server:start_connection(Root, {?MODULE,self()}, self() ) of
+      case iec60870_server:start_connection(Root, {?MODULE,self()}, Port ) of
         {ok, Connection} ->
           Port ! { connection, self(), Connection };
         error->
           unlink( Port ),
           exit(Port, shutdown),
-          NewPort = iec60870_balanced:start(_Dir = 0, Options ),
+          NewPort = iec60870_balanced:start(_Dir = 1, Options ),
           wait_connection( Root, NewPort, Options )
       end;
     {'EXIT', Port, Reason}->
@@ -49,7 +49,7 @@ wait_connection( Root, Port, Options )->
         _->
           ?LOGWARNING("port exit reason: ~p",[Reason])
       end,
-      NewPort = iec60870_balanced:start(_Dir =0, Options ),
+      NewPort = iec60870_balanced:start(_Dir =1, Options ),
       wait_connection( Root, NewPort, Options );
     {'EXIT', Root, Reason}->
       exit(Port, Reason)

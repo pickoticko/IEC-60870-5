@@ -3,6 +3,7 @@
 
 -include("iec60870.hrl").
 -include("ft12.hrl").
+-include("unbalanced.hrl").
 
 %% API
 -export([
@@ -77,7 +78,10 @@ loop(#data{
           loop( Data1#data{ fcb = NextFCB } );
         error->
           ?LOGWARNING("check fcb error, cf ~p, FCB ~p",[CF, FCB]),
-          iec60870_ft12:send( Port, SentFrame ),
+          case SentFrame of
+            #frame{}-> iec60870_ft12:send( Port, SentFrame );
+            _-> ignore
+          end,
           loop( Data )
       end;
     {'DOWN', _, process, Connection, _Error}->

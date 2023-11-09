@@ -185,10 +185,7 @@ parse_frame(<<
                 address = Address,
                 control_field = CF,
                 data = Data
-              }, Tail };
-            error ->
-              ?LOGERROR("invalid control field ~p", [ControlField]),
-              Tail
+              }, Tail }
           end;
         _ ->
           ?LOGERROR("invalid control sum"),

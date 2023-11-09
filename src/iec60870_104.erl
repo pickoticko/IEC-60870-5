@@ -511,7 +511,7 @@ send_i_packet(ASDU, #state{
       APDU = create_i_packet(ASDU, State),
       socket_send(Socket, APDU);
     true ->
-      throw({max_number_of_unconfirmed_packets_reached, K})
+      exit({max_number_of_unconfirmed_packets_reached, K})
   end,
 
   State#state{

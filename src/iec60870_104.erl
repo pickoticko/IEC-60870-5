@@ -507,7 +507,7 @@ send_i_packet(ASDU, #state{
   sent = Sent
 } = State)->
   if
-    length(Sent) < K ->
+    length(Sent) =< K ->
       APDU = create_i_packet(ASDU, State),
       socket_send(Socket, APDU);
     true ->

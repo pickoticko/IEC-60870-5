@@ -242,7 +242,7 @@ handle_asdu(#asdu{
       true -> undefined
     end,
 
-  [update_value(Name, Storage, IOA, Value#{ group => Group }) || {IOA, Value} <- Objects],
+  [update_value(Name, Storage, IOA, Value#{type => Type, group => Group }) || {IOA, Value} <- Objects],
 
   keep_state_and_data;
 

@@ -178,7 +178,7 @@ wait_connection( ListenSocket, Settings, Root )->
 
         % Handle the ListenSocket to the next process
         unlink( Root ),
-        wait_connection( ListenSocket, Settings, Socket ),
+        wait_connection( ListenSocket, Settings, Root ),
 
         case wait_activate( Socket, ?START_DT_ACTIVATE, <<>> ) of
           {ok, Buffer} ->

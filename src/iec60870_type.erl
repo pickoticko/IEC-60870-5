@@ -41,6 +41,7 @@ parse_information_element(?M_ME_NA_1, <<V1:8, V2:8, QDS:8>>) ->
 
 parse_information_element(?M_ME_NB_1, <<V1:8, V2:8, QDS:8>>) ->
   <<S:1, UnsignedValue:15/integer>> = <<V2, V1>>,
+  % TODO. The value must be scaled
   Value =
     if
       S =:= 1 -> -UnsignedValue;
@@ -98,6 +99,7 @@ create_information_element(?M_ME_NB_1, #{
   value := Value,
   qds := QDS
 }) ->
+  % TODO. The value must be unscaled
   <<M1:8, M2:8>> = <<(round(Value)):16/integer>>,
   <<M2, M1, QDS:8/little-integer>>;
 

@@ -13,8 +13,10 @@
 -export([
   start/1,
   stop/1,
-  write/3,
   read/1, read/2,
+  write/3,
+  subscribe/3, subscribe/2,
+  unsubscribe/3, unsubscribe/2,
   get_pid/1
 ]).
 
@@ -109,8 +111,6 @@ stop(#?MODULE{pid = PID}) ->
 stop(_) ->
   throw( bad_arg ).
 
-% API
-get_pid(#?MODULE{pid = PID}) -> PID.
 
 write(Ref, ID, Value )->
   update_value( Ref, ID, Value ).
@@ -119,10 +119,54 @@ read(#?MODULE{} = Ref) ->
   find_group_items(Ref, 0);
 read(_) -> throw(bad_arg).
 
-read(#?MODULE{storage = Cache}, Address) ->
-  iec60870_lib:read_data_object(Cache, Address);
-read(_, _) -> throw(bad_arg).
+read(#?MODULE{storage = Storage}, ID) ->
+  case ets:lookup(Storage, ID) of
+    [] -> undefined;
+    [{ID, Value}] -> Value
+  end;
+read(_, _) ->
+  throw( bad_arg ).
 
+subscribe(#?MODULE{name = Name}, PID) when is_pid(PID) ->
+  esubscribe:subscribe(Name, update, PID);
+subscribe(_, _) ->
+  throw( bad_arg ).
+
+subscribe(#?MODULE{name = Name}, PID, AddressList) when is_pid(PID), is_list(AddressList) ->
+  [begin
+     esubscribe:subscribe(Name, Address, PID)
+   end || Address <- AddressList],
+  ok;
+
+subscribe(#?MODULE{name = Name}, PID, Address) when is_pid(PID) ->
+  esubscribe:subscribe(Name, Address, PID);
+subscribe(_, _, _) ->
+  throw( bad_arg ).
+
+unsubscribe(#?MODULE{name = Name}, PID, AddressList) when is_list( AddressList ), is_pid(PID) ->
+  [begin
+     esubscribe:unsubscribe(Name, Address, PID)
+   end || Address <- AddressList],
+  ok;
+unsubscribe(#?MODULE{name = Name}, PID, Address) when is_pid(PID) ->
+  esubscribe:unsubscribe(Name, Address, PID);
+unsubscribe(_, _, _) ->
+  throw( bad_arg ).
+
+unsubscribe(Ref, PID) when is_pid( PID )->
+  AddressList = [ A || {A, _} <- read( Ref ) ],
+  unsubscribe( Ref, AddressList );
+unsubscribe(_, _) ->
+  throw( bad_arg ).
+
+get_pid(#?MODULE{pid = PID}) ->
+  PID;
+get_pid(_) ->
+  throw( bad_arg ).
+
+%%-----------------------------------------------------------------
+%%  Cross module API
+%%-----------------------------------------------------------------
 find_group_items(#?MODULE{ storage = Storage }, _GroupID = 0 )->
   ets:tab2list( Storage );
 find_group_items(#?MODULE{ storage = Storage }, GroupID )->
@@ -133,20 +177,21 @@ find_group_items(#?MODULE{ storage = Storage }, GroupID )->
 %% |                           Cross module API                   |
 %% +--------------------------------------------------------------+
 start_connection(Root, Server, Connection )->
-  Root ! { start_connection, Server, self(), Connection },
+  Root ! {start_connection, Server, self(), Connection },
   receive
     {Root, PID} when is_pid( PID )-> {ok, PID};
     {Root, error}-> error
   end.
 
 update_value( #?MODULE{ name = Name, storage = Storage }, ID, InValue)->
+
   Group =
     case InValue of
       #{ group := _G } when is_number( _G )-> _G;
       _->
         case ets:lookup( Storage, ID ) of
           [{_, #{ group :=_G }}] -> _G;
-          _-> undefined
+          _-> 0
         end
     end,
 
@@ -210,7 +255,9 @@ check_setting(groups, Groups) when is_list(Groups) ->
        throw({bad_group_settings, Group})
    end || Group <- lists:uniq(Groups)];
 check_setting(groups, undefined) ->
-  [].
+  [];
+check_setting(Key, _) ->
+  throw({invalid_settings, Key}).
 
 
 
@@ -224,7 +271,7 @@ init_server(Owner, #{
 
   Module = iec60870_lib:get_driver_module( Type ),
 
-  Server = Module:start_server(_Root = self(), Connection ),
+  Server = Module:start_server( Connection ),
 
   Storage = ets:new(data_objects, [
     set,
@@ -248,6 +295,7 @@ init_server(Owner, #{
     name => Name,
     storage => Storage,
     root => Ref,
+    groups => maps:get( groups, Settings ),
     asdu => iec60870_asdu:get_settings( maps:with(maps:keys(?DEFAULT_ASDU_SETTINGS), Settings))
   },
 
@@ -265,7 +313,7 @@ wait_connection( #state{
   connection_settings = ConnectionSettings
 } = State)->
   receive
-    { start_connection, Server, From, Connection } ->
+    {start_connection, Server, From, Connection } ->
       case gen_statem:start(iec60870_server_stm, {Connection, ConnectionSettings}, []) of
         {ok, PID} ->
           From ! {self(), PID};

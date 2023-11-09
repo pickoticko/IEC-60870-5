@@ -18,12 +18,17 @@
 
 %% API
 -export([
-  start_server/2,
-  stop_server/1
+  start_server/1,
+  stop_server/1,
+
+  start_client/1
 ]).
 
 
-start_server(Root, InSettings )->
+start_server(InSettings )->
+
+  Root = self(),
+
   Settings = check_settings( maps:merge(?DEFAULT_SETTINGS, InSettings) ),
 
   Module =
@@ -37,6 +42,22 @@ start_server(Root, InSettings )->
 
 stop_server( {Module, Server} )->
   Module:stop( Server ).
+
+
+start_client(InSettings )->
+
+  Settings = check_settings( maps:merge(?DEFAULT_SETTINGS, InSettings) ),
+
+  Owner = self(),
+
+  Module =
+    case Settings of
+      #{ balanced := false } -> iec60870_unbalanced_client;
+      _-> iec60870_balanced_client
+    end,
+
+  Module:start(Owner, Settings ).
+
 
 check_settings( Settings )->
   % TODO

@@ -457,7 +457,7 @@ handle_packet(s, ReceiveCounter, #state{
 
   State#state{
     t1 = undefined,
-    sent = lists:delete( ReceiveCounter, Sent )
+    sent = [ S || S <- Sent, S > ReceiveCounter ]
   };
 
 %% +--------------------------------------------------------------+
@@ -494,7 +494,7 @@ handle_packet(i, {SendCounter, ReceiveCounter, ASDU}, #state{
   State1#state{
     vr = VR + 1,
     vw = VW - 1,
-    sent = lists:delete(ReceiveCounter, Sent)
+    sent = [ S || S <- Sent, S > ReceiveCounter ]
   }.
 
 send_i_packet(ASDU, #state{

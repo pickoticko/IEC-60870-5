@@ -114,7 +114,7 @@ handle_event(info, {'DOWN', _, process, Connection, Error}, _AnyState, #data{
   connection = Connection
 }) ->
   ?LOGINFO("stop incoming connection, reason: ~p", [Error] ),
-  {stop, shutdown};
+  {stop, Error};
 
 % Log unexpected events
 handle_event(EventType, EventContent, _AnyState, _Data) ->

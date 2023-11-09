@@ -31,6 +31,7 @@
   }
 }).
 
+-define(NOT(X), abs(X-1)).
 -define(TS, erlang:system_time(millisecond)).
 -define(DUR(T),(?TS - T) ).
 

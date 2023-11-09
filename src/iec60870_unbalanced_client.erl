@@ -30,9 +30,9 @@
 -record(data,{
   owner,
   address,
-  timeout = Timeout,
-  attempts = Attempts,
-  port = Port,
+  timeout,
+  attempts,
+  port,
   fcb
 }).
 
@@ -81,9 +81,9 @@ init_connect( #data{
 } = Data0 )->
 
   case transaction(?RESET_REMOTE_LINK, Data0) of
-    {?RESPONSE(Address, ?ACKNOWLEDGE, _), #data{} = Data1} ->
+    {?RESPONSE(Address, ?ACKNOWLEDGE, _), Data1} ->
       case transaction( ?REQUEST_STATUS_LINK, Data1) of
-        {?RESPONSE(Address, ?STATUS_LINK_ACCESS_DEMAND, _) ,#data{} = Data}->
+        {?RESPONSE(Address, ?STATUS_LINK_ACCESS_DEMAND, _), Data}->
           Data;
         error->
           exit( connect_error )
@@ -109,11 +109,43 @@ loop( #data{
       loop( Data )
   end.
 
-get_data( Data )->
-  todo.
+get_data( #data{
+  owner = Owner
+} =Data )->
+  Data1 =
+    case transaction(?REQUEST_DATA_CLASS_1, Data ) of
+      { ?RESPONSE(_,?USER_DATA, ASDU1 ), _Data1 }->
+        Owner ! { asdu, self(), ASDU1 },
+        _Data1;
+      { _, #data{}= _Data1 }->
+        _Data1;
+      error->
+        exit( transaction_error )
+    end,
+
+  Data2 =
+    case transaction(?REQUEST_DATA_CLASS_2, Data1 ) of
+      { ?RESPONSE(_,?USER_DATA, ASDU2 ), _Data2 }->
+        Owner ! { asdu, self(), ASDU2 },
+        _Data2;
+      { _, #data{}= _Data2 }->
+        _Data2;
+      error->
+        exit( transaction_error )
+    end,
+
+  Data2.
 
 send_asdu( ASDU, Data )->
-  todo.
+  case transaction(?USER_DATA_CONFIRM, ASDU, Data ) of
+    { ?RESPONSE(_,?ACKNOWLEDGE,_), Data1 }->
+      Data1;
+    { Unexpected, _Data }->
+      ?LOGERROR("unexpected send asdu confirmation ~p",[ Unexpected ]),
+      exit( unexpected_data_confirm );
+    error->
+      exit( transaction_error )
+  end.
 
 transaction(FC, Data)->
   transaction(FC, undefined, Data).
@@ -142,7 +174,7 @@ transaction(Attempts, FC, UserData, #data{
   }, Timeout},
 
   receive
-    {response, Port, ?RESPONSE(Address,_,_)=Response}->
+    {response, Port, Response}->
       { Response, Data#data{ fcb = ReqFCB } };
     {error, Port}->
       transaction( Attempts-1, FC, UserData, Data )
@@ -196,10 +228,10 @@ init_port(Client, Options)->
 
 port_loop( #port_state{ port = Port, clients = Clients } = State)->
   receive
-    { request, From, Request, Timeout }->
+    { request, From, #frame{ address = Address } =Request, Timeout }->
       iec60870_ft12:send( Port, Request ),
       receive
-        {data, Port, Response}->
+        {data, Port, #frame{address = Address, control_field = #control_field_response{} } = Response}->
           From ! { response, self(), Response }
       after
         Timeout->
@@ -216,5 +248,8 @@ port_loop( #port_state{ port = Port, clients = Clients } = State)->
           port_loop( State#port_state{ clients = Clients1 });
         _->
           exit( shutdown )
-      end
+      end;
+    Unexpected->
+      ?LOGWARNING("unexpected mesaage received ~p",[Unexpected]),
+      port_loop( State )
   end.

@@ -177,10 +177,13 @@ parse_frame(<<
         Checksum ->
           <<ControlField, Address:AddressSize/little-integer, Data/binary>> = FrameData,
           case parse_control_field(<<ControlField>>) of
-            #control_field_request{} = CFRec ->
+            error ->
+              ?LOGERROR("invalid control field ~p", [ControlField]),
+              Tail;
+            CF ->
               {#frame{
                 address = Address,
-                control_field = CFRec,
+                control_field = CF,
                 data = Data
               }, Tail };
             error ->
@@ -205,7 +208,9 @@ parse_frame(<<?START_DATA_CHAR,_/binary>> = Buffer, _AddressSize) ->
   Buffer;
 
 parse_frame(<<_, Tail/binary>>, AddressSize) ->
-  parse_frame(Tail, AddressSize).
+  parse_frame(Tail, AddressSize);
+parse_frame(<<>>, _AddressSize) ->
+  <<>>.
 
 parse_control_field(<<DIR:1, 1:1, FCB:1, FCV:1, FunctionCode:4>>) ->
   #control_field_request{

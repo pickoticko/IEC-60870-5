@@ -61,9 +61,9 @@ parse_information_element(?M_DP_TB_1, <<QDS:6, Value:2, Timestamp/binary>>) ->
 parse_information_element(?M_ME_TF_1, <<Value:32/little-float, QDS:8, Timestamp/binary>>) ->
   #{value => Value, qds => QDS, ts => parse_cp56(Timestamp)};
 
-parse_information_element(_Type, _Value) ->
+parse_information_element(_Type, Value) ->
   % TODO: throw({invalid_type_or_value, Type, Value}).
-  ignore_this.
+  #{value => Value}.
 
 %% +--------------------------------------------------------------+
 
@@ -147,7 +147,8 @@ create_information_element(?M_ME_TF_1, #{
   <<M1:8, M2:8, M3:8, M4:8>> = <<(1.0 * Value):32/float>>,
   <<M4, M3, M2, M1, QDS:8/little-integer, CP56/binary>>;
 
-create_information_element(OtherType, _) -> throw({unsupported_type, OtherType}).
+create_information_element(_Type, #{value := Value}) -> Value.
+%% throw({unsupported_type, OtherType}).
 
 parse_cp56(CP) ->
   <<

@@ -137,7 +137,7 @@ parse_frame(<<
 >> = Buffer, AddressSize) ->
   case Buffer of
     <<?START_CMD_CHAR, ControlField, Address:AddressSize/little-integer, Checksum, ?END_CHAR, Tail/binary>> ->
-      case control_sum(<<ControlField, Address>>) of
+      case control_sum(<<ControlField, Address:AddressSize/little-integer>>) of
         Checksum ->
           case parse_control_field(<<ControlField>>) of
             error ->

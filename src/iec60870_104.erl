@@ -148,7 +148,6 @@ start_server(InSettings) ->
 
 stop_server( _ListenSocket )->
   ok.
-  %gen_tcp:shutdown( ListenSocket, read_write ).
 
 
 start_client(InSettings )->
@@ -203,7 +202,7 @@ wait_connection( ListenSocket, Settings, Root )->
             gen_tcp:close( Socket )
         end;
       {error, ActivateError} ->
-        ?LOGWARNING("activation error ~p",[ ActivateError ]),
+        ?LOGWARNING("incoming connection activation error ~p",[ ActivateError ]),
         gen_tcp:close( Socket )
     end
 
@@ -217,13 +216,17 @@ accept_loop( ListenSocket, Root )->
       receive
         {'EXIT', Root, Reason}->
           timer:sleep(1000),
-          gen_tcp:shutdown( ListenSocket, read_write ),
+          catch gen_tcp:close( ListenSocket ),
+          catch gen_tcp:shutdown( ListenSocket, read_write ),
           exit( Reason )
       after
         0-> accept_loop( ListenSocket, Root )
       end;
     {error, Error}->
-      exit(Root, Error)
+      catch gen_tcp:close( ListenSocket ),
+      catch gen_tcp:shutdown( ListenSocket, read_write ),
+      exit(Root, Error),
+      exit( Error )
   end.
 
 
@@ -254,7 +257,7 @@ init_client(Owner, #{
           });
 
         {error, ActivateError} ->
-          ?LOGWARNING("activation error ~p",[ ActivateError ]),
+          ?LOGWARNING("client connection activation error ~p",[ ActivateError ]),
           gen_tcp:close( Socket ),
           throw( ActivateError )
       end;

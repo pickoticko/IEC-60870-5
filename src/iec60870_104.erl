@@ -172,43 +172,56 @@ start_client(InSettings )->
 wait_connection( ListenSocket, Settings, Root )->
   spawn(fun()->
 
+    process_flag(trap_exit, true),
     link( Root ),
-    case gen_tcp:accept(ListenSocket) of
-      {ok, Socket }->
 
-        % Handle the ListenSocket to the next process
-        unlink( Root ),
-        wait_connection( ListenSocket, Settings, Root ),
+    Socket = accept_loop( ListenSocket, Root ),
 
-        case wait_activate( Socket, ?START_DT_ACTIVATE, <<>> ) of
-          {ok, Buffer} ->
+    % Handle the ListenSocket to the next process
+    unlink( Root ),
+    wait_connection( ListenSocket, Settings, Root ),
 
-            socket_send(Socket, create_u_packet(?START_DT_CONFIRM)),
+    case wait_activate( Socket, ?START_DT_ACTIVATE, <<>> ) of
+      {ok, Buffer} ->
 
-            case iec60870_server:start_connection(Root, ListenSocket, self() ) of
-              {ok, Connection} ->
+        socket_send(Socket, create_u_packet(?START_DT_CONFIRM)),
 
-                % Enter the loop
-                init_loop( #state{
-                  socket = Socket,
-                  connection = Connection,
-                  settings = Settings,
-                  buffer = Buffer
-                });
+        case iec60870_server:start_connection(Root, ListenSocket, self() ) of
+          {ok, Connection} ->
 
-              {error, InternalError}->
-                ?LOGERROR("unable to start process to handle incoming connection, error ~p",[InternalError]),
-                gen_tcp:close( Socket )
-            end;
-          {error, ActivateError} ->
-            ?LOGWARNING("activation error ~p",[ ActivateError ]),
+            % Enter the loop
+            init_loop( #state{
+              socket = Socket,
+              connection = Connection,
+              settings = Settings,
+              buffer = Buffer
+            });
+
+          {error, InternalError}->
+            ?LOGERROR("unable to start process to handle incoming connection, error ~p",[InternalError]),
             gen_tcp:close( Socket )
         end;
-      {error, AcceptError}->
-        throw( AcceptError )
+      {error, ActivateError} ->
+        ?LOGWARNING("activation error ~p",[ ActivateError ]),
+        gen_tcp:close( Socket )
     end
 
   end).
+
+accept_loop( ListenSocket, Root )->
+  case gen_tcp:accept(ListenSocket, _Timeout = 2000) of
+    {ok, Socket }->
+      Socket;
+    {error, timeout}->
+      receive
+        {'EXIT', Root, Reason}-> exit( Reason )
+      after
+        0-> accept_loop( ListenSocket, Root )
+      end;
+    {error, Error}->
+      exit(Root, Error)
+  end.
+
 
 %%----------------------------------------------------------------------------------
 %%  Init client socket

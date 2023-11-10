@@ -42,6 +42,7 @@ init( {Root, Connection, #{name := Name, groups:=Groups} = Settings} ) ->
   ?LOGINFO("~p start incoming connection",[ Name ]),
   esubscribe:subscribe(Name, update, self()),
   process_flag(trap_exit, true),
+  erlang:monitor(process, Root),
   [begin
      timer:send_after(0, {update_group, GroupID, T})
    end || #{id := GroupID, update := T} <- Groups, is_integer(T)],
@@ -107,7 +108,7 @@ handle_event(info, {'EXIT', Connection, Reason}, _AnyState, #data{
 }) ->
   ?LOGINFO("stop incoming connection, reason: ~p", [Reason] ),
   {stop, Reason};
-handle_event(info, {'EXIT', Root, Reason}, _AnyState, #data{
+handle_event(info, {'DOWN', _, process, Root, Reason}, _AnyState, #data{
   connection = Root
 }) ->
   ?LOGINFO("stop server connection, reason: ~p", [Reason] ),

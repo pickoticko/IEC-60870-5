@@ -146,8 +146,9 @@ start_server(InSettings) ->
       throw({transport_error, Reason})
   end.
 
-stop_server( ListenSocket )->
-  gen_tcp:shutdown( ListenSocket, read_write ).
+stop_server( _ListenSocket )->
+  ok.
+  %gen_tcp:shutdown( ListenSocket, read_write ).
 
 
 start_client(InSettings )->
@@ -214,7 +215,10 @@ accept_loop( ListenSocket, Root )->
       Socket;
     {error, timeout}->
       receive
-        {'EXIT', Root, Reason}-> exit( Reason )
+        {'EXIT', Root, Reason}->
+          timer:sleep(1000),
+          gen_tcp:shutdown( ListenSocket, read_write ),
+          exit( Reason )
       after
         0-> accept_loop( ListenSocket, Root )
       end;

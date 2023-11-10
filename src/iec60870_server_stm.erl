@@ -108,8 +108,8 @@ handle_event(info, {'EXIT', Connection, Reason}, _AnyState, #data{
 }) ->
   ?LOGINFO("stop incoming connection, reason: ~p", [Reason] ),
   {stop, Reason};
-handle_event(info, {'DOWN', _, process, Root, Reason}, _AnyState, #data{
-  connection = Root
+handle_event(info, {'DOWN',_,process,Root,Reason}, _AnyState, #data{
+  root = Root
 }) ->
   ?LOGINFO("stop server connection, reason: ~p", [Reason] ),
   {stop, Reason};

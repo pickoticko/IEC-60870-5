@@ -314,7 +314,7 @@ wait_connection( #state{
 } = State)->
   receive
     {start_connection, Server, From, Connection } ->
-      case gen_statem:start(iec60870_server_stm, {Connection, ConnectionSettings}, []) of
+      case gen_statem:start(iec60870_server_stm, {_Root=self(), Connection, ConnectionSettings}, []) of
         {ok, PID} ->
           From ! {self(), PID};
         {error, Error}->

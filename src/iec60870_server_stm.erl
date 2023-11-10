@@ -9,10 +9,6 @@
 -include("asdu.hrl").
 
 -export([
-  start_link/1
-]).
-
--export([
   callback_mode/0,
   code_change/3,
   init/1,
@@ -22,6 +18,7 @@
 
 
 -record(data, {
+  root,
   groups,
   settings,
   connection
@@ -41,20 +38,16 @@ callback_mode() -> [
   state_enter
 ].
 
-start_link( Options )->
-  case gen_statem:start_link(?MODULE, {_Connection = self(), Options}, []) of
-    {ok, PID} -> PID;
-    {error, Error} -> throw(Error)
-  end.
-
-init( {Connection, #{name := Name, groups:=Groups} = Settings} ) ->
+init( {Root, Connection, #{name := Name, groups:=Groups} = Settings} ) ->
   ?LOGINFO("~p start incoming connection",[ Name ]),
   esubscribe:subscribe(Name, update, self()),
-  erlang:monitor(process, Connection),
+  process_flag(trap_exit, true),
+  erlang:monitor(process, Root),
   [begin
      timer:send_after(0, {update_group, GroupID, T})
    end || #{id := GroupID, update := T} <- Groups, is_integer(T)],
   {ok, ?RUNNING, #data{
+    root = Root,
     settings = Settings,
     connection = Connection
   }}.
@@ -109,12 +102,17 @@ handle_event(info, {update_group, GroupID, Timer}, ?RUNNING, #data{
   keep_state_and_data;
 
 
-% The server is down
-handle_event(info, {'DOWN', _, process, Connection, Error}, _AnyState, #data{
+% The connection is down
+handle_event(info, {'EXIT', Connection, Reason}, _AnyState, #data{
   connection = Connection
 }) ->
-  ?LOGINFO("stop incoming connection, reason: ~p", [Error] ),
-  {stop, Error};
+  ?LOGINFO("stop incoming connection, reason: ~p", [Reason] ),
+  {stop, Reason};
+handle_event(info, {'DOWN', _, process, Root, Reason}, _AnyState, #data{
+  connection = Root
+}) ->
+  ?LOGINFO("stop server connection, reason: ~p", [Reason] ),
+  {stop, Reason};
 
 % Log unexpected events
 handle_event(EventType, EventContent, _AnyState, _Data) ->

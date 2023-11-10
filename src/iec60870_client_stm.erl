@@ -179,8 +179,7 @@ handle_event(info, {update_group, Group, PID}, ?CONNECTED, Data) when PID =:= se
 handle_event(info, {write, IOA, Value}, _State, #data{
   name = Name,
   connection = Connection,
-  asdu = ASDUSettings,
-  storage = Storage
+  asdu = ASDUSettings
 }) ->
 
   %% Getting all updates
@@ -188,8 +187,6 @@ handle_event(info, {write, IOA, Value}, _State, #data{
   Items = [{IOA, Value} | NextItems],
 
   send_items([{IOA, Value} | Items], Connection, ?COT_SPONT, ASDUSettings),
-
-  [update_value(Name, Storage, ID, V) || {ID, V} <- Items],
 
   keep_state_and_data;
 

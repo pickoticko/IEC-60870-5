@@ -226,7 +226,8 @@ handle_asdu(#asdu{
   settings = #{
     root := Root
   }
-}) when Type >= ?M_SP_NA_1, Type =< ?M_EP_TF_1 ->
+}) when Type >= ?M_SP_NA_1, Type =< ?M_ME_ND_1;
+        Type >= ?M_SP_TB_1, Type =< ?M_EI_NA_1 ->
   [iec60870_server:update_value(Root, IOA, Value) || {IOA, Value} <- Objects],
   keep_state_and_data;
 

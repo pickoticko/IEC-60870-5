@@ -589,7 +589,7 @@ check_settings(Settings) ->
 check_setting(host, Host) when is_tuple( Host) ->
   case tuple_to_list(Host) of
     IP when length(IP) =:= 4 ->
-      case [Octet || Octet <- IP, is_integer(Octet), Octet > 0, Octet < 255] of
+      case [Octet || Octet <- IP, is_integer(Octet), Octet >= 0, Octet =< 255] of
         IP -> Host;
         _  -> throw({invalid_host, Host})
       end;

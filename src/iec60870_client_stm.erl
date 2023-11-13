@@ -260,6 +260,17 @@ handle_asdu(#asdu{
 
   {next_state, {?GROUP_REQUEST, update, Group, NextState}, Data, Actions};
 
+handle_asdu(#asdu{
+  type = ?C_IC_NA_1,
+  cot = COT,
+  pn = 1, % negative
+  objects = [{_IOA, GroupID}]
+}, {?GROUP_REQUEST, init, #{id := GroupID}, NextState}, Data) ->
+
+  ?LOGWARNING("negative responce on group ~p request, cot ~p",[GroupID, COT]),
+
+  {next_state, NextState, Data};
+
 %-------------------Termination fo group request----------------------------
 handle_asdu(#asdu{
   type = ?C_IC_NA_1,

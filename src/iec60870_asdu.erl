@@ -3,6 +3,8 @@
 %% | Author: Tokenov Alikhan, @alikhantokenov@gmail.com           |
 %% +--------------------------------------------------------------+
 -module(iec60870_asdu).
+
+-include("iec60870.hrl").
 -include("asdu.hrl").
 
 -export([
@@ -176,4 +178,4 @@ split(DataObjects, MaxNumber) when length( DataObjects ) > MaxNumber->
   [Head | split(Tail, MaxNumber)];
 
 split(DataObjects, _MaxSize)->
-  DataObjects.
+  [DataObjects].

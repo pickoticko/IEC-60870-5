@@ -14,6 +14,7 @@
 ]).
 
 -define(UNIX_EPOCH_DATE, {1970, 1, 1}).
+-define(SHORT_INT_MAX_VALUE, 32767).
 
 %% +--------------------------------------------------------------+
 %% |                           Parsing                            |
@@ -58,12 +59,12 @@ parse_information_element(?M_BO_TA_1, <<BSI:32/little-unsigned, QDS, Timestamp/b
   #{value => BSI, qds => QDS, ts => parse_cp24(Timestamp)};
 
 %% Type 9. Measured value, normalized value
-parse_information_element(?M_ME_NA_1, <<NVA:16/little-signed-float, QDS>>) ->
-  #{value => NVA, qds => QDS};
+parse_information_element(?M_ME_NA_1, <<NVA:16/little-signed, QDS>>) ->
+  #{value => parse_nva(NVA), qds => QDS};
 
 %% Type 10. Measured value, normalized value with time tag
-parse_information_element(?M_ME_TA_1, <<NVA:16/little-signed-float, QDS, Timestamp/binary>>) ->
-  #{value => NVA, qds => QDS, ts => parse_cp24(Timestamp)};
+parse_information_element(?M_ME_TA_1, <<NVA:16/little-signed, QDS, Timestamp/binary>>) ->
+  #{value => parse_nva(NVA), qds => QDS, ts => parse_cp24(Timestamp)};
 
 %% Type 11. Measured value, scaled value
 parse_information_element(?M_ME_NB_1, <<SVA:16/little-signed, QDS>>) ->
@@ -109,8 +110,8 @@ parse_information_element(?M_PS_NA_1, <<SCD:32/little, QDS>>) ->
   #{value => SCD, qds => QDS};
 
 %% Type 21. Measured value, normalized value without QDS
-parse_information_element(?M_ME_ND_1, <<NVA:16/little-signed-float>>) ->
-  #{value => NVA};
+parse_information_element(?M_ME_ND_1, <<NVA:16/little-signed>>) ->
+  #{value => parse_nva(NVA)};
 
 %% Type 30. Single point information with time tag
 parse_information_element(?M_SP_TB_1, <<SIQ, Timestamp/binary>>) ->
@@ -132,8 +133,8 @@ parse_information_element(?M_BO_TB_1, <<BSI:32/little-unsigned, QDS, Timestamp/b
   #{value => BSI, qds => QDS, ts => parse_cp56(Timestamp)};
 
 %% Type 34. Measured value, normalized value with time tag
-parse_information_element(?M_ME_TD_1, <<NVA:16/little-signed-float, QDS, Timestamp/binary>>) ->
-  #{value => NVA, qds => QDS, ts => parse_cp56(Timestamp)};
+parse_information_element(?M_ME_TD_1, <<NVA:16/little-signed, QDS, Timestamp/binary>>) ->
+  #{value => parse_nva(NVA), qds => QDS, ts => parse_cp56(Timestamp)};
 
 %% Type 35. Measured value, scaled value with time tag
 parse_information_element(?M_ME_TE_1, <<SVA:16/little-signed, QDS, Timestamp/binary>>) ->
@@ -251,7 +252,7 @@ create_information_element(?M_ME_NA_1, #{
   value := NVA,
   qds := QDS
 }) ->
-  <<NVA:16/little-signed-float, QDS>>;
+  <<(get_nva(NVA)):16/little-signed-float, QDS>>;
 
 %% Type 10. Measured value, normalized value with time tag
 create_information_element(?M_ME_TA_1, #{
@@ -259,7 +260,7 @@ create_information_element(?M_ME_TA_1, #{
   qds := QDS,
   ts := Timestamp
 }) ->
-  <<NVA:16/little-signed-float, QDS, (get_cp24(Timestamp))/binary>>;
+  <<(get_nva(NVA)):16/little-signed-float, QDS, (get_cp24(Timestamp))/binary>>;
 
 %% Type 11. Measured value, scaled value
 create_information_element(?M_ME_NB_1, #{
@@ -347,7 +348,7 @@ create_information_element(?M_PS_NA_1, #{
 create_information_element(?M_ME_ND_1, #{
   value := NVA
 }) ->
-  <<NVA:16/little-signed-float>>;
+  <<(get_nva(NVA)):16/little-signed>>;
 
 %% Type 30. Single point information with time tag
 create_information_element(?M_SP_TB_1, #{
@@ -391,7 +392,7 @@ create_information_element(?M_ME_TD_1, #{
   qds := QDS,
   ts := Timestamp
 }) ->
-  <<NVA:16/little-signed-float, QDS, (get_cp56(Timestamp))/binary>>;
+  <<(get_nva(NVA)):16/little-signed, QDS, (get_cp56(Timestamp))/binary>>;
 
 %% Type 35. Measured value, scaled value with time tag
 create_information_element(?M_ME_TE_1, #{
@@ -535,3 +536,6 @@ get_cp24(Value) ->
   end.
 
 millis_to_seconds(Milliseconds) -> Milliseconds div 1000.
+
+parse_nva(Value) -> Value / ?SHORT_INT_MAX_VALUE.
+get_nva(Value) -> Value * ?SHORT_INT_MAX_VALUE.

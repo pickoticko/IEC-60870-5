@@ -97,16 +97,18 @@ build(#asdu{
   MaxObjectsNumber = AvailableSize div ElementSize,
   InformationObjectsList =
     if
-      length( DataObjects ) > MaxObjectsNumber -> split(DataObjects, MaxObjectsNumber);
-      true -> [DataObjects]
+      length(DataObjects) > MaxObjectsNumber ->
+        split(DataObjects, MaxObjectsNumber);
+      true ->
+        [DataObjects]
     end,
   [begin
-    <<Type:8            /integer,
-      SQ:1              /integer,
-      NumberOfObjects:7 /integer,
-      0:1, 0:1, COT:6   /little-integer,
-      ORG:ORGBitSize    /little-integer,
-      COA:COABitSize    /little-integer,
+    <<Type:8                         /integer,
+      SQ:1                           /integer,
+      (length(InformationObjects)):7 /integer,
+      0:1, 0:1, COT:6                /little-integer,
+      ORG:ORGBitSize                 /little-integer,
+      COA:COABitSize                 /little-integer,
       (create_information_objects(SQ, Type, InformationObjects, IOABitSize))/binary>>
    end || InformationObjects <- InformationObjectsList].
 

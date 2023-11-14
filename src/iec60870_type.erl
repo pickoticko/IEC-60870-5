@@ -429,8 +429,8 @@ create_information_element(?M_EP_TD_1, #{
 
 %% Type 70. End of initialization
 create_information_element(?M_EI_NA_1, #{
-  value => Value,
-  coi => COI
+  value := Value,
+  coi := COI
 }) ->
   <<COI:1, _Ignore:7>> = <<COI>>,
   <<COI, Value>>;

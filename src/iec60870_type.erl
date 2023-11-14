@@ -252,7 +252,7 @@ create_information_element(?M_ME_NA_1, #{
   value := NVA,
   qds := QDS
 }) ->
-  <<(get_nva(NVA)):16/little-signed-float, QDS>>;
+  <<(get_nva(NVA)):16/little-signed, QDS>>;
 
 %% Type 10. Measured value, normalized value with time tag
 create_information_element(?M_ME_TA_1, #{
@@ -260,7 +260,7 @@ create_information_element(?M_ME_TA_1, #{
   qds := QDS,
   ts := Timestamp
 }) ->
-  <<(get_nva(NVA)):16/little-signed-float, QDS, (get_cp24(Timestamp))/binary>>;
+  <<(get_nva(NVA)):16/little-signed, QDS, (get_cp24(Timestamp))/binary>>;
 
 %% Type 11. Measured value, scaled value
 create_information_element(?M_ME_NB_1, #{

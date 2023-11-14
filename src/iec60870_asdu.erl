@@ -95,13 +95,13 @@ build(#asdu{
     size(iec60870_type:create_information_element(Type, Value)) + (abs(SQ - 1) * IOABitSize div 8),
   AvailableSize = ?MAX_PACKET_BYTE_SIZE - HeaderSize,
   MaxObjectsNumber = AvailableSize div ElementSize,
-  ?LOGDEBUG("DataObjects: ~p", [DataObjects]),
+  io:format("DataObjects: ~p~n", [DataObjects]),
   InformationObjectsList =
     if
       length( DataObjects ) > MaxObjectsNumber -> split(DataObjects, MaxObjectsNumber);
       true -> [DataObjects]
     end,
-  ?LOGDEBUG("InformationObjectsList: ~p", [InformationObjectsList]),
+  io:format("InformationObjectsList: ~p~n", [InformationObjectsList]),
   [begin
     <<Type:8            /integer,
       SQ:1              /integer,

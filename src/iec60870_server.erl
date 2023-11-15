@@ -199,8 +199,7 @@ update_value( #?MODULE{ name = Name, storage = Storage }, ID, InValue)->
     group => Group,
     type => undefined,
     value => undefined,
-    ts => erlang:system_time(millisecond),
-    qds => undefined
+    ts => erlang:system_time(millisecond)
   }, InValue),
 
   ets:insert(Storage, {ID, Value}),

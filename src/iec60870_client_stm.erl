@@ -231,14 +231,13 @@ handle_asdu(#asdu{
 }, _State, #data{
   name = Name,
   storage = Storage
-}) when Type >= ?M_SP_NA_1, Type =< ?M_EP_TF_1 ->
-
+}) when Type >= ?M_SP_NA_1, Type =< ?M_ME_ND_1;
+        Type >= ?M_SP_TB_1, Type =< ?M_EI_NA_1 ->
   Group =
     if
       COT >= ?COT_GROUP_MIN, COT =< ?COT_GROUP_MAX-> COT - ?COT_GROUP_MIN;
       true -> undefined
     end,
-
   [update_value(Name, Storage, IOA, Value#{type => Type, group => Group }) || {IOA, Value} <- Objects],
 
   keep_state_and_data;
@@ -349,8 +348,7 @@ update_value(Name, Storage, ID, InValue)->
     type => undefined,
     value => undefined,
     ts => undefined,
-    accept_ts => erlang:system_time(millisecond),
-    qds => undefined
+    accept_ts => erlang:system_time(millisecond)
   }, InValue),
 
   ets:insert(Storage, {ID, Value}),

@@ -78,21 +78,18 @@ build(#asdu{
   org_size := ORGBitSize,
   coa_size := COABitSize
 }) ->
-  NumberOfObjects = length(DataObjects),
-  SQ =
-    if
-      NumberOfObjects > 1 -> check_sq(DataObjects);
-      true -> ?SQ_DISCONTINUOUS
-    end,
+
   HeaderSize = (
       4 %% Transport Constant Cost
     + 3 %% ASDU Constant Cost
     + ORGBitSize div 8
     + COABitSize div 8
-    + SQ * IOABitSize div 8),
+  ),
+
   [{_IOA, Value} | _] = DataObjects,
   ElementSize =
-    size(iec60870_type:create_information_element(Type, Value)) + (abs(SQ - 1) * IOABitSize div 8),
+    size(iec60870_type:create_information_element(Type, Value)) + (IOABitSize div 8),
+
   AvailableSize = ?MAX_PACKET_BYTE_SIZE - HeaderSize,
   MaxObjectsNumber = AvailableSize div ElementSize,
   InformationObjectsList =
@@ -104,12 +101,12 @@ build(#asdu{
     end,
   [begin
     <<Type:8                         /integer,
-      SQ:1                           /integer,
+      ?SQ_DISCONTINUOUS:1            /integer,
       (length(InformationObjects)):7 /integer,
       0:1, 0:1, COT:6                /little-integer,
       ORG:ORGBitSize                 /little-integer,
       COA:COABitSize                 /little-integer,
-      (create_information_objects(SQ, Type, InformationObjects, IOABitSize))/binary>>
+      (create_information_objects(Type, InformationObjects, IOABitSize))/binary>>
    end || InformationObjects <- InformationObjectsList].
 
 %% +--------------------------------------------------------------+
@@ -126,37 +123,22 @@ split_objects(#{sq := ?SQ_DISCONTINUOUS, no := NumberOfObjects}, IOASize, Object
   ObjectSize = round((iec60870_lib:bytes_to_bits(size(ObjectsBin)) - IOASize * NumberOfObjects) / NumberOfObjects),
   [{Address, <<Object:ObjectSize>>} || <<Address:IOASize/little-integer, Object:ObjectSize>> <= ObjectsBin].
 
-create_information_objects(_SQ = ?SQ_CONTINUOUS, Type, DataObjects, IOABitSize) ->
-  InformationObjectsList =
-    [iec60870_type:create_information_element(Type, Value) || {_, Value} <- DataObjects],
-  InformationObjects =
-    <<<<Value/binary>> || Value <- InformationObjectsList>>,
-  {StartAddress, _} = hd(DataObjects),
-  <<
-    StartAddress:IOABitSize /little-integer,
-    InformationObjects      /binary
-  >>;
-
-create_information_objects(_SQ = ?SQ_DISCONTINUOUS, Type, DataObjects, IOABitSize) ->
+create_information_objects(Type, DataObjects, IOABitSize) ->
   InformationObjectsList =
     [{IOA, iec60870_type:create_information_element(Type, Value)} || {IOA, Value} <- DataObjects],
   <<<<Address:IOABitSize/little-integer, Value/binary>> || {Address, Value} <- InformationObjectsList>>.
-
-%% Checks addresses (IOAs) for a sequence
-check_sq([{IOA, _} | Rest]) ->
-  check_sq(Rest, IOA).
-check_sq([{IOA, _} | Rest], PrevIOA) when IOA =:= PrevIOA + 1 ->
-  check_sq(Rest, IOA);
-check_sq([], _) -> ?SQ_CONTINUOUS;
-check_sq(_, _) -> ?SQ_DISCONTINUOUS.
 
 %% Parses Data Unit Identifier (DUI)
 parse_dui(COASize, ORGSize,
   <<Type:8,
     SQ:1, NumberOfObjects:7,
     T:1, PN:1, COT:6,
-    Rest/binary>>
+    Rest/binary>> = ASDU
 ) ->
+  if
+    NumberOfObjects > 1-> ?LOGINFO("DEBUG: type: ~p, SQ ~p, COT ~p , asdu ~p",[Type, SQ, COT, ASDU]);
+    true -> ignore
+  end,
   <<ORG:ORGSize,
     COA:COASize/little-integer,
     Body/binary>> = Rest,

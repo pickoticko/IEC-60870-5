@@ -21,7 +21,12 @@
 -define(SQ_DISCONTINUOUS, 0).
 -define(SQ_CONTINUOUS, 1).
 
+% Packet capacity
 -define(MAX_PACKET_BYTE_SIZE, 255).
+
+% Constant sizes of header content
+-define(TRANSPORT_CONSTANT_COST, 4).
+-define(ASDU_CONSTANT_COST, 3).
 
 get_settings( #{
   coa_size := COASize,
@@ -78,18 +83,15 @@ build(#asdu{
   org_size := ORGBitSize,
   coa_size := COABitSize
 }) ->
-
   HeaderSize = (
-      4 %% Transport Constant Cost
-    + 3 %% ASDU Constant Cost
+      ?TRANSPORT_CONSTANT_COST
+    + ?ASDU_CONSTANT_COST
     + ORGBitSize div 8
     + COABitSize div 8
   ),
-
   [{_IOA, Value} | _] = DataObjects,
   ElementSize =
     size(iec60870_type:create_information_element(Type, Value)) + (IOABitSize div 8),
-
   AvailableSize = ?MAX_PACKET_BYTE_SIZE - HeaderSize,
   MaxObjectsNumber = AvailableSize div ElementSize,
   InformationObjectsList =
@@ -153,9 +155,8 @@ parse_dui(COASize, ORGSize,
 parse_dui(_COASize, _ORGSize, InvalidASDU)->
   throw({invalid_asdu_format, InvalidASDU}).
 
-split(DataObjects, MaxNumber) when length( DataObjects ) > MaxNumber->
-  { Head, Tail } = lists:split(MaxNumber, DataObjects),
-  [Head | split(Tail, MaxNumber)];
-
+split(DataObjects, MaxSize) when length(DataObjects) > MaxSize->
+  {Head, Tail} = lists:split(MaxSize, DataObjects),
+  [Head | split(Tail, MaxSize)];
 split(DataObjects, _MaxSize)->
   [DataObjects].

@@ -15,7 +15,7 @@
 
 -define(UNIX_EPOCH_DATE, {1970, 1, 1}).
 -define(UNIX_EPOCH_SECONDS, 62167219200).
--define(CURRENT_MILLENIUM, 2000).
+-define(CURRENT_MILLENNIUM, 2000).
 -define(SHORT_INT_MAX_VALUE, 32767).
 
 %% +--------------------------------------------------------------+
@@ -493,7 +493,7 @@ parse_cp56(<<
 >> = Timestamp) ->
   try
     DateTime =
-      {{Year + ?CURRENT_MILLENIUM, Month, Day}, {Hours, Minutes, millis_to_seconds(Milliseconds)}},
+      {{Year + ?CURRENT_MILLENNIUM, Month, Day}, {Hours, Minutes, millis_to_seconds(Milliseconds)}},
     [UTC] = calendar:local_time_to_universal_time_dst(DateTime),
     GregorianSeconds = calendar:datetime_to_gregorian_seconds(UTC),
     seconds_to_millis(GregorianSeconds - ?UNIX_EPOCH_SECONDS)
@@ -525,7 +525,7 @@ get_cp56(PosixTimestamp) ->
       16#00:4,
       Month:4   /integer,
       16#00:1,
-      (Year - ?CURRENT_MILLENIUM):7/integer>>
+      (Year - ?CURRENT_MILLENNIUM):7/integer>>
   catch
     _:Error ->
       ?LOGERROR("Timestamp (CP56) get error: ~p, timestamp: ~p", [Error, PosixTimestamp]),

@@ -133,12 +133,8 @@ parse_dui(COASize, ORGSize,
   <<Type:8,
     SQ:1, NumberOfObjects:7,
     T:1, PN:1, COT:6,
-    Rest/binary>> = ASDU
+    Rest/binary>>
 ) ->
-  if
-    NumberOfObjects > 1-> ?LOGINFO("DEBUG: type: ~p, SQ ~p, COT ~p , asdu ~p",[Type, SQ, COT, ASDU]);
-    true -> ignore
-  end,
   <<ORG:ORGSize,
     COA:COASize/little-integer,
     Body/binary>> = Rest,

@@ -141,7 +141,7 @@ parse_information_element(?M_ME_TE_1, <<SVA:16/little-signed, QDS, Timestamp/bin
   #{value => SVA, qds => QDS, ts => parse_cp56(Timestamp)};
 
 %% Type 36. Measured value, short floating point value with time tag
-parse_information_element(?M_ME_TF_1, <<Value:32/little-signed-float, QDS, Timestamp/binary>> = RawValue) ->
+parse_information_element(?M_ME_TF_1, <<Value:32/little-signed-float, QDS, Timestamp/binary>>) ->
   #{value => Value, qds => QDS, ts => parse_cp56(Timestamp)};
 
 %% Type 37. Integrated totals with time tag

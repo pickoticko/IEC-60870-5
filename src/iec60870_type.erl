@@ -468,7 +468,7 @@ parse_cp24(<<
   _Reserved2:3,
   Hours:5         /integer,
   _IgnoredRest    /binary
->> = CP) ->
+>> = Timestamp) ->
   try
     DateTime = {?UNIX_EPOCH_DATE, {Hours, Minutes, millis_to_seconds(Milliseconds)}},
     [UTC] = calendar:local_time_to_universal_time_dst(DateTime),
@@ -476,7 +476,7 @@ parse_cp24(<<
     seconds_to_millis(GregorianSeconds - ?UNIX_EPOCH_SECONDS)
   catch
     _:Error ->
-      ?LOGERROR("Timestamp error: ~p. Timestamp: ~p", [CP, Error]),
+      ?LOGERROR("Timestamp (CP24) parse error: ~p, timestamp: ~p", [Error, Timestamp]),
       undefined
   end.
 
@@ -546,7 +546,7 @@ get_cp24(PosixTimestamp) ->
       16#00:3, Hours:5/integer>>
   catch
     _:Error ->
-      ?LOGERROR("Timestamp error: ~p. Timestamp: ~p", [Value, Error]),
+      ?LOGERROR("Timestamp (CP24) get error: ~p, timestamp: ~p", [Error, PosixTimestamp]),
       undefined
   end.
 

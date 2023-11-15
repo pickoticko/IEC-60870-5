@@ -10,10 +10,14 @@
 
 -export([
   parse_information_element/2,
-  create_information_element/2
+  create_information_element/2,
+  get_cp56/1,
+  parse_cp56/1
 ]).
 
 -define(UNIX_EPOCH_DATE, {1970, 1, 1}).
+-define(UNIX_EPOCH_SECONDS, 62167219200).
+-define(CURRENT_MILLENIUM, 2000).
 -define(SHORT_INT_MAX_VALUE, 32767).
 
 %% +--------------------------------------------------------------+
@@ -466,38 +470,38 @@ parse_cp24(<<
   _IgnoredRest    /binary
 >> = CP) ->
   try
-    Seconds = millis_to_seconds(Milliseconds),
-    Time = {Hours, Minutes, Seconds},
-    calendar:datetime_to_gregorian_seconds({?UNIX_EPOCH_DATE, Time}) * 1000 - 62167219200000
+    DateTime = {?UNIX_EPOCH_DATE, {Hours, Minutes, millis_to_seconds(Milliseconds)}},
+    [UTC] = calendar:local_time_to_universal_time_dst(DateTime),
+    GregorianSeconds = calendar:datetime_to_gregorian_seconds(UTC),
+    seconds_to_millis(GregorianSeconds - ?UNIX_EPOCH_SECONDS)
   catch
     _:Error ->
       ?LOGERROR("Timestamp error: ~p. Timestamp: ~p", [CP, Error]),
       undefined
   end.
 
-parse_cp56(CP) ->
-  <<
-    Milliseconds:16/little-integer,
-    _R1:2,
-    Min:6  /integer,
-    _R2:3,
-    H:5    /integer,
-    _WD:3  /integer,
-    D:5    /integer,
-    _R3:4,
-    MN:4   /integer,
-    _res4:1,
-    Y:7    /integer
-  >> = CP,
+parse_cp56(<<
+  Milliseconds:16/little-integer,
+  _R1:2,
+  Minutes:6  /integer,
+  _R2:3,
+  Hours:5    /integer,
+  _WD:3  /integer,
+  Day:5    /integer,
+  _R3:4,
+  Month:4   /integer,
+  _R4:1,
+  Year:7    /integer
+>> = Timestamp) ->
   try
-    [DT | _] = calendar:local_time_to_universal_time_dst({
-      {Y + 2000, MN, D},
-      {H, Min, (Milliseconds div 1000)}
-    }),
-    calendar:datetime_to_gregorian_seconds(DT) * 1000 - 62167219200000
+    DateTime =
+      {{Year + ?CURRENT_MILLENIUM, Month, Day}, {Hours, Minutes, millis_to_seconds(Milliseconds)}},
+    [UTC] = calendar:local_time_to_universal_time_dst(DateTime),
+    GregorianSeconds = calendar:datetime_to_gregorian_seconds(UTC),
+    seconds_to_millis(GregorianSeconds - ?UNIX_EPOCH_SECONDS)
   catch
     _:Error ->
-      ?LOGERROR("parse_cp56 error: ~p, Timestamp: ~p", [CP, Error]),
+      ?LOGERROR("Timestamp (CP56) parse error: ~p, timestamp: ~p", [Error, Timestamp]),
       none
   end.
 
@@ -506,27 +510,40 @@ get_cp16(Value) ->
   <<Value/unsigned-integer>>.
 
 get_cp56(undefined) -> get_cp56(0);
-get_cp56(Value) ->
+get_cp56(PosixTimestamp) ->
   try
-    Gs = (Value + 62167219200000) div 1000,
-    {{Y, MN, D}, {H, Min, S}} = calendar:gregorian_seconds_to_datetime(Gs),
-    Ms = S * 1000 + (Value + 62167219200000) - Gs * 1000,
-    WD = calendar:day_of_the_week(Y, MN, D),
-    YCP56 = Y - 2000,
-    <<Ms:16/little-integer, 16#00:2, Min:6/integer, 16#00:3, H:5/integer, WD:3/integer, D:5/integer, 16#00:4, MN:4/integer, 16#00:1, YCP56:7/integer>>
+    GregorianSeconds = millis_to_seconds(PosixTimestamp) + ?UNIX_EPOCH_SECONDS,
+    UTC = calendar:gregorian_seconds_to_datetime(GregorianSeconds),
+    {{Year, Month, Day}, {Hour, Minute, Seconds}} =
+      calendar:universal_time_to_local_time(UTC),
+    WeekDay = calendar:day_of_the_week(Year, Month, Day),
+    <<(seconds_to_millis(Seconds)):16/little-integer,
+      16#00:2,
+      Minute:6  /integer,
+      16#00:3,
+      Hour:5    /integer,
+      WeekDay:3 /integer,
+      Day:5     /integer,
+      16#00:4,
+      Month:4   /integer,
+      16#00:1,
+      (Year - ?CURRENT_MILLENIUM):7/integer>>
   catch
     _:Error ->
-      ?LOGERROR("Timestamp error: ~p. Timestamp: ~p", [Value, Error]),
+      ?LOGERROR("Timestamp (CP56) get error: ~p, timestamp: ~p", [Error, PosixTimestamp]),
       undefined
   end.
 
 get_cp24(undefined) -> get_cp24(0);
-get_cp24(Value) ->
+get_cp24(PosixTimestamp) ->
   try
-    Gs = (Value + 62167219200000) div 1000,
-    {{_, _, _}, {H, Minutes, S}} = calendar:gregorian_seconds_to_datetime(Gs),
-    Millis = S * 1000 + (Value + 62167219200000) - Gs * 1000,
-    <<Millis:16/little-integer, 16#00:2, Minutes:6/integer, 16#00:3, H:5/integer>>
+    GregorianSeconds = millis_to_seconds(PosixTimestamp) + ?UNIX_EPOCH_SECONDS,
+    UTC = calendar:gregorian_seconds_to_datetime(GregorianSeconds),
+    {?UNIX_EPOCH_DATE, {Hours, Minutes, Seconds}} =
+      calendar:universal_time_to_local_time(UTC),
+    <<(seconds_to_millis(Seconds)):16/little-integer,
+      16#00:2, Minutes:6/integer,
+      16#00:3, Hours:5/integer>>
   catch
     _:Error ->
       ?LOGERROR("Timestamp error: ~p. Timestamp: ~p", [Value, Error]),
@@ -534,6 +551,7 @@ get_cp24(Value) ->
   end.
 
 millis_to_seconds(Milliseconds) -> Milliseconds div 1000.
+seconds_to_millis(Seconds) -> Seconds * 1000.
 
 parse_nva(Value) -> Value / ?SHORT_INT_MAX_VALUE.
 get_nva(Value) -> Value * ?SHORT_INT_MAX_VALUE.

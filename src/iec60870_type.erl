@@ -10,9 +10,7 @@
 
 -export([
   parse_information_element/2,
-  create_information_element/2,
-  get_cp56/1,
-  parse_cp56/1
+  create_information_element/2
 ]).
 
 -define(UNIX_EPOCH_DATE, {1970, 1, 1}).

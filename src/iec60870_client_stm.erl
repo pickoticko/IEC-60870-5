@@ -331,28 +331,19 @@ group_by_types([], Acc) ->
 send_asdu(Connection, ASDU) ->
   Connection ! {asdu, self(), ASDU}, ok.
 
-
-update_value(Name, Storage, ID, InValue)->
-  Group =
-    case InValue of
-      #{ group := _G } when is_number( _G )-> _G;
-      _->
-        case ets:lookup( Storage, ID ) of
-          [{_, #{ group :=_G }}] -> _G;
-          _-> undefined
-        end
+update_value(Name, Storage, ID, InValue) ->
+  OldValue =
+    case ets:lookup(Storage, ID) of
+      [Map] -> Map;
+      _ -> #{
+        %% All object types have these keys
+        value => undefined,
+        group => undefined
+      }
     end,
-
-  Value = maps:merge(#{
-    group => Group,
-    type => undefined,
-    value => undefined,
-    ts => undefined,
-    accept_ts => erlang:system_time(millisecond)
-  }, InValue),
-
-  ets:insert(Storage, {ID, Value}),
+  NewValue = maps:merge(OldValue, InValue),
+  ets:insert(Storage, {ID, NewValue}),
   % Any updates notification
-  esubscribe:notify(Name, update, {ID, Value}),
+  esubscribe:notify(Name, update, {ID, NewValue}),
   % Only address notification
-  esubscribe:notify(Name, ID, Value).
+  esubscribe:notify(Name, ID, NewValue).

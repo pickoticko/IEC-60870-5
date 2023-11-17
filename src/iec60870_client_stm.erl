@@ -334,7 +334,7 @@ send_asdu(Connection, ASDU) ->
 update_value(Name, Storage, ID, InValue) ->
   OldValue =
     case ets:lookup(Storage, ID) of
-      [Map] -> Map;
+      [{_, Map}] -> Map;
       _ -> #{
         %% All object types have these keys
         value => undefined,

@@ -185,7 +185,7 @@ start_connection(Root, Server, Connection )->
 update_value(#?MODULE{name = Name, storage = Storage}, ID, InValue) ->
   OldValue =
     case ets:lookup(Storage, ID) of
-      [Map] -> Map;
+      [{_, Map}] -> Map;
       _ -> #{
         %% All object types have these keys
         value => undefined,

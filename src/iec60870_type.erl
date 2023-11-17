@@ -186,7 +186,7 @@ create_information_element(?M_SP_NA_1, #{
   siq := SIQ
 }) ->
   <<Rest:7, _Ignore:1>> = <<SIQ>>,
-  <<Rest:7, SPI>>;
+  <<Rest:7, (round(SPI)):1>>;
 
 %% Type 2. Single point information with time tag
 create_information_element(?M_SP_TA_1, #{
@@ -195,7 +195,7 @@ create_information_element(?M_SP_TA_1, #{
   ts := Timestamp
 }) ->
   <<Rest:7, _Ignore:1>> = <<SIQ>>,
-  <<Rest:7, SPI:1, (get_cp24(Timestamp))/binary>>;
+  <<Rest:7, (round(SPI)):1, (get_cp24(Timestamp))/binary>>;
 
 %% Type 3. Double point information
 create_information_element(?M_DP_NA_1, #{
@@ -203,7 +203,7 @@ create_information_element(?M_DP_NA_1, #{
   diq := DIQ
 }) ->
   <<Rest:6, _Ignore:2>> = <<DIQ>>,
-  <<Rest:6, DPI:2>>;
+  <<Rest:6, (round(DPI)):2>>;
 
 %% Type 4. Double point information with time tag
 create_information_element(?M_DP_TA_1, #{
@@ -212,7 +212,7 @@ create_information_element(?M_DP_TA_1, #{
   ts := Timestamp
 }) ->
   <<Rest:6, _Ignore:2>> = <<DIQ>>,
-  <<Rest:6, DPI:2, (get_cp24(Timestamp))/binary>>;
+  <<Rest:6, (round(DPI)):2, (get_cp24(Timestamp))/binary>>;
 
 %% Type 5. Step position information
 create_information_element(?M_ST_NA_1, #{
@@ -221,7 +221,7 @@ create_information_element(?M_ST_NA_1, #{
   qds := QDS
 }) ->
   <<State:1, _Ignore:7>> = <<VTI>>,
-  <<State:1, Value:7/signed, QDS>>;
+  <<State:1, (round(Value)):7/signed, QDS>>;
 
 %% Type 6. Step position information with time tag
 create_information_element(?M_ST_TA_1, #{
@@ -231,14 +231,14 @@ create_information_element(?M_ST_TA_1, #{
   ts := Timestamp
 }) ->
   <<State:1, _Ignore:7>> = <<VTI>>,
-  <<State:1, Value:7/signed, QDS, (get_cp24(Timestamp))/binary>>;
+  <<State:1, (round(Value)):7/signed, QDS, (get_cp24(Timestamp))/binary>>;
 
 %% Type 7. Bit string of 32 bit
 create_information_element(?M_BO_NA_1, #{
   value := BSI,
   qds := QDS
 }) ->
-  <<BSI:32/little-unsigned, QDS>>;
+  <<(round(BSI)):32/little-unsigned, QDS>>;
 
 %% Type 8. Bit string of 32 bit with time tag
 create_information_element(?M_BO_TA_1, #{
@@ -246,14 +246,14 @@ create_information_element(?M_BO_TA_1, #{
   qds := QDS,
   ts := Timestamp
 }) ->
-  <<BSI:32/little-unsigned, QDS, (get_cp24(Timestamp))/binary>>;
+  <<(round(BSI)):32/little-unsigned, QDS, (get_cp24(Timestamp))/binary>>;
 
 %% Type 9. Measured value, normalized value
 create_information_element(?M_ME_NA_1, #{
   value := NVA,
   qds := QDS
 }) ->
-  <<(get_nva(NVA)):16/little-signed, QDS>>;
+  <<(round(get_nva(NVA))):16/little-signed, QDS>>;
 
 %% Type 10. Measured value, normalized value with time tag
 create_information_element(?M_ME_TA_1, #{
@@ -261,14 +261,14 @@ create_information_element(?M_ME_TA_1, #{
   qds := QDS,
   ts := Timestamp
 }) ->
-  <<(get_nva(NVA)):16/little-signed, QDS, (get_cp24(Timestamp))/binary>>;
+  <<(round(get_nva(NVA))):16/little-signed, QDS, (get_cp24(Timestamp))/binary>>;
 
 %% Type 11. Measured value, scaled value
 create_information_element(?M_ME_NB_1, #{
   value := SVA,
   qds := QDS
 }) ->
-  <<SVA:16/little-signed, QDS>>;
+  <<(round(SVA)):16/little-signed, QDS>>;
 
 %% Type 12. Measured value, scaled value with time tag
 create_information_element(?M_ME_TB_1, #{
@@ -276,7 +276,7 @@ create_information_element(?M_ME_TB_1, #{
   qds := QDS,
   ts := Timestamp
 }) ->
-  <<SVA:16/little-signed, QDS, (get_cp24(Timestamp))/binary>>;
+  <<(round(SVA)):16/little-signed, QDS, (get_cp24(Timestamp))/binary>>;
 
 %% Type 13. Measured value, short floating point
 create_information_element(?M_ME_NC_1, #{
@@ -299,7 +299,7 @@ create_information_element(?M_IT_NA_1, #{
   bcr := BCR
 }) ->
   <<_Ignore:32, Rest>> = <<BCR:40>>,
-  <<Value:32/little-signed, Rest>>;
+  <<(round(Value)):32/little-signed, Rest>>;
 
 %% Type 16. Integrated totals with time tag
 create_information_element(?M_IT_TA_1, #{
@@ -308,7 +308,7 @@ create_information_element(?M_IT_TA_1, #{
   ts := Timestamp
 }) ->
   <<_Ignore:32, Rest>> = <<BCR:40>>,
-  <<Value:32/little-signed, Rest, (get_cp24(Timestamp))/binary>>;
+  <<(round(Value)):32/little-signed, Rest, (get_cp24(Timestamp))/binary>>;
 
 %% Type 17. Protection equipment with time tag
 create_information_element(?M_EP_TA_1, #{
@@ -318,7 +318,7 @@ create_information_element(?M_EP_TA_1, #{
   ts := Timestamp
 }) ->
   <<Rest:6, _Ignore:2>> = <<SEP>>,
-  <<Rest:6, ES:2, (get_cp16(Duration)):16/binary, (get_cp24(Timestamp))/binary>>;
+  <<Rest:6, (round(ES)):2, (get_cp16(Duration)):16/binary, (get_cp24(Timestamp))/binary>>;
 
 %% Type 18. Packed events of protection equipment with time tag
 create_information_element(?M_EP_TB_1, #{
@@ -343,13 +343,13 @@ create_information_element(?M_PS_NA_1, #{
   value := SCD,
   qds := QDS
 }) ->
-  <<SCD:32/little, QDS>>;
+  <<(round(SCD)):32/little, QDS>>;
 
 %% Type 21. Measured value, normalized value without QDS
 create_information_element(?M_ME_ND_1, #{
   value := NVA
 }) ->
-  <<(get_nva(NVA)):16/little-signed>>;
+  <<(round(get_nva(NVA))):16/little-signed>>;
 
 %% Type 30. Single point information with time tag
 create_information_element(?M_SP_TB_1, #{
@@ -358,7 +358,7 @@ create_information_element(?M_SP_TB_1, #{
   ts := Timestamp
 }) ->
   <<Rest:7, _Ignore:1>> = <<SIQ>>,
-  <<Rest:7, SPI:1, (get_cp56(Timestamp))/binary>>;
+  <<Rest:7, (round(SPI)):1, (get_cp56(Timestamp))/binary>>;
 
 %% Type 31. Double point information with time tag
 create_information_element(?M_DP_TB_1, #{
@@ -367,7 +367,7 @@ create_information_element(?M_DP_TB_1, #{
   ts := Timestamp
 }) ->
   <<Rest:6, _Ignore:2>> = <<DIQ>>,
-  <<Rest:6, DPI:2, (get_cp56(Timestamp))/binary>>;
+  <<Rest:6, (round(DPI)):2, (get_cp56(Timestamp))/binary>>;
 
 %% Type 32. Step position information with time tag
 create_information_element(?M_ST_TB_1, #{
@@ -377,7 +377,7 @@ create_information_element(?M_ST_TB_1, #{
   ts := Timestamp
 }) ->
   <<State:1, _Ignore:7>> = <<VTI>>,
-  <<State:1, Value:7, QDS, (get_cp56(Timestamp))/binary>>;
+  <<State:1, (round(Value)):7, QDS, (get_cp56(Timestamp))/binary>>;
 
 %% Type 33. Bit string of 32 bit with time tag
 create_information_element(?M_BO_TB_1, #{
@@ -393,7 +393,7 @@ create_information_element(?M_ME_TD_1, #{
   qds := QDS,
   ts := Timestamp
 }) ->
-  <<(get_nva(NVA)):16/little-signed, QDS, (get_cp56(Timestamp))/binary>>;
+  <<(round(get_nva(NVA))):16/little-signed, QDS, (get_cp56(Timestamp))/binary>>;
 
 %% Type 35. Measured value, scaled value with time tag
 create_information_element(?M_ME_TE_1, #{
@@ -401,7 +401,7 @@ create_information_element(?M_ME_TE_1, #{
   qds := QDS,
   ts := Timestamp
 }) ->
-  <<SVA:16/little-signed, QDS, (get_cp56(Timestamp))/binary>>;
+  <<(round(SVA)):16/little-signed, QDS, (get_cp56(Timestamp))/binary>>;
 
 %% Type 36. Measured value, short floating point value with time tag
 create_information_element(?M_ME_TF_1, #{
@@ -418,7 +418,7 @@ create_information_element(?M_IT_TB_1, #{
   ts := Timestamp
 }) ->
   <<_Ignore:32, Rest:8>> = <<BCR:40>>,
-  <<Value:32/little-signed, Rest:8, (get_cp56(Timestamp))/binary>>;
+  <<(round(Value)):32/little-signed, Rest:8, (get_cp56(Timestamp))/binary>>;
 
 %% Type 38. Event of protection equipment with time tag
 create_information_element(?M_EP_TD_1, #{
@@ -428,7 +428,7 @@ create_information_element(?M_EP_TD_1, #{
   ts := Timestamp
 }) ->
   <<Rest:6, _Ignore:2>> = <<SEP>>,
-  <<Rest:6, ES:2, Interval:16/little-unsigned, (get_cp56(Timestamp))/binary>>;
+  <<Rest:6, (round(ES)):2, Interval:16/little-unsigned, (get_cp56(Timestamp))/binary>>;
 
 %% Type 70. End of initialization
 create_information_element(?M_EI_NA_1, #{
@@ -436,7 +436,7 @@ create_information_element(?M_EI_NA_1, #{
   coi := COI
 }) ->
   <<COI:1, _Ignore:7>> = <<COI>>,
-  <<COI, Value>>;
+  <<COI:1, (round(Value)):7>>;
 
 %% Type 100. Group request
 create_information_element(?C_IC_NA_1, GroupID) ->

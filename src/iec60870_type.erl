@@ -10,9 +10,7 @@
 
 -export([
   parse_information_element/2,
-  create_information_element/2,
-  get_cp24/1,
-  parse_cp24/1
+  create_information_element/2
 ]).
 
 -define(MILLIS_IN_MINUTE, 60000).
@@ -506,13 +504,21 @@ get_cp16(Value) ->
   <<Value/unsigned-integer>>.
 
 get_cp24(undefined) -> get_cp24(0);
-get_cp24(Millis) ->
+get_cp24(TotalMillis) ->
   try
-    <<(round(Millis rem ?MILLIS_IN_MINUTE)):16/little-integer,
-      16#00:2, (round(Millis / ?MILLIS_IN_MINUTE)):6/integer>>
+    Remainder = TotalMillis rem ?MILLIS_IN_MINUTE,
+    {Millis, Minutes} =
+      case TotalMillis / ?MILLIS_IN_MINUTE of
+        %% Max value of 6 bits for the minutes field
+        Value when Value > 63 ->
+          {Remainder + round(Value - 63) * ?MILLIS_IN_MINUTE, 63};
+        Value ->
+          {Remainder, Value}
+      end,
+    <<(round(Millis)):16/little-integer, 16#00:2, (round(Minutes)):6>>
   catch
     _:Error ->
-      ?LOGERROR("CP24 get error: ~p, timestamp: ~p", [Error, Millis]),
+      ?LOGERROR("CP24 get error: ~p, timestamp: ~p", [Error, TotalMillis]),
       undefined
   end.
 

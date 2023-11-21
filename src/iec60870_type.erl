@@ -10,7 +10,9 @@
 
 -export([
   parse_information_element/2,
-  create_information_element/2
+  create_information_element/2,
+  get_cp56/1,
+  parse_cp56/1
 ]).
 
 -define(MILLIS_IN_MINUTE, 60000).
@@ -515,7 +517,7 @@ get_cp24(TotalMillis) ->
       undefined
   end.
 
-get_cp56(undefined) -> get_cp56(0);
+get_cp56(undefined) -> get_cp56(erlang:system_time(millisecond));
 get_cp56(PosixTimestamp) ->
   try
     GregorianSeconds = millis_to_seconds(PosixTimestamp) + ?UNIX_EPOCH_SECONDS,

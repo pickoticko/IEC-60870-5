@@ -111,9 +111,8 @@ stop(#?MODULE{pid = PID}) ->
 stop(_) ->
   throw( bad_arg ).
 
-
-write(Ref, ID, Value )->
-  update_value( Ref, ID, Value ).
+write(Reference, ID, Value) ->
+  update_value(Reference, ID, Value).
 
 read(#?MODULE{} = Ref) ->
   find_group_items(Ref, 0);
@@ -183,31 +182,22 @@ start_connection(Root, Server, Connection )->
     {Root, error}-> error
   end.
 
-update_value( #?MODULE{ name = Name, storage = Storage }, ID, InValue)->
-
-  Group =
-    case InValue of
-      #{ group := _G } when is_number( _G )-> _G;
-      _->
-        case ets:lookup( Storage, ID ) of
-          [{_, #{ group :=_G }}] -> _G;
-          _-> 0
-        end
+update_value(#?MODULE{name = Name, storage = Storage}, ID, InValue) ->
+  OldValue =
+    case ets:lookup(Storage, ID) of
+      [{_, Map}] -> Map;
+      _ -> #{
+        %% All object types have these keys
+        value => undefined,
+        group => undefined
+      }
     end,
-
-  Value = maps:merge(#{
-    group => Group,
-    type => undefined,
-    value => undefined,
-    ts => erlang:system_time(millisecond)
-  }, InValue),
-
+  Value = maps:merge(OldValue, InValue),
   ets:insert(Storage, {ID, Value}),
   % Any updates notification
   esubscribe:notify(Name, update, {ID, Value}),
   % Only address notification
   esubscribe:notify(Name, ID, Value).
-
 
 %% +--------------------------------------------------------------+
 %% |                           Internal stuff                     |

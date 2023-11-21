@@ -460,7 +460,7 @@ create_information_element(OtherType, _) -> throw({unsupported_type, OtherType})
 parse_cp24(<<
   Millis:16/little-integer,
   _Reserved1:2,
-  Minutes:6/integer,
+  Minutes:6,
   _IgnoredRest/binary
 >>) ->
   Millis + (Minutes * ?MILLIS_IN_MINUTE);
@@ -469,17 +469,17 @@ parse_cp24(InvalidTimestamp) ->
   undefined.
 
 parse_cp56(<<
-  Millis:16/little-integer,
+  Millis:16 /little-integer,
   _R1:2,
-  Minutes:6  /integer,
+  Minutes:6,
   _R2:3,
-  Hours:5    /integer,
-  _WD:3  /integer,
-  Day:5    /integer,
+  Hours:5,
+  _WD:3,
+  Day:5,
   _R3:4,
-  Month:4   /integer,
+  Month:4,
   _R4:1,
-  Year:7    /integer
+  Year:7
 >> = Timestamp) ->
   try
     DateTime =
@@ -525,15 +525,15 @@ get_cp56(PosixTimestamp) ->
     WeekDay = calendar:day_of_the_week(Year, Month, Day),
     <<(seconds_to_millis(Seconds)):16/little-integer,
       16#00:2,
-      Minute:6  /integer,
+      Minute:6,
       16#00:3,
-      Hour:5    /integer,
-      WeekDay:3 /integer,
-      Day:5     /integer,
+      Hour:5,
+      WeekDay:3,
+      Day:5,
       16#00:4,
-      Month:4   /integer,
+      Month:4,
       16#00:1,
-      (Year - ?CURRENT_MILLENNIUM):7/integer>>
+      (Year - ?CURRENT_MILLENNIUM):7>>
   catch
     _:Error ->
       ?LOGERROR("CP56 get error: ~p, timestamp: ~p", [Error, PosixTimestamp]),

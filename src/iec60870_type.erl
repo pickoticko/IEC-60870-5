@@ -96,17 +96,17 @@ parse_information_element(?M_IT_TA_1, <<BCR:40, Timestamp/binary>>) ->
   #{value => Value, bcr => BCR, ts => parse_cp24(Timestamp)};
 
 %% Type 17. Protection equipment with time tag
-parse_information_element(?M_EP_TA_1, <<SEP, CP16:16, Timestamp/binary>>) ->
+parse_information_element(?M_EP_TA_1, <<SEP, Duration:16, Timestamp/binary>>) ->
   <<_Ignore:6, ES:2>> = <<SEP>>,
-  #{value => ES, sep => SEP, duration => parse_cp16(CP16), ts => parse_cp24(Timestamp)};
+  #{value => ES, sep => SEP, duration => Duration, ts => parse_cp24(Timestamp)};
 
 %% Type 18. Packed events of protection equipment with time tag
-parse_information_element(?M_EP_TB_1, <<SPE, QDP, Timestamp16:16, Timestamp24/binary>>) ->
-  #{value => SPE, qdp => QDP, duration => parse_cp16(Timestamp16), ts => parse_cp24(Timestamp24)};
+parse_information_element(?M_EP_TB_1, <<SPE, QDP, Duration:16, Timestamp24/binary>>) ->
+  #{value => SPE, qdp => QDP, duration => Duration, ts => parse_cp24(Timestamp24)};
 
 %% Type 19. Packed output circuit information of protection equipment with time tag
-parse_information_element(?M_EP_TC_1, <<OCI, QDP, Timestamp16:16, Timestamp24/binary>>) ->
-  #{value => OCI, qdp => QDP, duration => parse_cp16(Timestamp16), ts => parse_cp24(Timestamp24)};
+parse_information_element(?M_EP_TC_1, <<OCI, QDP, Duration:16, Timestamp24/binary>>) ->
+  #{value => OCI, qdp => QDP, duration => Duration, ts => parse_cp24(Timestamp24)};
 
 %% Type 20. Packed single-point information with status change detection
 parse_information_element(?M_PS_NA_1, <<SCD:32/little, QDS>>) ->
@@ -319,7 +319,7 @@ create_information_element(?M_EP_TA_1, #{
   ts := Timestamp
 }) ->
   <<Rest:6, _Ignore:2>> = <<SEP>>,
-  <<Rest:6, (round(ES)):2, (get_cp16(Duration)):16/binary, (get_cp24(Timestamp))/binary>>;
+  <<Rest:6, (round(ES)):2, (get_cp16(Duration)):16, (get_cp24(Timestamp))/binary>>;
 
 %% Type 18. Packed events of protection equipment with time tag
 create_information_element(?M_EP_TB_1, #{
@@ -328,7 +328,7 @@ create_information_element(?M_EP_TB_1, #{
   duration := Duration,
   ts := Timestamp
 }) ->
-  <<SPE, QDP, (get_cp16(Duration)):16/binary, (get_cp24(Timestamp))/binary>>;
+  <<SPE, QDP, (get_cp16(Duration)):16, (get_cp24(Timestamp))/binary>>;
 
 %% Type 19. Packed output circuit information of protection equipment with time tag
 create_information_element(?M_EP_TC_1, #{
@@ -337,7 +337,7 @@ create_information_element(?M_EP_TC_1, #{
   duration := Duration,
   ts := Timestamp
 }) ->
-  <<OCI, QDP, (get_cp16(Duration)):16/binary, (get_cp24(Timestamp))/binary>>;
+  <<OCI, QDP, (get_cp16(Duration)):16, (get_cp24(Timestamp))/binary>>;
 
 %% Type 20. Packed single-point information with status change detection
 create_information_element(?M_PS_NA_1, #{
@@ -457,12 +457,6 @@ create_information_element(OtherType, _) -> throw({unsupported_type, OtherType})
 %% |                     Internal functions                       |
 %% +--------------------------------------------------------------+
 
-parse_cp16(<<Millis:16/unsigned-integer>>) ->
-  Millis;
-parse_cp16(InvalidTimestamp) ->
-  ?LOGWARNING("Invalid CP16 has been received: ~p", [InvalidTimestamp]),
-  undefined.
-
 parse_cp24(<<
   Millis:16/little-integer,
   _Reserved1:2,
@@ -500,8 +494,7 @@ parse_cp56(<<
   end.
 
 get_cp16(undefined) -> get_cp16(0);
-get_cp16(Value) ->
-  <<Value/unsigned-integer>>.
+get_cp16(Value) -> Value.
 
 get_cp24(undefined) -> get_cp24(0);
 get_cp24(TotalMillis) ->

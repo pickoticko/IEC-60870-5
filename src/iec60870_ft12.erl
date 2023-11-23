@@ -51,6 +51,7 @@
 %% +--------------------------------------------------------------+
 %% |                            API                               |
 %% +--------------------------------------------------------------+
+
 start_link(InOptions)->
   Options = maps:merge(?DEFAULT_OPTIONS, InOptions),
   check_options(Options),
@@ -61,11 +62,11 @@ start_link(InOptions)->
     {'EXIT', PID, Reason} -> throw(Reason)
   end.
 
-send(Port, Frame)->
+send(Port, Frame) ->
   Port ! {send, self(), Frame},
   ok.
 
-clear(Port)->
+clear(Port) ->
   Port ! {clear, self()},
   ok.
 
@@ -73,10 +74,10 @@ check_options(#{port := Port} = _Options) when is_list(Port); is_binary(Port) ->
   % TODO. validate other options
   ok;
 
-check_options(_Options)->
+check_options(_) ->
   throw(invalid_options).
 
-stop( Port )->
+stop(Port) ->
   Port ! {stop, self()}.
 
 %% +--------------------------------------------------------------+
@@ -127,8 +128,9 @@ loop(#state{
       timer:sleep(_ClearWindow = 100),
       drop_data(Port),
       loop(State#state{buffer = <<>>});
-    {stop, Owner}->
-      eserial:close( Port )
+
+    {stop, Owner} ->
+      eserial:close(Port)
   end.
 
 parse_frame(<<
@@ -150,17 +152,17 @@ parse_frame(<<
                 data = undefined
               }, Tail}
           end;
-        Sum->
+        Sum ->
           ?LOGERROR("invalid control sum ~p", [Sum]),
           Tail
       end;
     _ ->
       if
-        size( Buffer ) < (4 + AddressSize) -> % Frame length
+        size(Buffer) < (4 + AddressSize) -> % Frame length
           Buffer;
         true ->
-          <<_,TailBuffer/binary>> = Buffer,
-          parse_frame( TailBuffer, AddressSize)
+          <<_, TailBuffer/binary>> = Buffer,
+          parse_frame(TailBuffer, AddressSize)
       end
   end;
 
@@ -172,7 +174,7 @@ parse_frame(<<
   Body/binary
 >> = Buffer, AddressSize) ->
   case Body of
-    << FrameData:LengthL/binary, Checksum, ?END_CHAR, Tail/binary >>->
+    <<FrameData:LengthL/binary, Checksum, ?END_CHAR, Tail/binary>> ->
       case control_sum(FrameData) of
         Checksum ->
           <<ControlField, Address:AddressSize/little-integer, Data/binary>> = FrameData,
@@ -185,7 +187,7 @@ parse_frame(<<
                 address = Address,
                 control_field = CF,
                 data = Data
-              }, Tail }
+              }, Tail}
           end;
         _ ->
           ?LOGERROR("invalid control sum"),
@@ -193,11 +195,11 @@ parse_frame(<<
       end;
     _ ->
       if
-        size( Body ) < (2 + LengthL) -> % Frame length
+        size(Body) < (2 + LengthL) -> % Frame length
           Buffer;
         true ->
-          <<_,TailBuffer/binary>> = Buffer,
-          parse_frame( TailBuffer, AddressSize)
+          <<_, TailBuffer/binary>> = Buffer,
+          parse_frame(TailBuffer, AddressSize)
       end
   end;
 
@@ -206,6 +208,7 @@ parse_frame(<<?START_DATA_CHAR,_/binary>> = Buffer, _AddressSize) ->
 
 parse_frame(<<_, Tail/binary>>, AddressSize) ->
   parse_frame(Tail, AddressSize);
+
 parse_frame(<<>>, _AddressSize) ->
   <<>>.
 
@@ -236,7 +239,7 @@ build_frame(#frame{address = Address, control_field = CFRec, data = Data}, Addre
   >>,
   Length = size(Body),
   Checksum = control_sum(Body),
-  <<?START_DATA_CHAR, Length:8, Length:8, ?START_DATA_CHAR, Body/binary, Checksum, ?END_CHAR >>;
+  <<?START_DATA_CHAR, Length, Length, ?START_DATA_CHAR, Body/binary, Checksum, ?END_CHAR>>;
 
 build_frame(#frame{address = Address, control_field = CFRec}, AddressSize) ->
   Body = <<
@@ -273,7 +276,7 @@ control_sum(<<>>, Sum) ->
 
 drop_data(Port) ->
   receive
-    {Port, data, _Data} -> drop_data( Port )
+    {Port, data, _Data} -> drop_data(Port)
   after
     0 -> ok
   end.

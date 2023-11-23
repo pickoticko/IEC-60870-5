@@ -42,45 +42,6 @@
   connection_settings
 }).
 
-
-%%  #{
-%%
-%%    name => some_atom,
-%%    groups => [],
-%%    coa => 1,
-%%    org => 0,
-%%    coa_size => 2,
-%%    org_size => 1,
-%%    ioa_size => 3,
-%%
-%%    % -----------101-----------------------------
-%%    type => '101',
-%%    connection => #{
-%%      port => "/dev/ttyUSB0",
-%%      balanced => false,
-%%      port_options =>#{
-%%        baudrate => 9600,
-%%        parity => 0,
-%%        stopbits => 1,
-%%        bytesize => 8
-%%      },
-%%      address => 1,
-%%      address_size => 1
-%%    },
-%%
-%%    % -----------104-----------------------------
-%%    type => '104',
-%%    connection => #{
-%%      port => 4000,
-%%      t1 => 5000,
-%%      t2 => 10000,
-%%      t3 => infinity,
-%%      k => 12,
-%%      w => 8
-%%    }
-%%
-%%  }
-
 -define(REQUIRED,{?MODULE, required}).
 
 -define(DEFAULT_SETTINGS,maps:merge( #{
@@ -89,7 +50,6 @@
   connection => ?REQUIRED,
   groups => []
 }, ?DEFAULT_ASDU_SETTINGS )).
-
 
 start(InSettings) ->
 
@@ -299,25 +259,27 @@ init_server(Owner, #{
 wait_connection( #state{
   module = Module,
   server = Server,
-  connection_settings = ConnectionSettings
-} = State)->
+  connection_settings = #{
+    name := Name
+  } = ConnectionSettings
+} = State) ->
   receive
-    {start_connection, Server, From, Connection } ->
+    {start_connection, Server, From, Connection} ->
       case gen_statem:start(iec60870_server_stm, {_Root=self(), Connection, ConnectionSettings}, []) of
         {ok, PID} ->
           From ! {self(), PID};
         {error, Error}->
-          ?LOGERROR("unable to start process for incomung connection, error ~p",[Error]),
+          ?LOGERROR("unable to start a server ~p for incoming connection, error ~p", [Name, Error]),
           From ! {self(), error}
       end,
       wait_connection( State );
     {'EXIT' ,_, StopReason}->
-      ?LOGINFO("stop server, reason: ~p", [StopReason] ),
+      ?LOGINFO("server ~p is stopped for reason: ~p", [Name, StopReason]),
       Module:stop_server( Server ),
       exit(StopReason);
     Unexpected ->
-      ?LOGWARNING( "unexpected mesaage ~p", [ Unexpected] ),
-      wait_connection( State )
+      ?LOGWARNING("server ~p received unexpected message: ~p", [Name, Unexpected]),
+      wait_connection(State)
   end.
 
 

@@ -38,8 +38,8 @@ callback_mode() -> [
   state_enter
 ].
 
-init( {Root, Connection, #{name := Name, groups:=Groups} = Settings} ) ->
-  ?LOGINFO("~p start incoming connection",[ Name ]),
+init({Root, Connection, #{name := Name, groups := Groups} = Settings}) ->
+  ?LOGINFO("server ~p is starting incoming connection ~p", [Name, Connection]),
   esubscribe:subscribe(Name, update, self()),
   process_flag(trap_exit, true),
   erlang:monitor(process, Root),
@@ -81,7 +81,7 @@ handle_event(info, {asdu, Connection, ASDU}, _AnyState, #data{
     handle_asdu(ParsedASDU, Data)
   catch
     _:E:S ->
-      ?LOGERROR("~p invalid ASDU received: ~p, error: ~p, stack ~p", [Name, ASDU, E, S]),
+      ?LOGERROR("server ~p received invalid ASDU: ~p, error: ~p, stack ~p", [Name, ASDU, E, S]),
       keep_state_and_data
   end;
 
@@ -96,39 +96,42 @@ handle_event(info, {update_group, GroupID, Timer}, ?RUNNING, #data{
   },
   connection = Connection
 }) ->
-  timer:send_after( Timer, {update_group, GroupID, Timer} ),
+  timer:send_after(Timer, {update_group, GroupID, Timer}),
   Items = iec60870_server:find_group_items(Root, GroupID),
   send_items(Items, Connection, ?COT_PER, ASDUSettings),
   keep_state_and_data;
 
-
-% The connection is down
 handle_event(info, {'EXIT', Connection, Reason}, _AnyState, #data{
+  settings = #{name := Name},
   connection = Connection
 }) ->
-  ?LOGINFO("stop incoming connection, reason: ~p", [Reason] ),
+  ?LOGINFO("server ~p connection is stopped for reason: ~p", [Name, Reason]),
   {stop, Reason};
-handle_event(info, {'DOWN',_,process,Root,Reason}, _AnyState, #data{
+
+handle_event(info, {'DOWN', _, process, Root, Reason}, _AnyState, #data{
+  settings = #{name := Name},
   root = Root
 }) ->
-  ?LOGINFO("stop server connection, reason: ~p", [Reason] ),
+  ?LOGINFO("server ~p is stopped for reason: ~p", [Name, Reason]),
   {stop, Reason};
 
 % Log unexpected events
-handle_event(EventType, EventContent, _AnyState, _Data) ->
-  ?LOGWARNING("Server connection received unexpected event type ~p, content ~p", [
-    EventType, EventContent
+handle_event(EventType, EventContent, _AnyState, #data{
+  settings = #{name := Name}
+}) ->
+  ?LOGWARNING("server ~p received unexpected event type ~p, content ~p", [
+    Name, EventType, EventContent
   ]),
   keep_state_and_data.
 
-terminate(Reason, _, _State) when Reason=:=normal; Reason =:= shutdown->
-  ?LOGDEBUG("incoming connection is terminated. Reason: ~p", [Reason]),
+terminate(Reason, _, _Data) when Reason =:= normal; Reason =:= shutdown->
+  ?LOGDEBUG("incoming connection is terminated for reason: ~p", [Reason]),
   ok;
-terminate({connection_closed,Reason}, _, _State)->
-  ?LOGDEBUG("incoming connection is closed. Reason: ~p", [Reason]),
+terminate({connection_closed, Reason}, _, _Data)->
+  ?LOGDEBUG("incoming connection is closed for reason: ~p", [Reason]),
   ok;
 terminate(Reason, _, _Data) ->
-  ?LOGWARNING("incoming connection is terminated. Reason: ~p", [Reason]),
+  ?LOGWARNING("incoming connection is terminated for reason: ~p", [Reason]),
   ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -236,7 +239,7 @@ handle_asdu(#asdu{
 }, #data{
   settings = #{name := Name}
 }) ->
-  ?LOGWARNING("~p unsupported ASDU type is received: ~p", [Name, Type]),
+  ?LOGWARNING("server ~p received unsupported ASDU type: ~p", [Name, Type]),
   keep_state_and_data.
 
 send_asdu(Connection, ASDU) ->

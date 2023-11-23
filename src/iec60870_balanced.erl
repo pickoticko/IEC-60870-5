@@ -126,7 +126,7 @@ loop(#data{
     {data, Port, #frame{ address = ReqAddress }} when ReqAddress =/= Address ->
       loop( Data );
     {data, Port, Unexpected = #frame{ control_field = #control_field_response{ }}}->
-      ?LOGWARNING("unexpected response frame received ~p",[ Unexpected ] ),
+      ?LOGWARNING("connection on port ~p received unexpected response frame ~p", [Port, Unexpected]),
       loop( Data );
     {data, Port, #frame{ control_field =  CF, data = UserData }} ->
       case check_fcb( CF, FCB ) of
@@ -134,7 +134,7 @@ loop(#data{
           Data1 = handle_request( CF#control_field_request.function_code, UserData, Data ),
           loop( Data1#data{ in_fcb = NextFCB } );
         error->
-          ?LOGWARNING("check fcb error, cf ~p, FCB ~p",[CF, FCB]),
+          ?LOGWARNING("connection on port ~p error on FCB check: Control Field ~p, FCB ~p", [Port, CF, FCB]),
           case SentFrame of
             #frame{}-> iec60870_ft12:send( Port, SentFrame );
             _-> ignore
@@ -150,8 +150,8 @@ loop(#data{
       end;
     {stop, Owner }->
       iec60870_ft12:stop( port );
-    Unexpected->
-      ?LOGWARNING("unexpected message received: ~p",[Unexpected]),
+    Unexpected ->
+      ?LOGWARNING("connection on port ~p received unexpected message: ~p", [Port, Unexpected]),
       loop( Data )
   end.
 
@@ -204,10 +204,10 @@ wait_response(Timeout, Response,  #data{
     {data, Port, Response}->
       Data;
     {data, Port, #frame{ address = ReqAddress } = Unexpected} when ReqAddress =/= Address->
-      ?LOGWARNING("unexpected address frame received ~p",[ Unexpected ] ),
+      ?LOGWARNING("connection on port ~p received unexpected address frame ~p", [Port, Unexpected]),
       wait_response( Timeout - ?DUR(T0), Response, Data );
     {data, Port, #frame{ control_field = #control_field_response{} } = Unexpected}->
-      ?LOGWARNING("unexpected response frame received ~p, wait for ~p",[ Unexpected, Response ] ),
+      ?LOGWARNING("connection on port ~p received unexpected response frame ~p, awaiting for a response ~p", [Port, Unexpected, Response]),
       wait_response( Timeout - ?DUR(T0), Response, Data );
     {data, Port, #frame{ control_field = CF, data = UserData }}->
       Data1 = handle_request( CF#control_field_request.function_code, UserData, Data ),
@@ -341,8 +341,10 @@ handle_request(?REQUEST_STATUS_LINK, _UserData, #data{
       }
   end;
 
-handle_request(InvalidFC, _UserData, Data)->
-  ?LOGERROR("invalid request function code received ~p",[ InvalidFC ]),
+handle_request(InvalidFC, _UserData, #data{
+  port = Port
+} = Data)->
+  ?LOGERROR("connection on port ~p received invalid request function code ~p", [Port, InvalidFC]),
   Data.
 
 

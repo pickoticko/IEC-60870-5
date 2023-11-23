@@ -201,22 +201,23 @@ handle_event(info, {asdu, Connection, ASDU}, State, #data{
     handle_asdu(ParsedASDU, State, Data)
   catch
     _:E ->
-      ?LOGERROR("~p invalid ASDU received: ~p, error: ~p", [Name, ASDU, E]),
+      ?LOGERROR("client ~p received invalid ASDU: ~p, error: ~p", [Name, ASDU, E]),
       keep_state_and_data
   end;
 
 %% Log unexpected events
-handle_event(EventType, EventContent, _AnyState, #data{ name = Name}) ->
-  ?LOGWARNING("Client connection ~p received unexpected event type ~p, content ~p", [
+handle_event(EventType, EventContent, _AnyState, #data{name = Name}) ->
+  ?LOGWARNING("client ~p received unexpected event type ~p, content ~p", [
     Name, EventType, EventContent
   ]),
   keep_state_and_data.
 
-terminate(Reason, _, _State) when Reason=:=normal; Reason =:= shutdown->
-  ?LOGDEBUG("client connection terminated. Reason: ~p", [Reason]),
+terminate(Reason, _, _State) when Reason =:= normal; Reason =:= shutdown->
+  ?LOGDEBUG("client terminated for reason: ~p", [Reason]),
   ok;
-terminate(Reason, _, _ClientState) ->
-  ?LOGWARNING("client connection terminated. Reason: ~p", [Reason]),
+
+terminate(Reason, _, _State) ->
+  ?LOGWARNING("client terminated for reason: ~p", [Reason]),
   ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -264,10 +265,8 @@ handle_asdu(#asdu{
   cot = COT,
   pn = 1, % negative
   objects = [{_IOA, GroupID}]
-}, {?GROUP_REQUEST, init, #{id := GroupID}, NextState}, Data) ->
-
-  ?LOGWARNING("negative responce on group ~p request, cot ~p",[GroupID, COT]),
-
+}, {?GROUP_REQUEST, init, #{id := GroupID}, NextState}, #data{name = Name} = Data) ->
+  ?LOGWARNING("client ~p received negative responce on the group ~p request, cot ~p", [Name, GroupID, COT]),
   {next_state, NextState, Data};
 
 %-------------------Termination fo group request----------------------------
@@ -290,22 +289,18 @@ handle_asdu(#asdu{ type = ?C_CS_NA_1, objects = Objects}, _State, #data{
   asdu = ASDUSettings,
   connection = Connection
 }) ->
-
   [Confirmation] = iec60870_asdu:build(#asdu{
     type = ?C_CS_NA_1,
     pn = ?POSITIVE_PN,
     cot = ?COT_SPONT,
     objects = Objects
   }, ASDUSettings),
-
   send_asdu(Connection, Confirmation),
   keep_state_and_data;
 
-
-handle_asdu(#asdu{}=Unexpected, State, #data{name = Name}) ->
-  ?LOGWARNING("~p unexpected ASDU type is received: ASDU ~p, state ~p", [Name, Unexpected, State]),
+handle_asdu(#asdu{} = Unexpected, State, #data{name = Name}) ->
+  ?LOGWARNING("client ~p received unexpected ASDU type: ~p, state ~p", [Name, Unexpected, State]),
   keep_state_and_data.
-
 
 send_items(Items, Connection, COT, ASDUSettings) ->
   ByTypes = group_by_types(Items),

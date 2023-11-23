@@ -94,7 +94,8 @@ init_connect( #data{
 
 
 loop( #data{
-  owner = Owner
+  owner = Owner,
+  port = Port
 } =Data )->
   receive
     {update, Self } when Self =:= self()->
@@ -105,7 +106,7 @@ loop( #data{
       Data1 = send_asdu( ASDU, Data ),
       loop( Data1 );
     Unexpected->
-      ?LOGWARNING("unexpected message ~p",[Unexpected]),
+      ?LOGWARNING("client on port ~p received unexpected message ~p", [Port, Unexpected]),
       loop( Data )
   end.
 
@@ -136,12 +137,14 @@ get_data( #data{
 
   Data2.
 
-send_asdu( ASDU, Data )->
+send_asdu( ASDU, #data{
+  port = Port
+} = Data) ->
   case transaction(?USER_DATA_CONFIRM, ASDU, Data ) of
     { ?RESPONSE(_,?ACKNOWLEDGE,_), Data1 }->
       Data1;
     { Unexpected, _Data }->
-      ?LOGERROR("unexpected send asdu confirmation ~p",[ Unexpected ]),
+      ?LOGERROR("client on port ~p received unexpected ASDU confirmation ~p", [Port, Unexpected]),
       exit( unexpected_data_confirm );
     error->
       exit( transaction_error )
@@ -250,6 +253,6 @@ port_loop( #port_state{ port = Port, clients = Clients } = State)->
           exit( shutdown )
       end;
     Unexpected->
-      ?LOGWARNING("unexpected mesaage received ~p",[Unexpected]),
+      ?LOGWARNING("client on port ~p received unexpected mesaage ~p", [Port, Unexpected]),
       port_loop( State )
   end.

@@ -43,7 +43,6 @@ stop( PID )->
 init(Root, #{
   address := Address
 } = Options) ->
-
   Port = iec60870_ft12:start_link( maps:with([ port, port_options, address_size ], Options) ),
 
   Root ! { ready, self()},
@@ -69,7 +68,7 @@ loop(#data{
     {data, Port, #frame{ address = ReqAddress }} when ReqAddress =/= Address ->
       loop( Data );
     {data, Port, Unexpected = #frame{ control_field = #control_field_response{ }}}->
-      ?LOGWARNING("unexpected response frame received ~p",[ Unexpected ] ),
+      ?LOGWARNING("server on port ~p received an unexpected response frame: ~p", [Port, Unexpected]),
       loop( Data );
     {data, Port, #frame{ control_field =  CF, data = UserData }} ->
       case check_fcb( CF, FCB ) of
@@ -77,7 +76,7 @@ loop(#data{
           Data1 = handle_request( CF#control_field_request.function_code, UserData, Data ),
           loop( Data1#data{ fcb = NextFCB } );
         error->
-          ?LOGWARNING("check fcb error, cf ~p, FCB ~p",[CF, FCB]),
+          ?LOGWARNING("server on port ~p error on FCB check... Control Field ~p, FCB ~p",[Port, CF, FCB]),
           case SentFrame of
             #frame{}-> iec60870_ft12:send( Port, SentFrame );
             _-> ignore
@@ -129,18 +128,19 @@ handle_request(?USER_DATA_CONFIRM, ASDU, #data{
         sent_frame = send_response( Port, ?ACKNOWLEDGE_FRAME(Address) )
       };
     true ->
-      ?LOGWARNING("user data received on not initialized connection ~p",[ ASDU ] ),
+      ?LOGWARNING("server on port ~p received user data on an uninitialized connection: ~p", [Port, ASDU]),
       Data
   end;
 
 handle_request(?USER_DATA_NO_REPLY, ASDU, #data{
-  connection = Connection
+  connection = Connection,
+  port = Port
 } = Data)->
   if
     is_pid( Connection )->
       Connection ! { asdu, self(), ASDU };
     true ->
-      ?LOGWARNING("user data received on not initialized connection ~p",[ ASDU ] )
+      ?LOGWARNING("server on port ~p received user data on an uninitialized connection: ~p", [Port, ASDU])
   end,
   Data;
 
@@ -258,8 +258,10 @@ handle_request(?REQUEST_DATA_CLASS_2, _UserData, #data{
     sent_frame = send_response( Port, Response )
   };
 
-handle_request(InvalidFC, _UserData, Data)->
-  ?LOGERROR("invalid request function code received ~p",[ InvalidFC ]),
+handle_request(InvalidFC, _UserData, #data{
+  port = Port
+} = Data)->
+  ?LOGERROR("server on port ~p received invalid request function code: ~p", [Port, InvalidFC]),
   Data.
 
 

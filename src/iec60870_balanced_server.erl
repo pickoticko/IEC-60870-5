@@ -45,10 +45,10 @@ wait_connection( Root, Port, Options )->
       end;
     {'EXIT', Port, Reason}->
       case Reason of
-        connect_error->
-          ?LOGDEBUG("wait connection");
-        _->
-          ?LOGWARNING("port exit reason: ~p",[Reason])
+        connect_error ->
+          ?LOGDEBUG("server on port ~p is awaiting a connection...", [Port]);
+        _ ->
+          ?LOGWARNING("server on port ~p is closed for a reason: ~p", [Port, Reason])
       end,
       NewPort = iec60870_balanced:start(_Dir =0, Options ),
       wait_connection( Root, NewPort, Options );

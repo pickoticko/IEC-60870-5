@@ -3,16 +3,16 @@
 %% | Author: Tokenov Alikhan, @alikhantokenov@gmail.com           |
 %% +--------------------------------------------------------------+
 -ifndef(iec60870).
--define(iec608701, 1).
+-define(iec60870, 1).
 
--define(LOGERROR(Text), logger:error(Text)).
--define(LOGERROR(Text,Params), logger:error( Text, Params)).
--define(LOGWARNING(Text), logger:warning(Text)).
--define(LOGWARNING(Text,Params), logger:warning(Text, Params)).
--define(LOGINFO(Text), logger:info(Text)).
--define(LOGINFO(Text,Params), logger:info(Text, Params)).
--define(LOGDEBUG(Text), logger:debug(Text)).
--define(LOGDEBUG(Text,Params), logger:debug(Text,Params)).
+-define(LOGERROR(Text, Params),   logger:error("~p ~s [~s:~s] " ++ Text, [self(), ?MODULE_STRING, ?FUNCTION_NAME, integer_to_list(?LINE) | Params])).
+-define(LOGWARNING(Text, Params), logger:warning("~p ~s [~s:~s] " ++ Text, [self(), ?MODULE_STRING, ?FUNCTION_NAME, integer_to_list(?LINE) | Params])).
+-define(LOGINFO(Text, Params),    logger:info("~p ~s [~s:~s] " ++ Text, [self(), ?MODULE_STRING, ?FUNCTION_NAME, integer_to_list(?LINE) | Params])).
+-define(LOGDEBUG(Text, Params),   logger:debug("~p ~s [~s:~s] " ++ Text, [self(), ?MODULE_STRING, ?FUNCTION_NAME, integer_to_list(?LINE) | Params])).
+-define(LOGERROR(Text),           ?LOGERROR(Text, [])).
+-define(LOGWARNING(Text),         ?LOGWARNING(Text, [])).
+-define(LOGINFO(Text),            ?LOGINFO(Text, [])).
+-define(LOGDEBUG(Text),           ?LOGDEBUG(Text, [])).
 
 -define(DATA(Connection, Data), {data, Connection, Data}).
 -define(OBJECT(Type, COT, IOA, Value), {object, Type, COT, IOA, Value}).

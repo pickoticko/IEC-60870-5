@@ -188,7 +188,7 @@ parse_frame(<<
               }, Tail }
           end;
         _ ->
-          ?LOGERROR("invalid control sum"),
+          ?LOGERROR("invalid control sum", [Checksum]),
           Tail
       end;
     _ ->

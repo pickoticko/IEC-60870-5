@@ -165,13 +165,13 @@ handle_request(?REQUEST_STATUS_LINK, _UserData, #data{
   port = Port,
   address = Address,
   connection = Connection
-} = Data)->
-
+} = Data) ->
   if
-    is_pid( Connection )-> exit( Connection, shutdown );
+    is_pid(Connection) ->
+      ?LOGINFO("server on port ~p received request for status link... restarting the connection", [Port]),
+      exit(Connection, shutdown);
     true -> ignore
   end,
-
   case iec60870_server:start_connection(Root, {?MODULE,self()}, self() ) of
     {ok, NewConnection} ->
 

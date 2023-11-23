@@ -168,7 +168,9 @@ handle_request(?REQUEST_STATUS_LINK, _UserData, #data{
 } = Data)->
 
   if
-    is_pid( Connection )-> exit( Connection, shutdown );
+    is_pid(Connection) ->
+      ?LOGINFO("server on port ~p received request for status link... restarting the connection", [Port]),
+      exit(Connection, shutdown);
     true -> ignore
   end,
 

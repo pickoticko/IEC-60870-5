@@ -8,7 +8,8 @@
   unsubscribe/2, unsubscribe/3,
   read/1, read/2,
   get_pid/1,
-  write/3
+  write/3,
+  test_write/1
 ]).
 
 start_server(ConnectionSettings) ->
@@ -52,3 +53,16 @@ read(ClientOrServer, Address) ->
 get_pid(ClientOrServer)->
   Module = element(1, ClientOrServer),
   Module:get_pid(ClientOrServer).
+
+test_write(Server) ->
+  test_write(Server, 0).
+
+test_write(_, 1000) ->
+  ok;
+test_write(Server, Count) ->
+  iec60870:write(Server, Count,     #{value => 0, siq => 128, type => 1}),
+  iec60870:write(Server, Count + 1, #{value => 0, diq => 128, type => 3}),
+  iec60870:write(Server, Count + 2, #{value => 0, qds => 128, type => 7}),
+  iec60870:write(Server, Count + 3, #{value => 0, qds => 128, type => 11}),
+  iec60870:write(Server, Count + 4, #{value => 0, type => 21}),
+  test_write(Server, Count + 5).

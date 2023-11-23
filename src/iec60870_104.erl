@@ -482,7 +482,7 @@ handle_packet(s, ReceiveCounter, #state{
   reset_timer(t1, T1),
   State#state{
     t1 = undefined,
-    sent = [S || S <- Sent, S > ReceiveCounter]
+    sent = [{S, T} || {S, T} <- Sent, S > ReceiveCounter]
   };
 
 %% +--------------------------------------------------------------+
@@ -514,7 +514,7 @@ handle_packet(i, {SendCounter, ReceiveCounter, ASDU}, #state{
   State1#state{
     vr = VR + 1,
     vw = VW - 1,
-    sent = [S || S <- Sent, S > ReceiveCounter]
+    sent = [{S, T} || {S, T} <- Sent, S > ReceiveCounter]
   }.
 
 send_i_packet(ASDU, #state{
@@ -531,12 +531,18 @@ send_i_packet(ASDU, #state{
       APDU = create_i_packet(ASDU, State),
       socket_send(Socket, APDU);
     true ->
+      [{_LastVS, LastTimestamp} | _] = Sent,
+      {_FirstVS, FirstTimestamp} = lists:last(Sent),
+      AverageTime = length(Sent) / (LastTimestamp - FirstTimestamp),
+      io:format("DEBUG: First Timestamp: ~p~n", [FirstTimestamp]),
+      io:format("DEBUG: Last Timestamp: ~p~n", [LastTimestamp]),
+      io:format("DEBUG: Average Time: ~p~n", [AverageTime]),
       exit({max_number_of_unconfirmed_packets_reached, K})
   end,
   State#state{
     vs = VS + 1,
     vw = W,
-    sent = [VS + 1 | Sent]
+    sent = [{VS + 1, erlang:system_time(millisecond)} | Sent]
   }.
 
 %% +--------------------------------------------------------------+

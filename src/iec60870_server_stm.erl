@@ -124,14 +124,23 @@ handle_event(EventType, EventContent, _AnyState, #data{
   ]),
   keep_state_and_data.
 
-terminate(Reason, _, _Data) when Reason =:= normal; Reason =:= shutdown->
-  ?LOGDEBUG("incoming connection is terminated for reason: ~p", [Reason]),
+%% Termination with expected reasons
+terminate(Reason, _, #data{
+  settings = #{name := Name}
+}) when Reason =:= normal; Reason =:= shutdown ->
+  ?LOGDEBUG("server ~p incoming connection is terminated normally", [Name]),
   ok;
-terminate({connection_closed, Reason}, _, _Data)->
-  ?LOGDEBUG("incoming connection is closed for reason: ~p", [Reason]),
+
+terminate({connection_closed, Reason}, _, #data{
+  settings = #{name := Name}
+}) ->
+  ?LOGDEBUG("server ~p incoming connection is closed for reason: ~p", [Name, Reason]),
   ok;
-terminate(Reason, _, _Data) ->
-  ?LOGWARNING("incoming connection is terminated for reason: ~p", [Reason]),
+
+terminate(Reason, _, #data{
+  settings = #{name := Name}
+}) ->
+  ?LOGWARNING("server ~p incoming connection is terminated for reason: ~p", [Name, Reason]),
   ok.
 
 code_change(_OldVsn, State, _Extra) ->

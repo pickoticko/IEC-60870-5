@@ -1,10 +1,9 @@
-%% +--------------------------------------------------------------+
-%% | Copyright (c) 2023, Faceplate LTD. All Rights Reserved.      |
-%% | Author: Tokenov Alikhan, @alikhantokenov@gmail.com           |
-%% +--------------------------------------------------------------+
-
 -ifndef(iec60870_ft12).
 -define(iec608701_ft12, 1).
+
+%% Physical transmission direction
+-define(FROM_A_TO_B, 1).
+-define(FROM_B_TO_A, 0).
 
 -record(control_field_request, {
   direction,
@@ -25,6 +24,5 @@
   control_field,
   data
 }).
-
 
 -endif.

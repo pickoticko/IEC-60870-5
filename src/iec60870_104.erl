@@ -534,9 +534,9 @@ send_i_packet(ASDU, #state{
       [{_LastVS, LastTimestamp} | _] = Sent,
       {_FirstVS, FirstTimestamp} = lists:last(Sent),
       AverageTime = length(Sent) / (LastTimestamp - FirstTimestamp),
-      ?LOGDEBUG("First Timestamp", [FirstTimestamp]),
-      ?LOGDEBUG("Last Timestamp", [LastTimestamp]),
-      ?LOGDEBUG("Average Time", [AverageTime]),
+      ?LOGDEBUG("First Timestamp: ~p", [FirstTimestamp]),
+      ?LOGDEBUG("Last Timestamp: ~p", [LastTimestamp]),
+      ?LOGDEBUG("Average Time: ~p", [AverageTime]),
       exit({max_number_of_unconfirmed_packets_reached, K})
   end,
   State#state{

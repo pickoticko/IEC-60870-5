@@ -5,10 +5,10 @@
 -ifndef(iec60870).
 -define(iec60870, 1).
 
--define(LOGERROR(Text, Params),   logger:error("~p ~s [~s:~s] " ++ Text, [self(), ?MODULE_STRING, ?FUNCTION_NAME, integer_to_list(?LINE) | Params])).
--define(LOGWARNING(Text, Params), logger:warning("~p ~s [~s:~s] " ++ Text, [self(), ?MODULE_STRING, ?FUNCTION_NAME, integer_to_list(?LINE) | Params])).
--define(LOGINFO(Text, Params),    logger:info("~p ~s [~s:~s] " ++ Text, [self(), ?MODULE_STRING, ?FUNCTION_NAME, integer_to_list(?LINE) | Params])).
--define(LOGDEBUG(Text, Params),   logger:debug("~p ~s [~s:~s] " ++ Text, [self(), ?MODULE_STRING, ?FUNCTION_NAME, integer_to_list(?LINE) | Params])).
+-define(LOGERROR(Text, Params),   logger:error("~p [~s][~s:~s] " ++ Text, [self(), ?MODULE_STRING, ?FUNCTION_NAME, integer_to_list(?LINE) | Params])).
+-define(LOGWARNING(Text, Params), logger:warning("~p [~s][~s:~s] " ++ Text, [self(), ?MODULE_STRING, ?FUNCTION_NAME, integer_to_list(?LINE) | Params])).
+-define(LOGINFO(Text, Params),    logger:info("~p [~s][~s:~s] " ++ Text, [self(), ?MODULE_STRING, ?FUNCTION_NAME, integer_to_list(?LINE) | Params])).
+-define(LOGDEBUG(Text, Params),   logger:debug("~p [~s][~s:~s] " ++ Text, [self(), ?MODULE_STRING, ?FUNCTION_NAME, integer_to_list(?LINE) | Params])).
 -define(LOGERROR(Text),           ?LOGERROR(Text, [])).
 -define(LOGWARNING(Text),         ?LOGWARNING(Text, [])).
 -define(LOGINFO(Text),            ?LOGINFO(Text, [])).

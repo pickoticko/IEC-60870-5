@@ -315,10 +315,11 @@ handle_request(?REQUEST_STATUS_LINK, _UserData, #data{
   address = Address,
   direction = Direction,
   linked = Linked
-} = Data)->
+} = Data) ->
   if
     Linked =:= true, Direction =:= 1 ->
       %% If it's a server, the link request is accepted as a command to reset the connection
+      ?LOGINFO("server on port ~p received request for status link... restarting the connection", [Port]),
       exit(reset_connection);
     true ->
       Data#data{

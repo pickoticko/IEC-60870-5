@@ -124,7 +124,7 @@ loop(#state{
       loop(State);
 
     {clear, Owner} ->
-      % TODO. ClearWindow should be calculated from the baudrate
+      %% TODO: ClearWindow should be calculated from the baudrate
       timer:sleep(_ClearWindow = 100),
       drop_data(Port),
       loop(State#state{buffer = <<>>});

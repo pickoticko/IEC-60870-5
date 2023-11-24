@@ -61,7 +61,7 @@ stop(Port)->
   exit(Port, shutdown).
 
 %% +--------------------------------------------------------------+
-%% |                 Internal helper functions                    |
+%% |                      Internal functions                      |
 %% +--------------------------------------------------------------+
 
 init_client(Owner, #{

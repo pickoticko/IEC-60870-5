@@ -1,7 +1,3 @@
-%% +--------------------------------------------------------------+
-%% | Copyright (c) 2023, Faceplate LTD. All Rights Reserved.      |
-%% | Author: Tokenov Alikhan, @alikhantokenov@gmail.com           |
-%% +--------------------------------------------------------------+
 -module(iec60870_server_stm).
 -behaviour(gen_statem).
 
@@ -16,7 +12,6 @@
   terminate/3
 ]).
 
-
 -record(data, {
   root,
   groups,
@@ -27,6 +22,7 @@
 %% +--------------------------------------------------------------+
 %% |                           States                             |
 %% +--------------------------------------------------------------+
+
 -define(RUNNING, running).
 
 %% +--------------------------------------------------------------+
@@ -38,14 +34,14 @@ callback_mode() -> [
   state_enter
 ].
 
-init( {Root, Connection, #{name := Name, groups:=Groups} = Settings} ) ->
-  ?LOGINFO("~p start incoming connection",[ Name ]),
+init({Root, Connection, #{name := Name, groups := Groups} = Settings}) ->
+  ?LOGINFO("~p start incoming connection", [Name]),
   esubscribe:subscribe(Name, update, self()),
   process_flag(trap_exit, true),
   erlang:monitor(process, Root),
   [begin
-     timer:send_after(0, {update_group, GroupID, T})
-   end || #{id := GroupID, update := T} <- Groups, is_integer(T)],
+     timer:send_after(0, {update_group, GroupID, Millis})
+   end || #{id := GroupID, update := Millis} <- Groups, is_integer(Millis)],
   {ok, ?RUNNING, #data{
     root = Root,
     settings = Settings,
@@ -55,7 +51,7 @@ init( {Root, Connection, #{name := Name, groups:=Groups} = Settings} ) ->
 handle_event(enter, _PrevState, ?RUNNING, _Data) ->
   keep_state_and_data;
 
-% From esubscriber notify
+%% Event from esubscriber notify
 handle_event(info, {Name, update, {IOA, Value}, _, Actor}, ?RUNNING, #data{
   settings = #{
     name := Name,
@@ -68,7 +64,7 @@ handle_event(info, {Name, update, {IOA, Value}, _, Actor}, ?RUNNING, #data{
   send_items([{IOA, Value} | Items], Connection, ?COT_SPONT, ASDUSettings),
   keep_state_and_data;
 
-% From the connection
+%% From the connection
 handle_event(info, {asdu, Connection, ASDU}, _AnyState, #data{
   settings = #{
     name := Name,
@@ -85,7 +81,7 @@ handle_event(info, {asdu, Connection, ASDU}, _AnyState, #data{
       keep_state_and_data
   end;
 
-% Ignore self notifications
+%% Ignore self notifications
 handle_event(info, {_Scope, update, _, _, _Self}, _AnyState, _Data) ->
   keep_state_and_data;
 
@@ -96,35 +92,34 @@ handle_event(info, {update_group, GroupID, Timer}, ?RUNNING, #data{
   },
   connection = Connection
 }) ->
-  timer:send_after( Timer, {update_group, GroupID, Timer} ),
+  timer:send_after(Timer, {update_group, GroupID, Timer}),
   Items = iec60870_server:find_group_items(Root, GroupID),
   send_items(Items, Connection, ?COT_PER, ASDUSettings),
   keep_state_and_data;
 
-
-% The connection is down
+%% The connection is down
 handle_event(info, {'EXIT', Connection, Reason}, _AnyState, #data{
   connection = Connection
 }) ->
   ?LOGINFO("stop incoming connection, reason: ~p", [Reason] ),
   {stop, Reason};
-handle_event(info, {'DOWN',_,process,Root,Reason}, _AnyState, #data{
+
+handle_event(info, {'DOWN', _, process, Root, Reason}, _AnyState, #data{
   root = Root
 }) ->
-  ?LOGINFO("stop server connection, reason: ~p", [Reason] ),
+  ?LOGINFO("stop server connection, reason: ~p", [Reason]),
   {stop, Reason};
 
-% Log unexpected events
 handle_event(EventType, EventContent, _AnyState, _Data) ->
   ?LOGWARNING("Server connection received unexpected event type ~p, content ~p", [
     EventType, EventContent
   ]),
   keep_state_and_data.
 
-terminate(Reason, _, _State) when Reason=:=normal; Reason =:= shutdown->
+terminate(Reason, _, _State) when Reason =:= normal; Reason =:= shutdown ->
   ?LOGDEBUG("incoming connection is terminated. Reason: ~p", [Reason]),
   ok;
-terminate({connection_closed,Reason}, _, _State)->
+terminate({connection_closed, Reason}, _, _State)->
   ?LOGDEBUG("incoming connection is closed. Reason: ~p", [Reason]),
   ok;
 terminate(Reason, _, _Data) ->
@@ -135,9 +130,10 @@ code_change(_OldVsn, State, _Extra) ->
   {ok, State}.
 
 %% +--------------------------------------------------------------+
-%% |             Internal helpers                                 |
+%% |                      Internal functions                      |
 %% +--------------------------------------------------------------+
 
+%% General Interrogation Command
 handle_asdu(#asdu{
   type = ?C_IC_NA_1,
   objects = [{IOA, GroupID}]
@@ -148,7 +144,7 @@ handle_asdu(#asdu{
   },
   connection = Connection
 }) ->
-  %% ----- Send initialization -----
+  %% +-------------[ Send initialization ]-------------+
   [Confirmation] = iec60870_asdu:build(#asdu{
     type = ?C_IC_NA_1,
     pn = ?POSITIVE_PN,
@@ -156,12 +152,10 @@ handle_asdu(#asdu{
     objects = [{IOA, GroupID}]
   }, ASDUSettings),
   send_asdu(Connection, Confirmation),
-
-  %% ----- Sending items -----
+  %% +----------------[ Sending items ]----------------+
   Items = iec60870_server:find_group_items(Root, GroupID),
   send_items(Items, Connection, ?COT_GROUP(GroupID), ASDUSettings),
-
-  %% ----- Send termination -----
+  %% +---------------[ Send termination ]--------------+
   [Termination] = iec60870_asdu:build(#asdu{
     type = ?C_IC_NA_1,
     pn = ?POSITIVE_PN,
@@ -171,6 +165,7 @@ handle_asdu(#asdu{
   send_asdu(Connection, Termination),
   keep_state_and_data;
 
+%% Counter Interrogation Command
 handle_asdu(#asdu{
   type = ?C_CI_NA_1,
   objects = [{IOA, GroupID}]
@@ -180,7 +175,7 @@ handle_asdu(#asdu{
   },
   connection = Connection
 }) ->
-  %% ----- Send initialization -----
+  %% +-------------[ Send initialization ]-------------+
   [Confirmation] = iec60870_asdu:build(#asdu{
     type = ?C_CI_NA_1,
     pn = ?POSITIVE_PN,
@@ -190,7 +185,7 @@ handle_asdu(#asdu{
   send_asdu(Connection, Confirmation),
   %% --------------------------------------------
   %% TODO: Counter interrogation is not supported
-  %% ----- Send termination ---------------------
+  %% +---------------[ Send termination ]--------------+
   [Termination] = iec60870_asdu:build(#asdu{
     type = ?C_CI_NA_1,
     pn = ?POSITIVE_PN,
@@ -200,6 +195,7 @@ handle_asdu(#asdu{
   send_asdu(Connection, Termination),
   keep_state_and_data;
 
+%% Clock Synchronization Command
 handle_asdu(#asdu{
   type = ?C_CS_NA_1,
   objects = Objects
@@ -209,7 +205,7 @@ handle_asdu(#asdu{
   },
   connection = Connection
 }) ->
-  %% ----- Send initialization -----
+  %% +-------------[ Send initialization ]-------------+
   [Confirmation] = iec60870_asdu:build(#asdu{
     type = ?C_CS_NA_1,
     pn = ?POSITIVE_PN,
@@ -219,6 +215,7 @@ handle_asdu(#asdu{
   send_asdu(Connection, Confirmation),
   keep_state_and_data;
 
+%% Updating data objects
 handle_asdu(#asdu{
   type = Type,
   objects = Objects
@@ -231,6 +228,7 @@ handle_asdu(#asdu{
   [iec60870_server:update_value(Root, IOA, Value) || {IOA, Value} <- Objects],
   keep_state_and_data;
 
+%% All other unexpected asdu types
 handle_asdu(#asdu{
   type = Type
 }, #data{
@@ -241,7 +239,6 @@ handle_asdu(#asdu{
 
 send_asdu(Connection, ASDU) ->
   Connection ! {asdu, self(), ASDU}, ok.
-
 
 send_items(Items, Connection, COT, ASDUSettings) ->
   ByTypes = group_by_types(Items),
@@ -257,8 +254,8 @@ send_items(Items, Connection, COT, ASDUSettings) ->
 
 group_by_types(Objects) ->
   group_by_types(Objects, #{}).
-group_by_types([{IOA, #{type := Type} =Value }|Rest], Acc) ->
-  TypeAcc = maps:get(Type,Acc,#{}),
+group_by_types([{IOA, #{type := Type} = Value } | Rest], Acc) ->
+  TypeAcc = maps:get(Type, Acc, #{}),
   Acc1 = Acc#{Type => TypeAcc#{IOA => Value}},
   group_by_types(Rest, Acc1);
 group_by_types([], Acc) ->

@@ -215,6 +215,65 @@ handle_asdu(#asdu{
   send_asdu(Connection, Confirmation),
   keep_state_and_data;
 
+%% Remote control commands
+handle_asdu(#asdu{
+  type = Type,
+  objects = Objects
+}, #data{
+  connection = Connection,
+  settings = #{
+    command_handler := Handler,
+    asdu := ASDUSettings,
+    root := Reference
+  }
+})
+  when Type >= ?C_SC_NA_1, Type =< ?C_BO_NA_1;
+       Type >= ?C_SC_TA_1, Type =< ?C_BO_TA_1 ->
+  try
+    [{IOA, Value}] = Objects,
+    case Handler(Reference, Type, IOA, Value) of
+      {error, Error} ->
+        ?LOGERROR("command handler failed, error: ~p", [Error]),
+        %% +--------[ Negative activation confirmation ]---------+
+        [NegativeConfirmation] = iec60870_asdu:build(#asdu{
+          type = Type,
+          pn = ?NEGATIVE_PN,
+          cot = ?COT_ACTCON,
+          objects = Objects
+        }, ASDUSettings),
+        send_asdu(Connection, NegativeConfirmation);
+      ok ->
+        %% +-------------[ Activation confirmation ]-------------+
+        [Confirmation] = iec60870_asdu:build(#asdu{
+          type = Type,
+          pn = ?POSITIVE_PN,
+          cot = ?COT_ACTCON,
+          objects = Objects
+        }, ASDUSettings),
+        send_asdu(Connection, Confirmation),
+        %% +-------------[ Activation termination ]-------------+
+        [Termination] = iec60870_asdu:build(#asdu{
+          type = Type,
+          pn = ?POSITIVE_PN,
+          cot = ?COT_ACTTERM,
+          objects = Objects
+        }, ASDUSettings),
+        send_asdu(Connection, Termination)
+    end
+  catch
+    _:Error:Stack ->
+      ?LOGERROR("command handler failed: error ~p, stack ~p", [Error, Stack]),
+      %% +--------[ Negative activation confirmation ]---------+
+      [NegativeConfirmation] = iec60870_asdu:build(#asdu{
+        type = Type,
+        pn = ?NEGATIVE_PN,
+        cot = ?COT_ACTCON,
+        objects = Objects
+      }, ASDUSettings),
+      send_asdu(Connection, NegativeConfirmation)
+  end,
+  keep_state_and_data;
+
 %% Updating data objects
 handle_asdu(#asdu{
   type = Type,

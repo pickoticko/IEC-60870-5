@@ -43,13 +43,15 @@
 %% |                           Macros                             |
 %% +--------------------------------------------------------------+
 
+-define(COMMAND_HANDLER_ARITY, 4).
 -define(REQUIRED, {?MODULE, required}).
 
 -define(DEFAULT_SETTINGS, maps:merge(#{
   name => ?REQUIRED,
   type => ?REQUIRED,
   connection => ?REQUIRED,
-  groups => []
+  groups => [],
+  command_handler => undefined
 }, ?DEFAULT_ASDU_SETTINGS)).
 
 %% +--------------------------------------------------------------+
@@ -184,6 +186,11 @@ check_settings(Settings)->
 check_setting(name, ConnectionName)
   when is_atom(ConnectionName) -> ConnectionName;
 
+check_setting(command_handler, undefined) ->
+  undefined;
+check_setting(command_handler, HandlerFunction)
+  when is_function(HandlerFunction, ?COMMAND_HANDLER_ARITY) -> HandlerFunction;
+
 check_setting(type, Type)
   when Type =:= '101'; Type =:= '104' -> Type;
 
@@ -211,7 +218,8 @@ check_setting(Key, _) ->
 init_server(Owner, #{
   name := Name,
   type := Type,
-  connection := Connection
+  connection := Connection,
+  command_handler := Handler
 } = Settings) ->
   process_flag(trap_exit, true),
   Module = iec60870_lib:get_driver_module(Type),
@@ -236,6 +244,7 @@ init_server(Owner, #{
     storage => Storage,
     root => Ref,
     groups => maps:get(groups, Settings),
+    command_handler => Handler,
     asdu => iec60870_asdu:get_settings(maps:with(maps:keys(?DEFAULT_ASDU_SETTINGS), Settings))
   },
   Owner ! {ready, self(), Ref},

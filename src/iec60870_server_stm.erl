@@ -234,7 +234,7 @@ handle_asdu(#asdu{
     case Handler(Reference, Type, IOA, Value) of
       {error, Error} ->
         ?LOGERROR("command handler failed, error: ~p", [Error]),
-        %% +--------[ Negative activation confirmation ]---------+
+        %% +-------[ Negative activation confirmation ]---------+
         [NegativeConfirmation] = iec60870_asdu:build(#asdu{
           type = Type,
           pn = ?NEGATIVE_PN,
@@ -243,7 +243,7 @@ handle_asdu(#asdu{
         }, ASDUSettings),
         send_asdu(Connection, NegativeConfirmation);
       ok ->
-        %% +-------------[ Activation confirmation ]-------------+
+        %% +------------[ Activation confirmation ]-------------+
         [Confirmation] = iec60870_asdu:build(#asdu{
           type = Type,
           pn = ?POSITIVE_PN,

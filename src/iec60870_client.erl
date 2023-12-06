@@ -76,7 +76,10 @@ read(_, _) ->
   throw(bad_arg).
 
 write(#?MODULE{pid = PID}, IOA, Value) ->
-  PID ! {write, IOA, Value},
+  case is_remote_command(Value) of
+    true -> gen_statem:call(PID, {write, IOA, Value});
+    false -> PID ! {write, IOA, Value}
+  end,
   ok.
 
 subscribe(#?MODULE{name = Name}, PID) when is_pid(PID) ->
@@ -175,3 +178,7 @@ check_setting(groups, undefined) ->
 check_setting(Key, _) ->
   throw({invalid_settings, Key}).
 
+is_remote_command(#{type := Type})
+  when Type >= ?C_SC_NA_1, Type =< ?C_BO_NA_1;
+       Type >= ?C_SC_TA_1, Type =< ?C_BO_TA_1 -> true;
+is_remote_command(_Type) -> false.

@@ -36,6 +36,7 @@
 -define(CONNECTING, connecting).
 -define(CONNECTED, connected).
 -define(ACTIVATION, activation).
+-define(WRITE, write).
 -define(INIT_GROUPS, init_groups).
 -define(GROUP_REQUEST, group_request).
 
@@ -142,18 +143,44 @@ handle_event(state_timeout, timeout, {?GROUP_REQUEST, update, #{id := ID}, _Next
   {stop, {group_request_timeout, ID}};
 
 %% +--------------------------------------------------------------+
+%% |                Sending remote control command                |
+%% +--------------------------------------------------------------+
+
+handle_event(enter, _PrevState, {?WRITE, From, IOA, #{type := Type} = Value}, #data{
+  connection = Connection,
+  asdu = ASDUSettings
+} = Data) ->
+  [ASDU] = iec60870_asdu:build(#asdu{
+    type = Type,
+    pn = ?POSITIVE_PN,
+    cot = ?COT_ACT,
+    objects = [{IOA, Value}]
+  }, ASDUSettings),
+  send_asdu(Connection, ASDU),
+  {next_state, {?WRITE, From, Type}, Data};
+
+handle_event(state_timeout, _PrevState, {?WRITE, From, _, _}, Data) ->
+  {next_state, ?CONNECTED, Data, [{reply, From, write_timeout}]};
+
+%% +--------------------------------------------------------------+
 %% |                          Connected                           |
 %% +--------------------------------------------------------------+
 
 handle_event(enter, _PrevState, ?CONNECTED, _Data) ->
   keep_state_and_data;
 
+%% Event from timer for the group update is received
+%% Changing state to the group request
 handle_event(info, {update_group, Group, PID}, ?CONNECTED, Data) when PID =:= self() ->
   {next_state, {?GROUP_REQUEST, init, Group, ?CONNECTED}, Data};
 
 %% +--------------------------------------------------------------+
-%% |                        Update event                          |
+%% |                        Other events                          |
 %% +--------------------------------------------------------------+
+
+%% Initializing remote control command request
+handle_event({call, From}, {write, IOA, Value}, _State, Data) ->
+  {next_state, {?WRITE, From, IOA, Value}, Data, [{state_timeout, ?DEFAULT_WRITE_TIMEOUT, ?WRITE}]};
 
 %% Event from esubscriber notify
 handle_event(info, {write, IOA, Value}, _State, #data{
@@ -198,7 +225,7 @@ terminate(Reason, _, _ClientState) ->
 code_change(_OldVsn, State, _Extra) ->
   {ok, State}.
 
-%% Updating data objects
+%% Updating information data objects only
 handle_asdu(#asdu{
   type = Type,
   objects = Objects,
@@ -217,6 +244,46 @@ handle_asdu(#asdu{
     end,
   [update_value(Name, Storage, IOA, Value#{type => Type, group => Group}) || {IOA, Value} <- Objects],
   keep_state_and_data;
+
+%% +--------------------------------------------------------------+
+%% |                     Handling write request                   |
+%% +--------------------------------------------------------------+
+
+%% Positive confirmation
+handle_asdu(#asdu{
+  type = Type,
+  cot = ?COT_ACTCON,
+  pn = ?POSITIVE_PN
+}, {?WRITE, _From, Type}, _Data) ->
+  keep_state_and_data;
+
+%% Negative confirmation
+handle_asdu(#asdu{
+  type = Type,
+  cot = ?COT_ACTCON,
+  pn = ?NEGATIVE_PN
+}, {?WRITE, From, Type}, Data) ->
+  {next_state, ?CONNECTED, Data, [{reply, From, negative_confirmation}]};
+
+%% Positive termination
+handle_asdu(#asdu{
+  type = Type,
+  cot = ?COT_ACTTERM,
+  pn = ?POSITIVE_PN
+}, {?WRITE, From, Type}, Data) ->
+  {next_state, ?CONNECTED, Data, [{reply, From, ok}]};
+
+%% Negative termination
+handle_asdu(#asdu{
+  type = Type,
+  cot = ?COT_ACTTERM,
+  pn = ?NEGATIVE_PN
+}, {?WRITE, From, Type}, Data) ->
+  {next_state, ?CONNECTED, Data, [{reply, From, negative_termination}]};
+
+%% +--------------------------------------------------------------+
+%% |                     Handling group request                   |
+%% +--------------------------------------------------------------+
 
 %% Confirmation of the group request
 handle_asdu(#asdu{

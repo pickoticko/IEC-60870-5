@@ -148,7 +148,7 @@ handle_asdu(#asdu{
   [Confirmation] = iec60870_asdu:build(#asdu{
     type = ?C_IC_NA_1,
     pn = ?POSITIVE_PN,
-    cot = ?COT_SPONT,
+    cot = ?COT_ACTCON,
     objects = [{IOA, GroupID}]
   }, ASDUSettings),
   send_asdu(Connection, Confirmation),
@@ -179,7 +179,7 @@ handle_asdu(#asdu{
   [Confirmation] = iec60870_asdu:build(#asdu{
     type = ?C_CI_NA_1,
     pn = ?POSITIVE_PN,
-    cot = ?COT_SPONT,
+    cot = ?COT_ACTCON,
     objects = [{IOA, GroupID}]
   }, ASDUSettings),
   send_asdu(Connection, Confirmation),
@@ -209,7 +209,7 @@ handle_asdu(#asdu{
   [Confirmation] = iec60870_asdu:build(#asdu{
     type = ?C_CS_NA_1,
     pn = ?POSITIVE_PN,
-    cot = ?COT_SPONT,
+    cot = ?COT_ACTCON,
     objects = Objects
   }, ASDUSettings),
   send_asdu(Connection, Confirmation),

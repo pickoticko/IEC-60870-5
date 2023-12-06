@@ -448,7 +448,7 @@ create_information_element(?M_BO_TB_1, #{
   qds := QDS,
   ts := Timestamp
 }) ->
-  <<BSI:32/little-unsigned, QDS, (get_cp56(Timestamp))/binary>>;
+  <<(round(BSI)):32/little-unsigned, QDS, (get_cp56(Timestamp))/binary>>;
 
 %% Type 34. Measured value, normalized value with time tag
 create_information_element(?M_ME_TD_1, #{

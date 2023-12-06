@@ -157,6 +157,68 @@ parse_information_element(?M_EP_TD_1, <<SEP, Interval:16/little-unsigned, Timest
   <<_Ignore:6, ES:2>> = <<SEP>>,
   #{value => ES, sep => SEP, interval => Interval, ts => parse_cp56(Timestamp)};
 
+%% Type 45: Single command
+parse_information_element(?C_SC_NA_1, <<SCO>>) ->
+  <<_Ignore:7, SCS:1>> = <<SCO>>,
+  #{value => SCS, sco => SCO};
+
+%% Type 46: Double command
+parse_information_element(?C_DC_NA_1, <<DCO>>) ->
+  <<_Ignore:6, DCS:2>> = <<DCO>>,
+  #{value => DCS, dco => DCO};
+
+%% Type 47: Regulating step command
+parse_information_element(?C_RC_NA_1, <<RCO>>) ->
+  <<_Ignore:6, RCS:2>> = <<RCO>>,
+  #{value => RCS, rco => RCO};
+
+%% Type 48: Set point command, normalized value
+parse_information_element(?C_SE_NA_1, <<NVA:16/little-signed, QOS>>) ->
+  #{value => parse_nva(NVA), qos => QOS};
+
+%% Type 49: Set point command, scaled value
+parse_information_element(?C_SE_NB_1, <<SVA:16/little-signed, QOS>>) ->
+  #{value => SVA, qos => QOS};
+
+%% Type 50: Set point command, short floating point value
+parse_information_element(?C_SE_NC_1, <<Value:32/little-signed-float, QOS>>) ->
+  #{value => Value, qos => QOS};
+
+%% Type 51: Bit string 32 bit
+parse_information_element(?C_BO_NA_1, <<BSI:32/little-unsigned>>) ->
+  #{value => BSI};
+
+%% Type 58: Single command with time tag
+parse_information_element(?C_SC_TA_1, <<SCO, Timestamp/binary>>) ->
+  <<_Ignore:7, SCS:1>> = <<SCO>>,
+  #{value => SCS, sco => SCO, ts => parse_cp56(Timestamp)};
+
+%% Type 59: Double command with time tag
+parse_information_element(?C_DC_TA_1, <<DCO, Timestamp/binary>>) ->
+  <<_Ignore:6, DCS:2>> = <<DCO>>,
+  #{value => DCS, dco => DCO, ts => parse_cp56(Timestamp)};
+
+%% Type 60: Regulating step command with time tag
+parse_information_element(?C_RC_TA_1, <<RCO, Timestamp/binary>>) ->
+  <<_Ignore:6, RCS:2>> = <<RCO>>,
+  #{value => RCS, rco => RCO, ts => parse_cp56(Timestamp)};
+
+%% Type 61: Set point command, normalized value with time tag
+parse_information_element(?C_SE_TA_1, <<NVA:16/little-signed, QOS, Timestamp/binary>>) ->
+  #{value => parse_nva(NVA), qos => QOS, ts => parse_cp56(Timestamp)};
+
+%% Type 62: Set point command, scaled value with time tag
+parse_information_element(?C_SE_TB_1, <<SVA:16/little-signed, QOS, Timestamp/binary>>) ->
+  #{value => SVA, qos => QOS, ts => parse_cp56(Timestamp)};
+
+%% Type 63: Set point command, short floating point value with time tag
+parse_information_element(?C_SE_TC_1, <<Value:32/little-signed-float, QOS, Timestamp/binary>>) ->
+  #{value => Value, qos => QOS, ts => parse_cp56(Timestamp)};
+
+%% Type 64: Bit string 32 bit with time tag
+parse_information_element(?C_BO_TA_1, <<BSI:32/little-unsigned, Timestamp/binary>>) ->
+  #{value => BSI, ts => parse_cp56(Timestamp)};
+
 %% Type 70. End of initialization
 parse_information_element(?M_EI_NA_1, <<COI>>) ->
   <<_Ignore:1, Value:7>> = <<COI>>,
@@ -430,6 +492,115 @@ create_information_element(?M_EP_TD_1, #{
 }) ->
   <<Rest:6, _Ignore:2>> = <<SEP>>,
   <<Rest:6, (round(ES)):2, Interval:16/little-unsigned, (get_cp56(Timestamp))/binary>>;
+
+%% Type 45: Single command
+create_information_element(?C_SC_NA_1, #{
+  value := SCS,
+  sco := SCO
+}) ->
+  <<Rest:7, _Ignore:1>> = <<SCO>>,
+  <<Rest:7, (round(SCS)):1>>;
+
+%% Type 46: Double command
+create_information_element(?C_DC_NA_1, #{
+  value := DCS,
+  dco := DCO
+}) ->
+  <<Rest:6, _Ignore:2>> = <<DCO>>,
+  <<Rest:6, (round(DCS)):2>>;
+
+%% Type 47: Regulating step command
+create_information_element(?C_RC_NA_1, #{
+  value := RCS,
+  rco := RCO
+}) ->
+  <<Rest:6, _Ignore:2>> = <<RCO>>,
+  <<Rest:6, (round(RCS)):2>>;
+
+%% Type 48: Set point command, normalized value
+create_information_element(?C_SE_NA_1, #{
+  value := NVA,
+  qos := QOS
+}) ->
+  <<(round(get_nva(NVA))):16/little-signed, QOS>>;
+
+%% Type 49: Set point command, scaled value
+create_information_element(?C_SE_NB_1, #{
+  value := SVA,
+  qos := QOS
+}) ->
+  <<(round(SVA)):16/little-signed, QOS>>;
+
+%% Type 50: Set point command, short floating point value
+create_information_element(?C_SE_NC_1, #{
+  value := Value,
+  qos := QOS
+}) ->
+  <<Value:32/little-signed-float, QOS>>;
+
+%% Type 51: Bit string 32 bit
+create_information_element(?C_BO_NA_1, #{
+  value := BSI
+}) ->
+  <<(round(BSI)):32/little-unsigned>>;
+
+%% Type 58: Single command with time tag
+create_information_element(?C_SC_TA_1, #{
+  value := SCS,
+  sco := SCO,
+  ts := Timestamp
+}) ->
+  <<Rest:7, _Ignore:1>> = <<SCO>>,
+  <<Rest:7, (round(SCS)):1, (get_cp56(Timestamp))/binary>>;
+
+%% Type 59: Double command with time tag
+create_information_element(?C_DC_TA_1, #{
+  value := DCS,
+  dco := DCO,
+  ts := Timestamp
+}) ->
+  <<Rest:6, _Ignore:2>> = <<DCO>>,
+  <<Rest:6, (round(DCS)):2, (get_cp56(Timestamp))/binary>>;
+
+%% Type 60: Regulating step command with time tag
+create_information_element(?C_RC_TA_1, #{
+  value := RCS,
+  rco := RCO,
+  ts := Timestamp
+}) ->
+  <<Rest:6, _Ignore:2>> = <<RCO>>,
+  <<Rest:6, (round(RCS)):2, (get_cp56(Timestamp))/binary>>;
+
+%% Type 61: Set point command, normalized value with time tag
+create_information_element(?C_SE_TA_1, #{
+  value := NVA,
+  qos := QOS,
+  ts := Timestamp
+}) ->
+  <<(round(get_nva(NVA))):16/little-signed, QOS, (get_cp56(Timestamp))/binary>>;
+
+%% Type 62: Set point command, scaled value with time tag
+create_information_element(?C_SE_TB_1, #{
+  value := SVA,
+  qos := QOS,
+  ts := Timestamp
+}) ->
+  <<(round(SVA)):16/little-signed, QOS, (get_cp56(Timestamp))/binary>>;
+
+%% Type 63: Set point command, short floating point value with time tag
+create_information_element(?C_SE_TC_1, #{
+  value := Value,
+  qos := QOS,
+  ts := Timestamp
+}) ->
+  <<Value:32/little-signed-float, QOS, (get_cp56(Timestamp))/binary>>;
+
+%% Type 64: Bit string 32 bit with time tag
+create_information_element(?C_BO_TA_1, #{
+  value := BSI,
+  ts := Timestamp
+}) ->
+  <<(round(BSI)):32/little-unsigned, (get_cp56(Timestamp))/binary>>;
 
 %% Type 70. End of initialization
 create_information_element(?M_EI_NA_1, #{

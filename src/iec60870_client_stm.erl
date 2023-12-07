@@ -146,10 +146,11 @@ handle_event(state_timeout, timeout, {?GROUP_REQUEST, update, #{id := ID}, _Next
 %% |                Sending remote control command                |
 %% +--------------------------------------------------------------+
 
-handle_event(enter, _PrevState, {?WRITE, From, IOA, #{type := Type} = Value}, #data{
+handle_event(enter, _PrevState, {?WRITE, _From, IOA, #{type := Type} = Value}, #data{
   connection = Connection,
   asdu = ASDUSettings
-} = Data) ->
+}) ->
+  io:format("~nHANDLE EVENT ENTER!~n"),
   [ASDU] = iec60870_asdu:build(#asdu{
     type = Type,
     pn = ?POSITIVE_PN,
@@ -157,7 +158,7 @@ handle_event(enter, _PrevState, {?WRITE, From, IOA, #{type := Type} = Value}, #d
     objects = [{IOA, Value}]
   }, ASDUSettings),
   send_asdu(Connection, ASDU),
-  {next_state, {?WRITE, From, Type}, Data};
+  keep_state_and_data;
 
 handle_event(state_timeout, _PrevState, {?WRITE, From, _, _}, Data) ->
   {next_state, ?CONNECTED, Data, [{reply, From, write_timeout}]};
@@ -180,7 +181,8 @@ handle_event(info, {update_group, Group, PID}, ?CONNECTED, Data) when PID =:= se
 
 %% Initializing remote control command request
 handle_event({call, From}, {write, IOA, Value}, _State, Data) ->
-  {next_state, {?WRITE, From, IOA, Value}, Data, [{state_timeout, ?DEFAULT_WRITE_TIMEOUT, ?WRITE}]};
+  io:format("WRITE CALL!"),
+  {next_state, {?WRITE, From, IOA, Value}, Data, [{state_timeout, ?DEFAULT_WRITE_TIMEOUT, ?CONNECTED}]};
 
 %% Event from esubscriber notify
 handle_event(info, {write, IOA, Value}, _State, #data{
@@ -234,7 +236,8 @@ handle_asdu(#asdu{
   name = Name,
   storage = Storage
 }) when Type >= ?M_SP_NA_1, Type =< ?M_ME_ND_1;
-        Type >= ?M_SP_TB_1, Type =< ?M_EI_NA_1 ->
+        Type >= ?M_SP_TB_1, Type =< ?M_EP_TD_1;
+        Type =:= ?M_EI_NA_1 ->
   Group =
     if
       COT >= ?COT_GROUP_MIN, COT =< ?COT_GROUP_MAX ->
@@ -252,34 +255,17 @@ handle_asdu(#asdu{
 %% Positive confirmation
 handle_asdu(#asdu{
   type = Type,
-  cot = ?COT_ACTCON,
-  pn = ?POSITIVE_PN
-}, {?WRITE, _From, Type}, _Data) ->
-  keep_state_and_data;
-
-%% Negative confirmation
-handle_asdu(#asdu{
-  type = Type,
-  cot = ?COT_ACTCON,
-  pn = ?NEGATIVE_PN
-}, {?WRITE, From, Type}, Data) ->
-  {next_state, ?CONNECTED, Data, [{reply, From, negative_confirmation}]};
-
-%% Positive termination
-handle_asdu(#asdu{
-  type = Type,
-  cot = ?COT_ACTTERM,
-  pn = ?POSITIVE_PN
-}, {?WRITE, From, Type}, Data) ->
-  {next_state, ?CONNECTED, Data, [{reply, From, ok}]};
-
-%% Negative termination
-handle_asdu(#asdu{
-  type = Type,
-  cot = ?COT_ACTTERM,
-  pn = ?NEGATIVE_PN
-}, {?WRITE, From, Type}, Data) ->
-  {next_state, ?CONNECTED, Data, [{reply, From, negative_termination}]};
+  cot = COT,
+  pn = PN
+}, {?WRITE, From, _IOA, #{type := Type} = _Value}, Data)
+  when Type >= ?C_SC_NA_1, Type =< ?C_BO_NA_1;
+       Type >= ?C_SC_TA_1, Type =< ?C_BO_TA_1 ->
+  case {COT, PN} of
+    {?COT_ACTCON, ?POSITIVE_PN} -> keep_state_and_data;
+    {?COT_ACTCON, ?NEGATIVE_PN} -> {next_state, ?CONNECTED, Data, [{reply, From, negative_confirmation}]};
+    {?COT_ACTTERM, ?POSITIVE_PN} -> {next_state, ?CONNECTED, Data, [{reply, From, ok}]};
+    {?COT_ACTTERM, ?NEGATIVE_PN} -> {next_state, ?CONNECTED, Data, [{reply, From, negative_termination}]}
+  end;
 
 %% +--------------------------------------------------------------+
 %% |                     Handling group request                   |

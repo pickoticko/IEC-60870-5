@@ -232,45 +232,21 @@ handle_asdu(#asdu{
   try
     [{IOA, Value}] = Objects,
     case Handler(Reference, Type, IOA, Value) of
-      {error, Error} ->
-        ?LOGERROR("command handler failed, error: ~p", [Error]),
+      {error, HandlerError} ->
+        ?LOGERROR("command handler failed, error: ~p", [HandlerError]),
         %% +-------[ Negative activation confirmation ]---------+
-        [NegativeConfirmation] = iec60870_asdu:build(#asdu{
-          type = Type,
-          pn = ?NEGATIVE_PN,
-          cot = ?COT_ACTCON,
-          objects = Objects
-        }, ASDUSettings),
-        send_asdu(Connection, NegativeConfirmation);
+        build_and_send(Type, Objects, ?COT_ACTCON, ?NEGATIVE_PN, Connection, ASDUSettings);
       ok ->
         %% +------------[ Activation confirmation ]-------------+
-        [Confirmation] = iec60870_asdu:build(#asdu{
-          type = Type,
-          pn = ?POSITIVE_PN,
-          cot = ?COT_ACTCON,
-          objects = Objects
-        }, ASDUSettings),
-        send_asdu(Connection, Confirmation),
-        %% +-------------[ Activation termination ]-------------+
-        [Termination] = iec60870_asdu:build(#asdu{
-          type = Type,
-          pn = ?POSITIVE_PN,
-          cot = ?COT_ACTTERM,
-          objects = Objects
-        }, ASDUSettings),
-        send_asdu(Connection, Termination)
+        build_and_send(Type, Objects, ?COT_ACTCON, ?POSITIVE_PN, Connection, ASDUSettings),
+        %% +------------[ Activation termination ]--------------+
+        build_and_send(Type, Objects, ?COT_ACTTERM, ?POSITIVE_PN, Connection, ASDUSettings)
     end
   catch
     _:Error:Stack ->
       ?LOGERROR("command handler failed: error ~p, stack ~p", [Error, Stack]),
-      %% +--------[ Negative activation confirmation ]---------+
-      [NegativeConfirmation] = iec60870_asdu:build(#asdu{
-        type = Type,
-        pn = ?NEGATIVE_PN,
-        cot = ?COT_ACTCON,
-        objects = Objects
-      }, ASDUSettings),
-      send_asdu(Connection, NegativeConfirmation)
+      %% +-------[ Negative activation confirmation ]---------+
+      build_and_send(Type, Objects, ?COT_ACTCON, ?NEGATIVE_PN, Connection, ASDUSettings)
   end,
   keep_state_and_data;
 
@@ -319,3 +295,12 @@ group_by_types([{IOA, #{type := Type} = Value } | Rest], Acc) ->
   group_by_types(Rest, Acc1);
 group_by_types([], Acc) ->
   [{Type, lists:sort(maps:to_list(Objects))} || {Type, Objects} <- maps:to_list(Acc)].
+
+build_and_send(Type, Objects, COT, PN, Connection, Settings) ->
+  [Confirmation] = iec60870_asdu:build(#asdu{
+    type = Type,
+    cot = COT,
+    pn = PN,
+    objects = Objects
+  }, Settings),
+  send_asdu(Connection, Confirmation).

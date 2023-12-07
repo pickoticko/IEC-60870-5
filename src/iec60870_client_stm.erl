@@ -181,7 +181,6 @@ handle_event(info, {update_group, Group, PID}, ?CONNECTED, Data) when PID =:= se
 
 %% Initializing remote control command request
 handle_event({call, From}, {write, IOA, Value}, _State, Data) ->
-  io:format("WRITE CALL!"),
   {next_state, {?WRITE, From, IOA, Value}, Data, [{state_timeout, ?DEFAULT_WRITE_TIMEOUT, ?CONNECTED}]};
 
 %% Event from esubscriber notify

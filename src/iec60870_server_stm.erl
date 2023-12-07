@@ -233,7 +233,6 @@ handle_asdu(#asdu{
     [{IOA, Value}] = Objects,
     case Handler(Reference, Type, IOA, Value) of
       {error, HandlerError} ->
-        ?LOGERROR("command handler failed, error: ~p", [HandlerError]),
         %% +-------[ Negative activation confirmation ]---------+
         build_and_send(Type, Objects, ?COT_ACTCON, ?NEGATIVE_PN, Connection, ASDUSettings);
       ok ->
@@ -244,7 +243,6 @@ handle_asdu(#asdu{
     end
   catch
     _:Error:Stack ->
-      ?LOGERROR("command handler failed: error ~p, stack ~p", [Error, Stack]),
       %% +-------[ Negative activation confirmation ]---------+
       build_and_send(Type, Objects, ?COT_ACTCON, ?NEGATIVE_PN, Connection, ASDUSettings)
   end,

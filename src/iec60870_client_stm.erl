@@ -150,7 +150,6 @@ handle_event(enter, _PrevState, {?WRITE, _From, IOA, #{type := Type} = Value}, #
   connection = Connection,
   asdu = ASDUSettings
 }) ->
-  io:format("~nHANDLE EVENT ENTER!~n"),
   [ASDU] = iec60870_asdu:build(#asdu{
     type = Type,
     pn = ?POSITIVE_PN,
@@ -175,13 +174,13 @@ handle_event(enter, _PrevState, ?CONNECTED, _Data) ->
 handle_event(info, {update_group, Group, PID}, ?CONNECTED, Data) when PID =:= self() ->
   {next_state, {?GROUP_REQUEST, init, Group, ?CONNECTED}, Data};
 
+%% Initializing remote control command request
+handle_event({call, From}, {write, IOA, Value}, ?CONNECTED, Data) ->
+  {next_state, {?WRITE, From, IOA, Value}, Data, [{state_timeout, ?DEFAULT_WRITE_TIMEOUT, ?CONNECTED}]};
+
 %% +--------------------------------------------------------------+
 %% |                        Other events                          |
 %% +--------------------------------------------------------------+
-
-%% Initializing remote control command request
-handle_event({call, From}, {write, IOA, Value}, _State, Data) ->
-  {next_state, {?WRITE, From, IOA, Value}, Data, [{state_timeout, ?DEFAULT_WRITE_TIMEOUT, ?CONNECTED}]};
 
 %% Event from esubscriber notify
 handle_event(info, {write, IOA, Value}, _State, #data{

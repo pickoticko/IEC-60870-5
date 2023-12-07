@@ -174,7 +174,8 @@ handle_event(enter, _PrevState, ?CONNECTED, _Data) ->
 handle_event(info, {update_group, Group, PID}, ?CONNECTED, Data) when PID =:= self() ->
   {next_state, {?GROUP_REQUEST, init, Group, ?CONNECTED}, Data};
 
-%% Initializing remote control command request
+%% Handling call of remote control command
+%% Note: we can only write in the CONNECTED state
 handle_event({call, From}, {write, IOA, Value}, ?CONNECTED, Data) ->
   {next_state, {?WRITE, From, IOA, Value}, Data, [{state_timeout, ?DEFAULT_WRITE_TIMEOUT, ?CONNECTED}]};
 

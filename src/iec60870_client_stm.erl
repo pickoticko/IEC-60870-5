@@ -249,8 +249,11 @@ handle_asdu(#asdu{
 %% +--------------------------------------------------------------+
 %% |                     Handling write request                   |
 %% +--------------------------------------------------------------+
+%% | Note: We do not expect that there will be a strict sequence  |
+%% | of responses from the server so, if we get activation        |
+%% | termination, then we assume that the write has succeeded     |
+%% +--------------------------------------------------------------+
 
-%% Positive confirmation
 handle_asdu(#asdu{
   type = Type,
   cot = COT,
@@ -260,9 +263,9 @@ handle_asdu(#asdu{
        Type >= ?C_SC_TA_1, Type =< ?C_BO_TA_1 ->
   case {COT, PN} of
     {?COT_ACTCON, ?POSITIVE_PN} -> keep_state_and_data;
-    {?COT_ACTCON, ?NEGATIVE_PN} -> {next_state, ?CONNECTED, Data, [{reply, From, negative_confirmation}]};
+    {?COT_ACTCON, ?NEGATIVE_PN} -> {next_state, ?CONNECTED, Data, [{reply, From, {error, negative_confirmation}}]};
     {?COT_ACTTERM, ?POSITIVE_PN} -> {next_state, ?CONNECTED, Data, [{reply, From, ok}]};
-    {?COT_ACTTERM, ?NEGATIVE_PN} -> {next_state, ?CONNECTED, Data, [{reply, From, negative_termination}]}
+    {?COT_ACTTERM, ?NEGATIVE_PN} -> {next_state, ?CONNECTED, Data, [{reply, From, {error, negative_termination}}]}
   end;
 
 %% +--------------------------------------------------------------+

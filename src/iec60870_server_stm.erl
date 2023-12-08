@@ -133,6 +133,72 @@ code_change(_OldVsn, State, _Extra) ->
 %% |                      Internal functions                      |
 %% +--------------------------------------------------------------+
 
+%% Receiving information data objects
+handle_asdu(#asdu{
+  type = Type,
+  objects = Objects
+}, #data{
+  settings = #{
+    root := Root
+  }
+})
+  when (Type >= ?M_SP_NA_1 andalso Type =< ?M_ME_ND_1)
+    orelse (Type >= ?M_SP_TB_1 andalso Type =< ?M_EP_TD_1)
+    orelse (Type =:= ?M_EI_NA_1) ->
+  [iec60870_server:update_value(Root, IOA, Value) || {IOA, Value} <- Objects],
+  keep_state_and_data;
+
+%% Remote control commands
+%% +--------------------------------------------------------------+
+%% | Note: The write request on the server begins with the        |
+%% | execution of the handler. It is asynchronous because we      |
+%% | don't want to delay the work of the entire state machine.    |
+%% | Handler must return {error, Error} or ok                     |
+%% +--------------------------------------------------------------+
+handle_asdu(#asdu{
+  type = Type,
+  objects = Objects
+}, #data{
+  connection = Connection,
+  settings = #{
+    command_handler := Handler,
+    asdu := ASDUSettings,
+    root := Reference
+  }
+})
+  when (Type >= ?C_SC_NA_1 andalso Type =< ?C_BO_NA_1)
+    orelse (Type >= ?C_SC_TA_1 andalso Type =< ?C_BO_TA_1) ->
+  if
+    is_function(Handler) ->
+      Self = self(),
+      spawn(fun() ->
+        try
+          [{IOA, Value}] = Objects,
+          case Handler(Reference, Type, IOA, Value) of
+            {error, HandlerError} ->
+              ?LOGDEBUG("remote control handler returned error: ~p", [HandlerError]),
+              %% +-------[ Negative activation confirmation ]---------+
+              build_and_send(Self, Type, Objects, ?COT_ACTCON, ?NEGATIVE_PN, Connection, ASDUSettings);
+            ok ->
+              %% +------------[ Activation confirmation ]-------------+
+              build_and_send(Self, Type, Objects, ?COT_ACTCON, ?POSITIVE_PN, Connection, ASDUSettings),
+              %% +------------[ Activation termination ]--------------+
+              build_and_send(Self, Type, Objects, ?COT_ACTTERM, ?POSITIVE_PN, Connection, ASDUSettings)
+          end
+        catch
+          _:Error:Stack ->
+            ?LOGERROR("remote control handler handler failed, error: ~p", [Error, Stack]),
+            %% +-------[ Negative activation confirmation ]---------+
+            build_and_send(Self, Type, Objects, ?COT_ACTCON, ?NEGATIVE_PN, Connection, ASDUSettings)
+        end
+      end);
+    true ->
+      %% +-------[ Negative activation confirmation ]---------+
+      ?LOGWARNING("remote control request accepted, handler is not defined"),
+      build_and_send(self(), Type, Objects, ?COT_ACTCON, ?NEGATIVE_PN, Connection, ASDUSettings)
+  end,
+  keep_state_and_data;
+
 %% General Interrogation Command
 handle_asdu(#asdu{
   type = ?C_IC_NA_1,
@@ -213,68 +279,6 @@ handle_asdu(#asdu{
     objects = Objects
   }, ASDUSettings),
   send_asdu(Connection, Confirmation),
-  keep_state_and_data;
-
-%% Remote control commands
-handle_asdu(#asdu{
-  type = Type,
-  objects = Objects
-}, #data{
-  connection = Connection,
-  settings = #{
-    command_handler := Handler,
-    asdu := ASDUSettings,
-    root := Reference
-  }
-})
-  when (Type >= ?C_SC_NA_1 andalso Type =< ?C_BO_NA_1)
-          orelse
-        (Type >= ?C_SC_TA_1 andalso Type =< ?C_BO_TA_1) ->
-
-  if
-    is_function( Handler ) ->
-      Self = self(),
-      spawn(fun()->
-        try
-          [{IOA, Value}] = Objects,
-          case Handler(Reference, Type, IOA, Value) of
-            {error, HandlerError} ->
-              ?LOGDEBUG("remote control handler returned error: ~p", [HandlerError]),
-              %% +-------[ Negative activation confirmation ]---------+
-              build_and_send(Self, Type, Objects, ?COT_ACTCON, ?NEGATIVE_PN, Connection, ASDUSettings);
-            ok ->
-              %% +------------[ Activation confirmation ]-------------+
-              build_and_send(Self, Type, Objects, ?COT_ACTCON, ?POSITIVE_PN, Connection, ASDUSettings),
-              %% +------------[ Activation termination ]--------------+
-              build_and_send(Self, Type, Objects, ?COT_ACTTERM, ?POSITIVE_PN, Connection, ASDUSettings)
-          end
-        catch
-          _:Error:Stack ->
-            ?LOGERROR("remote control handler handler failed, error: ~p", [Error, Stack]),
-            %% +-------[ Negative activation confirmation ]---------+
-            build_and_send(Self, Type, Objects, ?COT_ACTCON, ?NEGATIVE_PN, Connection, ASDUSettings)
-        end
-      end);
-    true ->
-      %% +-------[ Negative activation confirmation ]---------+
-      ?LOGWARNING("remote control request accepted, handler is not defined"),
-      build_and_send(self(), Type, Objects, ?COT_ACTCON, ?NEGATIVE_PN, Connection, ASDUSettings)
-  end,
-
-  keep_state_and_data;
-
-%% Updating data objects
-handle_asdu(#asdu{
-  type = Type,
-  objects = Objects
-}, #data{
-  settings = #{
-    root := Root
-  }
-}) when (Type >= ?M_SP_NA_1 andalso Type =< ?M_ME_ND_1)
-          orelse
-        (Type >= ?M_SP_TB_1 andalso Type =< ?M_EI_NA_1) ->
-  [iec60870_server:update_value(Root, IOA, Value) || {IOA, Value} <- Objects],
   keep_state_and_data;
 
 %% All other unexpected asdu types

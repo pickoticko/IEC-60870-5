@@ -188,7 +188,7 @@ handle_event({call, From}, {write, IOA, Value}, State, Data) ->
 %% |                        Other events                          |
 %% +--------------------------------------------------------------+
 
-%% Event from esubscriber notify
+%% Notify event from esubscriber
 handle_event(info, {write, IOA, Value}, _State, #data{
   name = Name,
   connection = Connection,
@@ -231,7 +231,7 @@ terminate(Reason, _, _ClientState) ->
 code_change(_OldVsn, State, _Extra) ->
   {ok, State}.
 
-%% Updating information data objects only
+%% Receiving information data objects
 handle_asdu(#asdu{
   type = Type,
   objects = Objects,
@@ -239,11 +239,10 @@ handle_asdu(#asdu{
 }, _State, #data{
   name = Name,
   storage = Storage
-}) when (Type >= ?M_SP_NA_1 andalso Type =< ?M_ME_ND_1)
-          orelse
-        (Type >= ?M_SP_TB_1 andalso Type =< ?M_EP_TD_1)
-          orelse
-        Type =:= ?M_EI_NA_1 ->
+})
+  when (Type >= ?M_SP_NA_1 andalso Type =< ?M_ME_ND_1)
+    orelse (Type >= ?M_SP_TB_1 andalso Type =< ?M_EP_TD_1)
+    orelse (Type =:= ?M_EI_NA_1) ->
   Group =
     if
       COT >= ?COT_GROUP_MIN, COT =< ?COT_GROUP_MAX ->
@@ -269,8 +268,7 @@ handle_asdu(#asdu{
   objects = [{IOA, _ }]
 }, {?WRITE, From, IOA, #{type := Type} = _Value}, Data)
   when (Type >= ?C_SC_NA_1 andalso Type =< ?C_BO_NA_1)
-          orelse
-        (Type >= ?C_SC_TA_1 andalso Type =< ?C_BO_TA_1) ->
+    orelse (Type >= ?C_SC_TA_1 andalso Type =< ?C_BO_TA_1) ->
   case {COT, PN} of
     {?COT_ACTCON, ?POSITIVE_PN} -> keep_state_and_data;
     {?COT_ACTCON, ?NEGATIVE_PN} -> {next_state, ?CONNECTED, Data, [{reply, From, {error, negative_confirmation}}]};

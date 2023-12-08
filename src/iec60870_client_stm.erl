@@ -265,8 +265,9 @@ handle_asdu(#asdu{
 handle_asdu(#asdu{
   type = Type,
   cot = COT,
-  pn = PN
-}, {?WRITE, From, _IOA, #{type := Type} = _Value}, Data)
+  pn = PN,
+  objects = [{IOA, _ }]
+}, {?WRITE, From, IOA, #{type := Type} = _Value}, Data)
   when (Type >= ?C_SC_NA_1 andalso Type =< ?C_BO_NA_1)
           orelse
         (Type >= ?C_SC_TA_1 andalso Type =< ?C_BO_TA_1) ->

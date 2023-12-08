@@ -307,10 +307,10 @@ group_by_types([], Acc) ->
   [{Type, lists:sort(maps:to_list(Objects))} || {Type, Objects} <- maps:to_list(Acc)].
 
 build_and_send(Type, Objects, COT, PN, Connection, Settings) ->
-  [Confirmation] = iec60870_asdu:build(#asdu{
+  [Packet] = iec60870_asdu:build(#asdu{
     type = Type,
     cot = COT,
     pn = PN,
     objects = Objects
   }, Settings),
-  send_asdu(Connection, Confirmation).
+  send_asdu(Connection, Packet).

@@ -57,16 +57,30 @@
 -define(M_EP_TD_1, 16#26). % 38: CP16Time2A + CP56Time2A                 | Event of protection equipment with time tag
 -define(M_EI_NA_1, 16#46). % 70: Initialization Ending
 
-%% Control direction types
+%% Remote control commands without time tag
+-define(C_SC_NA_1, 16#2D). % 45: Single command
+-define(C_DC_NA_1, 16#2E). % 46: Double command
+-define(C_RC_NA_1, 16#2F). % 47: Regulating step command
+-define(C_SE_NA_1, 16#30). % 48: Set point command, normalized value
+-define(C_SE_NB_1, 16#31). % 49: Set point command, scaled value
+-define(C_SE_NC_1, 16#32). % 50: Set point command, short floating point value
+-define(C_BO_NA_1, 16#33). % 51: Bit string 32 bit
+
+%% Remote control commands with time tag
+-define(C_SC_TA_1, 16#3A). % 58: Single command (time tag)
+-define(C_DC_TA_1, 16#3B). % 59: Double command
+-define(C_RC_TA_1, 16#3C). % 60: Regulating step command
+-define(C_SE_TA_1, 16#3D). % 61: Set point command, normalized value
+-define(C_SE_TB_1, 16#3E). % 62: Set point command, scaled value
+-define(C_SE_TC_1, 16#3F). % 63: Set point command, short floating point value
+-define(C_BO_TA_1, 16#40). % 64: Bit string 32 bit
+
+%% Remote control commands on system information
 -define(C_IC_NA_1, 16#64). % 100: Group Request Command
 -define(C_CI_NA_1, 16#65). % 101: Counter Interrogation Command
 -define(C_CS_NA_1, 16#67). % 103: Clock Synchronization Command
 
--define(INIT_ADDRESS, 16#00).
-
-%% Max objects each ASDU can contain
--define(MAX_PACKETS, 127).
--define(EMPTY_QDS, 2#00000000).
+-define(DEFAULT_WRITE_TIMEOUT, 30000).
 
 %% Limitations
 -define(MAX_FRAME_LIMIT, 32767).

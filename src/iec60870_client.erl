@@ -1,22 +1,20 @@
-%% +--------------------------------------------------------------+
-%% | Copyright (c) 2023, Faceplate LTD. All Rights Reserved.      |
-%% | Author: Tokenov Alikhan, @alikhantokenov@gmail.com           |
-%% +--------------------------------------------------------------+
-
 -module(iec60870_client).
 
 -include("iec60870.hrl").
 -include("asdu.hrl").
 
--define(REQUIRED,{?MODULE, required}).
+%% +--------------------------------------------------------------+
+%% |                           Macros                             |
+%% +--------------------------------------------------------------+
 
--define(DEFAULT_SETTINGS, maps:merge( #{
+-define(REQUIRED, {?MODULE, required}).
+
+-define(DEFAULT_SETTINGS, maps:merge(#{
   name => ?REQUIRED,
   type => ?REQUIRED,
   connection => ?REQUIRED,
   groups => []
-}, ?DEFAULT_ASDU_SETTINGS )).
-
+}, ?DEFAULT_ASDU_SETTINGS)).
 
 -record(?MODULE, {
   storage,
@@ -24,9 +22,6 @@
   name
 }).
 
-%%-----------------------------------------------------------------
-%%  API
-%%-----------------------------------------------------------------
 -export([
   start/1,
   stop/1,
@@ -37,9 +32,10 @@
   get_pid/1
 ]).
 
-%%-----------------------------------------------------------------
-%%  Cross module API
-%%-----------------------------------------------------------------
+%% +--------------------------------------------------------------+
+%% |                       Cross Module API                       |
+%% +--------------------------------------------------------------+
+
 -export([
   find_group_items/2
 ]).
@@ -47,18 +43,16 @@
 %% +--------------------------------------------------------------+
 %% |                              API                             |
 %% +--------------------------------------------------------------+
-start( InSettings ) ->
-  #{
-    name := Name
-  } = Settings = check_settings(InSettings),
 
+start(InSettings) ->
+  #{name := Name} = Settings = check_settings(InSettings),
   PID =
     case gen_statem:start_link(iec60870_client_stm, {_OwnerPID = self(), Settings}, []) of
       {ok, _PID} -> _PID;
       {error, Error} -> throw(Error)
     end,
   receive
-    {ready, PID, Storage}  -> #?MODULE{
+    {ready, PID, Storage} -> #?MODULE{
       pid = PID,
       name = Name,
       storage = Storage
@@ -69,40 +63,41 @@ start( InSettings ) ->
 stop(#?MODULE{pid = PID}) ->
   gen_statem:stop(PID);
 stop(_) ->
-  throw( bad_arg ).
+  throw(bad_arg).
 
-read( Ref ) ->
-  find_group_items(Ref, 0).
-
+read(Reference) ->
+  find_group_items(Reference, 0).
 read(#?MODULE{storage = Storage}, ID) ->
   case ets:lookup(Storage, ID) of
     [] -> undefined;
     [{ID, Value}] -> Value
   end;
 read(_, _) ->
-  throw( bad_arg ).
+  throw(bad_arg).
 
 write(#?MODULE{pid = PID}, IOA, Value) ->
-  PID ! {write, IOA, Value},
+  case is_remote_command(Value) of
+    true -> gen_statem:call(PID, {write, IOA, Value});
+    false -> PID ! {write, IOA, Value}
+  end,
   ok.
 
 subscribe(#?MODULE{name = Name}, PID) when is_pid(PID) ->
     esubscribe:subscribe(Name, update, PID);
 subscribe(_, _) ->
-  throw( bad_arg ).
+  throw(bad_arg).
 
 subscribe(#?MODULE{name = Name}, PID, AddressList) when is_pid(PID), is_list(AddressList) ->
   [begin
      esubscribe:subscribe(Name, Address, PID)
    end || Address <- AddressList],
   ok;
-
 subscribe(#?MODULE{name = Name}, PID, Address) when is_pid(PID) ->
     esubscribe:subscribe(Name, Address, PID);
 subscribe(_, _, _) ->
-  throw( bad_arg ).
+  throw(bad_arg).
 
-unsubscribe(#?MODULE{name = Name}, PID, AddressList) when is_list( AddressList ), is_pid(PID) ->
+unsubscribe(#?MODULE{name = Name}, PID, AddressList) when is_list(AddressList), is_pid(PID) ->
   [begin
      esubscribe:unsubscribe(Name, Address, PID)
    end || Address <- AddressList],
@@ -110,54 +105,51 @@ unsubscribe(#?MODULE{name = Name}, PID, AddressList) when is_list( AddressList )
 unsubscribe(#?MODULE{name = Name}, PID, Address) when is_pid(PID) ->
     esubscribe:unsubscribe(Name, Address, PID);
 unsubscribe(_, _, _) ->
-  throw( bad_arg ).
+  throw(bad_arg).
 
-unsubscribe(Ref, PID) when is_pid( PID )->
-  AddressList = [ A || {A, _} <- read( Ref ) ],
-  unsubscribe( Ref, AddressList );
+unsubscribe(Reference, PID) when is_pid(PID) ->
+  AddressList = [Address || {Address, _} <- read(Reference)],
+  unsubscribe(Reference, AddressList);
 unsubscribe(_, _) ->
-  throw( bad_arg ).
+  throw(bad_arg).
 
 get_pid(#?MODULE{pid = PID}) ->
   PID;
 get_pid(_) ->
-  throw( bad_arg ).
+  throw(bad_arg).
 
-%%-----------------------------------------------------------------
-%%  Cross module API
-%%-----------------------------------------------------------------
-find_group_items(#?MODULE{ storage = Storage }, _GroupID = 0 )->
-  ets:tab2list( Storage );
-find_group_items(#?MODULE{ storage = Storage }, GroupID )->
-  ets:match_object(Storage, {'_',#{ group => GroupID }}).
+%% +--------------------------------------------------------------+
+%% |                       Cross Module API                       |
+%% +--------------------------------------------------------------+
 
+find_group_items(#?MODULE{storage = Storage}, _GroupID = 0) ->
+  ets:tab2list(Storage);
 
+find_group_items(#?MODULE{storage = Storage}, GroupID) ->
+  ets:match_object(Storage, {'_', #{group => GroupID}}).
 
 %% +--------------------------------------------------------------+
 %% |                      Internal functions                      |
 %% +--------------------------------------------------------------+
 
-check_settings( Settings ) when is_map( Settings ) ->
-  SettingsList = maps:to_list( Settings ),
-
+check_settings(Settings) when is_map(Settings) ->
+  SettingsList = maps:to_list(Settings),
   case [S || {S, ?REQUIRED} <- SettingsList] of
     [] -> ok;
     Required -> throw( {required, Required} )
   end,
-
-  case maps:keys( Settings ) -- maps:keys(?DEFAULT_SETTINGS) of
-    []-> ok;
-    InvalidParams -> throw( {invalid_params, InvalidParams} )
+  case maps:keys(Settings) -- maps:keys(?DEFAULT_SETTINGS) of
+    [] -> ok;
+    InvalidParams -> throw({invalid_params, InvalidParams})
   end,
-
   OwnSettings = maps:without(maps:keys(?DEFAULT_ASDU_SETTINGS), Settings),
   maps:merge(
-    maps:map(fun check_setting/2, OwnSettings ),
-    maps:with( maps:keys(?DEFAULT_ASDU_SETTINGS), Settings )
+    maps:map(fun check_setting/2, OwnSettings),
+    maps:with(maps:keys(?DEFAULT_ASDU_SETTINGS), Settings)
   );
+
 check_settings(_) ->
   throw(invalid_settings).
-
 
 check_setting(name, ConnectionName)
   when is_atom(ConnectionName) -> ConnectionName;
@@ -186,3 +178,7 @@ check_setting(groups, undefined) ->
 check_setting(Key, _) ->
   throw({invalid_settings, Key}).
 
+is_remote_command(#{type := Type})->
+  (Type >= ?C_SC_NA_1 andalso Type =< ?C_BO_NA_1)
+    orelse
+  (Type >= ?C_SC_TA_1 andalso Type =< ?C_BO_TA_1).

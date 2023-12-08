@@ -285,9 +285,11 @@ init_loop(#state{
   }).
 
 loop(#state{
+  settings = #{k := K},
   connection = Connection,
   buffer = Buffer,
-  socket = Socket
+  socket = Socket,
+  sent = Sent
 } = State) ->
   receive
     %% Data is received from the transport
@@ -296,24 +298,38 @@ loop(#state{
       State1 = handle_packets(Packets, State),
       State2 = check_t3(State1),
       loop(State2#state{buffer = TailBuffer});
+
     %% A packet is received from the connection
-    {asdu, Connection, ASDU} ->
+    %% It is crucial to note that we need to compare the sent packets
+    %% with K since we are awaiting confirmation (S-packet)
+    %% Sending additional packets may lead to a disruption in the connection
+    %% as it could surpass the maximum threshold (K) of unconfirmed packets
+    {asdu, Connection, ASDU} when length(Sent) =< K ->
       State1 = send_i_packet(ASDU, State),
       State2 = check_t1(State1),
       loop(State2);
-    %% Commands that were sent to self, others are ignored and unexpected
+
+    %% Commands that were sent to self and others are ignored and unexpected
     {Self, Command} when Self =:= self() ->
       State1 = handle_command(Command, State),
       loop(State1);
+
+    %% TCP level errors
     {tcp_closed, Socket} ->
       exit(closed);
     {tcp_error, Socket, Reason} ->
       exit(Reason);
     {tcp_passive, Socket} ->
       exit(tcp_passive);
+
+    %% Connection sent exit signal
     {'EXIT', Connection, _Reason} ->
       gen_tcp:close(Socket);
-    Unexpected->
+
+    %% If an ASDU packet isn't accepted because we are waiting for confirmation,
+    %% we should compare the sent packets with K to avoid ignoring
+    %% other ASDUs
+    Unexpected when length(Sent) =< K ->
       ?LOGWARNING("unexpected message ~p", [Unexpected]),
       loop(State)
   end.

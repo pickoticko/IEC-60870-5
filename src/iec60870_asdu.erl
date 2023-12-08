@@ -1,7 +1,3 @@
-%% +--------------------------------------------------------------+
-%% | Copyright (c) 2023, Faceplate LTD. All Rights Reserved.      |
-%% | Author: Tokenov Alikhan, @alikhantokenov@gmail.com           |
-%% +--------------------------------------------------------------+
 -module(iec60870_asdu).
 
 -include("iec60870.hrl").
@@ -17,27 +13,16 @@
 %% |                           Macros                             |
 %% +--------------------------------------------------------------+
 
-% SQ (Structure Qualifier) bit specifies how information are addressed
+%% SQ (Structure Qualifier) bit specifies how information are addressed
 -define(SQ_DISCONTINUOUS, 0).
 -define(SQ_CONTINUOUS, 1).
 
-% Packet capacity
+%% Packet capacity
 -define(MAX_PACKET_BYTE_SIZE, 255).
 
-% Constant sizes of header content
+%% Constant sizes of header content
 -define(TRANSPORT_CONSTANT_COST, 4).
 -define(ASDU_CONSTANT_COST, 3).
-
-get_settings( #{
-  coa_size := COASize,
-  org_size := ORGSize,
-  ioa_size := IOASize
-} = Settings )->
-  Settings#{
-    coa_size => COASize * 8,
-    org_size => ORGSize * 8,
-    ioa_size => IOASize * 8
-  }.
 
 %% +--------------------------------------------------------------+
 %% |                             API                              |
@@ -49,7 +34,7 @@ parse(ASDU, #{
   coa_size := COABitSize
 }) ->
   {DUI, ObjectsBinary} = parse_dui(COABitSize, ORGBitSize, ASDU),
-  Objects = split_objects(DUI, IOABitSize, ObjectsBinary),
+  Objects = construct_sequence(DUI, IOABitSize, ObjectsBinary),
   #{
     type := Type,
     t    := T,
@@ -111,26 +96,49 @@ build(#asdu{
       (create_information_objects(Type, InformationObjects, IOABitSize))/binary>>
    end || InformationObjects <- InformationObjectsList].
 
+get_settings(#{
+  coa_size := COASize,
+  org_size := ORGSize,
+  ioa_size := IOASize
+} = Settings) ->
+  Settings#{
+    coa_size => COASize * 8,
+    org_size => ORGSize * 8,
+    ioa_size => IOASize * 8
+  }.
+
 %% +--------------------------------------------------------------+
 %% |                 Internal helper functions                    |
 %% +--------------------------------------------------------------+
 
-split_objects(#{sq := ?SQ_CONTINUOUS, no := NumberOfObjects}, IOASize, ObjectsBin) ->
-  <<Start:IOASize/little-integer, Sequence/binary>> = ObjectsBin,
+construct_sequence(#{sq := ?SQ_CONTINUOUS, no := NumberOfObjects}, IOASize, ObjectsBinary) ->
+  <<Start:IOASize/little-integer, Sequence/binary>> = ObjectsBinary,
   ObjectSize = round(iec60870_lib:bytes_to_bits(size(Sequence) / NumberOfObjects)),
   ObjectsList = [<<Object:ObjectSize>> || <<Object:ObjectSize>> <= Sequence],
   lists:zip(lists:seq(Start, Start + NumberOfObjects - 1), ObjectsList);
 
-split_objects(#{sq := ?SQ_DISCONTINUOUS, no := NumberOfObjects}, IOASize, ObjectsBin) ->
-  ObjectSize = round((iec60870_lib:bytes_to_bits(size(ObjectsBin)) - IOASize * NumberOfObjects) / NumberOfObjects),
-  [{Address, <<Object:ObjectSize>>} || <<Address:IOASize/little-integer, Object:ObjectSize>> <= ObjectsBin].
+construct_sequence(#{sq := ?SQ_DISCONTINUOUS, no := NumberOfObjects}, IOASize, ObjectsBinary) ->
+  ObjectSize = round((iec60870_lib:bytes_to_bits(size(ObjectsBinary)) - IOASize * NumberOfObjects) / NumberOfObjects),
+  [{Address, <<Object:ObjectSize>>} || <<Address:IOASize/little-integer, Object:ObjectSize>> <= ObjectsBinary].
 
 create_information_objects(Type, DataObjects, IOABitSize) ->
   InformationObjectsList =
     [{IOA, iec60870_type:create_information_element(Type, Value)} || {IOA, Value} <- DataObjects],
   <<<<Address:IOABitSize/little-integer, Value/binary>> || {Address, Value} <- InformationObjectsList>>.
 
-%% Parses Data Unit Identifier (DUI)
+%% +--------------[ DUI Structure ]--------------+
+%% | Type Identification (TypeID) - 1 byte       |
+%% | Structure Qualifier (SQ)     - 1 bit        |
+%% | Number of Objects   (NO)     - 7 bits       |
+%% | Test                         - 1 bit        |
+%% | Positive / Negative (P/N)    - 1 bit        |
+%% | Cause of Transmission (COT)  - 6 bits       |
+%% | Originator Address (ORG)     - 0 or 1 byte  |
+%% | Common Address (COA)         - 1 or 2 bytes |
+%% | ...Information objects...                   |
+%% +---------------------------------------------+
+
+%% Data Unit Identifier (DUI) parser
 parse_dui(COASize, ORGSize,
   <<Type:8,
     SQ:1, NumberOfObjects:7,
@@ -152,10 +160,12 @@ parse_dui(COASize, ORGSize,
   },
   {DUI, Body};
 
-parse_dui(_COASize, _ORGSize, InvalidASDU)->
+parse_dui(_COASize, _ORGSize, InvalidASDU) ->
   throw({invalid_asdu_format, InvalidASDU}).
 
-split(DataObjects, MaxSize) when length(DataObjects) > MaxSize->
+%% Splits objects depending on the maximum size which
+%% on the other hand depends on the type of object
+split(DataObjects, MaxSize) when length(DataObjects) > MaxSize ->
   {Head, Tail} = lists:split(MaxSize, DataObjects),
   [Head | split(Tail, MaxSize)];
 split(DataObjects, _MaxSize)->

@@ -13,6 +13,7 @@
   create_information_element/2
 ]).
 
+-define(MILLIS_IN_MINUTE, 60000).
 -define(UNIX_EPOCH_DATE, {1970, 1, 1}).
 -define(UNIX_EPOCH_SECONDS, 62167219200).
 -define(CURRENT_MILLENNIUM, 2000).
@@ -95,17 +96,17 @@ parse_information_element(?M_IT_TA_1, <<BCR:40, Timestamp/binary>>) ->
   #{value => Value, bcr => BCR, ts => parse_cp24(Timestamp)};
 
 %% Type 17. Protection equipment with time tag
-parse_information_element(?M_EP_TA_1, <<SEP, CP16:16, Timestamp/binary>>) ->
+parse_information_element(?M_EP_TA_1, <<SEP, Duration:16, Timestamp/binary>>) ->
   <<_Ignore:6, ES:2>> = <<SEP>>,
-  #{value => ES, sep => SEP, duration => parse_cp16(CP16), ts => parse_cp24(Timestamp)};
+  #{value => ES, sep => SEP, duration => Duration, ts => parse_cp24(Timestamp)};
 
 %% Type 18. Packed events of protection equipment with time tag
-parse_information_element(?M_EP_TB_1, <<SPE, QDP, Timestamp16:16, Timestamp24/binary>>) ->
-  #{value => SPE, qdp => QDP, duration => parse_cp16(Timestamp16), ts => parse_cp24(Timestamp24)};
+parse_information_element(?M_EP_TB_1, <<SPE, QDP, Duration:16, Timestamp24/binary>>) ->
+  #{value => SPE, qdp => QDP, duration => Duration, ts => parse_cp24(Timestamp24)};
 
 %% Type 19. Packed output circuit information of protection equipment with time tag
-parse_information_element(?M_EP_TC_1, <<OCI, QDP, Timestamp16:16, Timestamp24/binary>>) ->
-  #{value => OCI, qdp => QDP, duration => parse_cp16(Timestamp16), ts => parse_cp24(Timestamp24)};
+parse_information_element(?M_EP_TC_1, <<OCI, QDP, Duration:16, Timestamp24/binary>>) ->
+  #{value => OCI, qdp => QDP, duration => Duration, ts => parse_cp24(Timestamp24)};
 
 %% Type 20. Packed single-point information with status change detection
 parse_information_element(?M_PS_NA_1, <<SCD:32/little, QDS>>) ->
@@ -156,6 +157,68 @@ parse_information_element(?M_EP_TD_1, <<SEP, Interval:16/little-unsigned, Timest
   <<_Ignore:6, ES:2>> = <<SEP>>,
   #{value => ES, sep => SEP, interval => Interval, ts => parse_cp56(Timestamp)};
 
+%% Type 45: Single command
+parse_information_element(?C_SC_NA_1, <<SCO>>) ->
+  <<_Ignore:7, SCS:1>> = <<SCO>>,
+  #{value => SCS, sco => SCO};
+
+%% Type 46: Double command
+parse_information_element(?C_DC_NA_1, <<DCO>>) ->
+  <<_Ignore:6, DCS:2>> = <<DCO>>,
+  #{value => DCS, dco => DCO};
+
+%% Type 47: Regulating step command
+parse_information_element(?C_RC_NA_1, <<RCO>>) ->
+  <<_Ignore:6, RCS:2>> = <<RCO>>,
+  #{value => RCS, rco => RCO};
+
+%% Type 48: Set point command, normalized value
+parse_information_element(?C_SE_NA_1, <<NVA:16/little-signed, QOS>>) ->
+  #{value => parse_nva(NVA), qos => QOS};
+
+%% Type 49: Set point command, scaled value
+parse_information_element(?C_SE_NB_1, <<SVA:16/little-signed, QOS>>) ->
+  #{value => SVA, qos => QOS};
+
+%% Type 50: Set point command, short floating point value
+parse_information_element(?C_SE_NC_1, <<Value:32/little-signed-float, QOS>>) ->
+  #{value => Value, qos => QOS};
+
+%% Type 51: Bit string 32 bit
+parse_information_element(?C_BO_NA_1, <<BSI:32/little-unsigned>>) ->
+  #{value => BSI};
+
+%% Type 58: Single command with time tag
+parse_information_element(?C_SC_TA_1, <<SCO, Timestamp/binary>>) ->
+  <<_Ignore:7, SCS:1>> = <<SCO>>,
+  #{value => SCS, sco => SCO, ts => parse_cp56(Timestamp)};
+
+%% Type 59: Double command with time tag
+parse_information_element(?C_DC_TA_1, <<DCO, Timestamp/binary>>) ->
+  <<_Ignore:6, DCS:2>> = <<DCO>>,
+  #{value => DCS, dco => DCO, ts => parse_cp56(Timestamp)};
+
+%% Type 60: Regulating step command with time tag
+parse_information_element(?C_RC_TA_1, <<RCO, Timestamp/binary>>) ->
+  <<_Ignore:6, RCS:2>> = <<RCO>>,
+  #{value => RCS, rco => RCO, ts => parse_cp56(Timestamp)};
+
+%% Type 61: Set point command, normalized value with time tag
+parse_information_element(?C_SE_TA_1, <<NVA:16/little-signed, QOS, Timestamp/binary>>) ->
+  #{value => parse_nva(NVA), qos => QOS, ts => parse_cp56(Timestamp)};
+
+%% Type 62: Set point command, scaled value with time tag
+parse_information_element(?C_SE_TB_1, <<SVA:16/little-signed, QOS, Timestamp/binary>>) ->
+  #{value => SVA, qos => QOS, ts => parse_cp56(Timestamp)};
+
+%% Type 63: Set point command, short floating point value with time tag
+parse_information_element(?C_SE_TC_1, <<Value:32/little-signed-float, QOS, Timestamp/binary>>) ->
+  #{value => Value, qos => QOS, ts => parse_cp56(Timestamp)};
+
+%% Type 64: Bit string 32 bit with time tag
+parse_information_element(?C_BO_TA_1, <<BSI:32/little-unsigned, Timestamp/binary>>) ->
+  #{value => BSI, ts => parse_cp56(Timestamp)};
+
 %% Type 70. End of initialization
 parse_information_element(?M_EI_NA_1, <<COI>>) ->
   <<_Ignore:1, Value:7>> = <<COI>>,
@@ -186,7 +249,7 @@ create_information_element(?M_SP_NA_1, #{
   siq := SIQ
 }) ->
   <<Rest:7, _Ignore:1>> = <<SIQ>>,
-  <<Rest:7, SPI>>;
+  <<Rest:7, (round(SPI)):1>>;
 
 %% Type 2. Single point information with time tag
 create_information_element(?M_SP_TA_1, #{
@@ -195,7 +258,7 @@ create_information_element(?M_SP_TA_1, #{
   ts := Timestamp
 }) ->
   <<Rest:7, _Ignore:1>> = <<SIQ>>,
-  <<Rest:7, SPI:1, (get_cp24(Timestamp))/binary>>;
+  <<Rest:7, (round(SPI)):1, (get_cp24(Timestamp))/binary>>;
 
 %% Type 3. Double point information
 create_information_element(?M_DP_NA_1, #{
@@ -203,7 +266,7 @@ create_information_element(?M_DP_NA_1, #{
   diq := DIQ
 }) ->
   <<Rest:6, _Ignore:2>> = <<DIQ>>,
-  <<Rest:6, DPI:2>>;
+  <<Rest:6, (round(DPI)):2>>;
 
 %% Type 4. Double point information with time tag
 create_information_element(?M_DP_TA_1, #{
@@ -212,7 +275,7 @@ create_information_element(?M_DP_TA_1, #{
   ts := Timestamp
 }) ->
   <<Rest:6, _Ignore:2>> = <<DIQ>>,
-  <<Rest:6, DPI:2, (get_cp24(Timestamp))/binary>>;
+  <<Rest:6, (round(DPI)):2, (get_cp24(Timestamp))/binary>>;
 
 %% Type 5. Step position information
 create_information_element(?M_ST_NA_1, #{
@@ -221,7 +284,7 @@ create_information_element(?M_ST_NA_1, #{
   qds := QDS
 }) ->
   <<State:1, _Ignore:7>> = <<VTI>>,
-  <<State:1, Value:7/signed, QDS>>;
+  <<State:1, (round(Value)):7/signed, QDS>>;
 
 %% Type 6. Step position information with time tag
 create_information_element(?M_ST_TA_1, #{
@@ -231,14 +294,14 @@ create_information_element(?M_ST_TA_1, #{
   ts := Timestamp
 }) ->
   <<State:1, _Ignore:7>> = <<VTI>>,
-  <<State:1, Value:7/signed, QDS, (get_cp24(Timestamp))/binary>>;
+  <<State:1, (round(Value)):7/signed, QDS, (get_cp24(Timestamp))/binary>>;
 
 %% Type 7. Bit string of 32 bit
 create_information_element(?M_BO_NA_1, #{
   value := BSI,
   qds := QDS
 }) ->
-  <<BSI:32/little-unsigned, QDS>>;
+  <<(round(BSI)):32/little-unsigned, QDS>>;
 
 %% Type 8. Bit string of 32 bit with time tag
 create_information_element(?M_BO_TA_1, #{
@@ -246,14 +309,14 @@ create_information_element(?M_BO_TA_1, #{
   qds := QDS,
   ts := Timestamp
 }) ->
-  <<BSI:32/little-unsigned, QDS, (get_cp24(Timestamp))/binary>>;
+  <<(round(BSI)):32/little-unsigned, QDS, (get_cp24(Timestamp))/binary>>;
 
 %% Type 9. Measured value, normalized value
 create_information_element(?M_ME_NA_1, #{
   value := NVA,
   qds := QDS
 }) ->
-  <<(get_nva(NVA)):16/little-signed, QDS>>;
+  <<(round(get_nva(NVA))):16/little-signed, QDS>>;
 
 %% Type 10. Measured value, normalized value with time tag
 create_information_element(?M_ME_TA_1, #{
@@ -261,14 +324,14 @@ create_information_element(?M_ME_TA_1, #{
   qds := QDS,
   ts := Timestamp
 }) ->
-  <<(get_nva(NVA)):16/little-signed, QDS, (get_cp24(Timestamp))/binary>>;
+  <<(round(get_nva(NVA))):16/little-signed, QDS, (get_cp24(Timestamp))/binary>>;
 
 %% Type 11. Measured value, scaled value
 create_information_element(?M_ME_NB_1, #{
   value := SVA,
   qds := QDS
 }) ->
-  <<SVA:16/little-signed, QDS>>;
+  <<(round(SVA)):16/little-signed, QDS>>;
 
 %% Type 12. Measured value, scaled value with time tag
 create_information_element(?M_ME_TB_1, #{
@@ -276,7 +339,7 @@ create_information_element(?M_ME_TB_1, #{
   qds := QDS,
   ts := Timestamp
 }) ->
-  <<SVA:16/little-signed, QDS, (get_cp24(Timestamp))/binary>>;
+  <<(round(SVA)):16/little-signed, QDS, (get_cp24(Timestamp))/binary>>;
 
 %% Type 13. Measured value, short floating point
 create_information_element(?M_ME_NC_1, #{
@@ -299,7 +362,7 @@ create_information_element(?M_IT_NA_1, #{
   bcr := BCR
 }) ->
   <<_Ignore:32, Rest>> = <<BCR:40>>,
-  <<Value:32/little-signed, Rest>>;
+  <<(round(Value)):32/little-signed, Rest>>;
 
 %% Type 16. Integrated totals with time tag
 create_information_element(?M_IT_TA_1, #{
@@ -308,7 +371,7 @@ create_information_element(?M_IT_TA_1, #{
   ts := Timestamp
 }) ->
   <<_Ignore:32, Rest>> = <<BCR:40>>,
-  <<Value:32/little-signed, Rest, (get_cp24(Timestamp))/binary>>;
+  <<(round(Value)):32/little-signed, Rest, (get_cp24(Timestamp))/binary>>;
 
 %% Type 17. Protection equipment with time tag
 create_information_element(?M_EP_TA_1, #{
@@ -318,7 +381,7 @@ create_information_element(?M_EP_TA_1, #{
   ts := Timestamp
 }) ->
   <<Rest:6, _Ignore:2>> = <<SEP>>,
-  <<Rest:6, ES:2, (get_cp16(Duration)):16/binary, (get_cp24(Timestamp))/binary>>;
+  <<Rest:6, (round(ES)):2, (get_cp16(Duration)):16, (get_cp24(Timestamp))/binary>>;
 
 %% Type 18. Packed events of protection equipment with time tag
 create_information_element(?M_EP_TB_1, #{
@@ -327,7 +390,7 @@ create_information_element(?M_EP_TB_1, #{
   duration := Duration,
   ts := Timestamp
 }) ->
-  <<SPE, QDP, (get_cp16(Duration)):16/binary, (get_cp24(Timestamp))/binary>>;
+  <<SPE, QDP, (get_cp16(Duration)):16, (get_cp24(Timestamp))/binary>>;
 
 %% Type 19. Packed output circuit information of protection equipment with time tag
 create_information_element(?M_EP_TC_1, #{
@@ -336,20 +399,20 @@ create_information_element(?M_EP_TC_1, #{
   duration := Duration,
   ts := Timestamp
 }) ->
-  <<OCI, QDP, (get_cp16(Duration)):16/binary, (get_cp24(Timestamp))/binary>>;
+  <<OCI, QDP, (get_cp16(Duration)):16, (get_cp24(Timestamp))/binary>>;
 
 %% Type 20. Packed single-point information with status change detection
 create_information_element(?M_PS_NA_1, #{
   value := SCD,
   qds := QDS
 }) ->
-  <<SCD:32/little, QDS>>;
+  <<(round(SCD)):32/little, QDS>>;
 
 %% Type 21. Measured value, normalized value without QDS
 create_information_element(?M_ME_ND_1, #{
   value := NVA
 }) ->
-  <<(get_nva(NVA)):16/little-signed>>;
+  <<(round(get_nva(NVA))):16/little-signed>>;
 
 %% Type 30. Single point information with time tag
 create_information_element(?M_SP_TB_1, #{
@@ -358,7 +421,7 @@ create_information_element(?M_SP_TB_1, #{
   ts := Timestamp
 }) ->
   <<Rest:7, _Ignore:1>> = <<SIQ>>,
-  <<Rest:7, SPI:1, (get_cp56(Timestamp))/binary>>;
+  <<Rest:7, (round(SPI)):1, (get_cp56(Timestamp))/binary>>;
 
 %% Type 31. Double point information with time tag
 create_information_element(?M_DP_TB_1, #{
@@ -367,7 +430,7 @@ create_information_element(?M_DP_TB_1, #{
   ts := Timestamp
 }) ->
   <<Rest:6, _Ignore:2>> = <<DIQ>>,
-  <<Rest:6, DPI:2, (get_cp56(Timestamp))/binary>>;
+  <<Rest:6, (round(DPI)):2, (get_cp56(Timestamp))/binary>>;
 
 %% Type 32. Step position information with time tag
 create_information_element(?M_ST_TB_1, #{
@@ -377,7 +440,7 @@ create_information_element(?M_ST_TB_1, #{
   ts := Timestamp
 }) ->
   <<State:1, _Ignore:7>> = <<VTI>>,
-  <<State:1, Value:7, QDS, (get_cp56(Timestamp))/binary>>;
+  <<State:1, (round(Value)):7, QDS, (get_cp56(Timestamp))/binary>>;
 
 %% Type 33. Bit string of 32 bit with time tag
 create_information_element(?M_BO_TB_1, #{
@@ -385,7 +448,7 @@ create_information_element(?M_BO_TB_1, #{
   qds := QDS,
   ts := Timestamp
 }) ->
-  <<BSI:32/little-unsigned, QDS, (get_cp56(Timestamp))/binary>>;
+  <<(round(BSI)):32/little-unsigned, QDS, (get_cp56(Timestamp))/binary>>;
 
 %% Type 34. Measured value, normalized value with time tag
 create_information_element(?M_ME_TD_1, #{
@@ -393,7 +456,7 @@ create_information_element(?M_ME_TD_1, #{
   qds := QDS,
   ts := Timestamp
 }) ->
-  <<(get_nva(NVA)):16/little-signed, QDS, (get_cp56(Timestamp))/binary>>;
+  <<(round(get_nva(NVA))):16/little-signed, QDS, (get_cp56(Timestamp))/binary>>;
 
 %% Type 35. Measured value, scaled value with time tag
 create_information_element(?M_ME_TE_1, #{
@@ -401,7 +464,7 @@ create_information_element(?M_ME_TE_1, #{
   qds := QDS,
   ts := Timestamp
 }) ->
-  <<SVA:16/little-signed, QDS, (get_cp56(Timestamp))/binary>>;
+  <<(round(SVA)):16/little-signed, QDS, (get_cp56(Timestamp))/binary>>;
 
 %% Type 36. Measured value, short floating point value with time tag
 create_information_element(?M_ME_TF_1, #{
@@ -418,7 +481,7 @@ create_information_element(?M_IT_TB_1, #{
   ts := Timestamp
 }) ->
   <<_Ignore:32, Rest:8>> = <<BCR:40>>,
-  <<Value:32/little-signed, Rest:8, (get_cp56(Timestamp))/binary>>;
+  <<(round(Value)):32/little-signed, Rest:8, (get_cp56(Timestamp))/binary>>;
 
 %% Type 38. Event of protection equipment with time tag
 create_information_element(?M_EP_TD_1, #{
@@ -428,7 +491,116 @@ create_information_element(?M_EP_TD_1, #{
   ts := Timestamp
 }) ->
   <<Rest:6, _Ignore:2>> = <<SEP>>,
-  <<Rest:6, ES:2, Interval:16/little-unsigned, (get_cp56(Timestamp))/binary>>;
+  <<Rest:6, (round(ES)):2, Interval:16/little-unsigned, (get_cp56(Timestamp))/binary>>;
+
+%% Type 45: Single command
+create_information_element(?C_SC_NA_1, #{
+  value := SCS,
+  sco := SCO
+}) ->
+  <<Rest:7, _Ignore:1>> = <<SCO>>,
+  <<Rest:7, (round(SCS)):1>>;
+
+%% Type 46: Double command
+create_information_element(?C_DC_NA_1, #{
+  value := DCS,
+  dco := DCO
+}) ->
+  <<Rest:6, _Ignore:2>> = <<DCO>>,
+  <<Rest:6, (round(DCS)):2>>;
+
+%% Type 47: Regulating step command
+create_information_element(?C_RC_NA_1, #{
+  value := RCS,
+  rco := RCO
+}) ->
+  <<Rest:6, _Ignore:2>> = <<RCO>>,
+  <<Rest:6, (round(RCS)):2>>;
+
+%% Type 48: Set point command, normalized value
+create_information_element(?C_SE_NA_1, #{
+  value := NVA,
+  qos := QOS
+}) ->
+  <<(round(get_nva(NVA))):16/little-signed, QOS>>;
+
+%% Type 49: Set point command, scaled value
+create_information_element(?C_SE_NB_1, #{
+  value := SVA,
+  qos := QOS
+}) ->
+  <<(round(SVA)):16/little-signed, QOS>>;
+
+%% Type 50: Set point command, short floating point value
+create_information_element(?C_SE_NC_1, #{
+  value := Value,
+  qos := QOS
+}) ->
+  <<Value:32/little-signed-float, QOS>>;
+
+%% Type 51: Bit string 32 bit
+create_information_element(?C_BO_NA_1, #{
+  value := BSI
+}) ->
+  <<(round(BSI)):32/little-unsigned>>;
+
+%% Type 58: Single command with time tag
+create_information_element(?C_SC_TA_1, #{
+  value := SCS,
+  sco := SCO,
+  ts := Timestamp
+}) ->
+  <<Rest:7, _Ignore:1>> = <<SCO>>,
+  <<Rest:7, (round(SCS)):1, (get_cp56(Timestamp))/binary>>;
+
+%% Type 59: Double command with time tag
+create_information_element(?C_DC_TA_1, #{
+  value := DCS,
+  dco := DCO,
+  ts := Timestamp
+}) ->
+  <<Rest:6, _Ignore:2>> = <<DCO>>,
+  <<Rest:6, (round(DCS)):2, (get_cp56(Timestamp))/binary>>;
+
+%% Type 60: Regulating step command with time tag
+create_information_element(?C_RC_TA_1, #{
+  value := RCS,
+  rco := RCO,
+  ts := Timestamp
+}) ->
+  <<Rest:6, _Ignore:2>> = <<RCO>>,
+  <<Rest:6, (round(RCS)):2, (get_cp56(Timestamp))/binary>>;
+
+%% Type 61: Set point command, normalized value with time tag
+create_information_element(?C_SE_TA_1, #{
+  value := NVA,
+  qos := QOS,
+  ts := Timestamp
+}) ->
+  <<(round(get_nva(NVA))):16/little-signed, QOS, (get_cp56(Timestamp))/binary>>;
+
+%% Type 62: Set point command, scaled value with time tag
+create_information_element(?C_SE_TB_1, #{
+  value := SVA,
+  qos := QOS,
+  ts := Timestamp
+}) ->
+  <<(round(SVA)):16/little-signed, QOS, (get_cp56(Timestamp))/binary>>;
+
+%% Type 63: Set point command, short floating point value with time tag
+create_information_element(?C_SE_TC_1, #{
+  value := Value,
+  qos := QOS,
+  ts := Timestamp
+}) ->
+  <<Value:32/little-signed-float, QOS, (get_cp56(Timestamp))/binary>>;
+
+%% Type 64: Bit string 32 bit with time tag
+create_information_element(?C_BO_TA_1, #{
+  value := BSI,
+  ts := Timestamp
+}) ->
+  <<(round(BSI)):32/little-unsigned, (get_cp56(Timestamp))/binary>>;
 
 %% Type 70. End of initialization
 create_information_element(?M_EI_NA_1, #{
@@ -436,7 +608,7 @@ create_information_element(?M_EI_NA_1, #{
   coi := COI
 }) ->
   <<COI:1, _Ignore:7>> = <<COI>>,
-  <<COI, Value>>;
+  <<COI:1, (round(Value)):7>>;
 
 %% Type 100. Group request
 create_information_element(?C_IC_NA_1, GroupID) ->
@@ -456,58 +628,65 @@ create_information_element(OtherType, _) -> throw({unsupported_type, OtherType})
 %% |                     Internal functions                       |
 %% +--------------------------------------------------------------+
 
-parse_cp16(<<CP/unsigned-integer>>) ->
-  CP.
-
 parse_cp24(<<
-  Milliseconds:16 /little-integer,
+  Millis:16/little-integer,
   _Reserved1:2,
-  Minutes:6       /integer,
-  _Reserved2:3,
-  Hours:5         /integer,
-  _IgnoredRest    /binary
->> = Timestamp) ->
-  try
-    DateTime = {?UNIX_EPOCH_DATE, {Hours, Minutes, millis_to_seconds(Milliseconds)}},
-    [UTC] = calendar:local_time_to_universal_time_dst(DateTime),
-    GregorianSeconds = calendar:datetime_to_gregorian_seconds(UTC),
-    seconds_to_millis(GregorianSeconds - ?UNIX_EPOCH_SECONDS)
-  catch
-    _:Error ->
-      ?LOGERROR("Timestamp (CP24) parse error: ~p, timestamp: ~p", [Error, Timestamp]),
-      undefined
-  end.
+  Minutes:6,
+  _IgnoredRest/binary
+>>) ->
+  Millis + (Minutes * ?MILLIS_IN_MINUTE);
+parse_cp24(InvalidTimestamp) ->
+  ?LOGWARNING("Invalid CP24 has been received: ~p", [InvalidTimestamp]),
+  undefined.
 
 parse_cp56(<<
-  Milliseconds:16/little-integer,
+  Millis:16 /little-integer,
   _R1:2,
-  Minutes:6  /integer,
+  Minutes:6,
   _R2:3,
-  Hours:5    /integer,
-  _WD:3  /integer,
-  Day:5    /integer,
+  Hours:5,
+  _WD:3,
+  Day:5,
   _R3:4,
-  Month:4   /integer,
+  Month:4,
   _R4:1,
-  Year:7    /integer
+  Year:7
 >> = Timestamp) ->
   try
     DateTime =
-      {{Year + ?CURRENT_MILLENNIUM, Month, Day}, {Hours, Minutes, millis_to_seconds(Milliseconds)}},
+      {{Year + ?CURRENT_MILLENNIUM, Month, Day}, {Hours, Minutes, millis_to_seconds(Millis)}},
     [UTC] = calendar:local_time_to_universal_time_dst(DateTime),
     GregorianSeconds = calendar:datetime_to_gregorian_seconds(UTC),
     seconds_to_millis(GregorianSeconds - ?UNIX_EPOCH_SECONDS)
   catch
     _:Error ->
-      ?LOGERROR("Timestamp (CP56) parse error: ~p, timestamp: ~p", [Error, Timestamp]),
+      ?LOGERROR("CP56 parse error: ~p, timestamp: ~p", [Error, Timestamp]),
       none
   end.
 
 get_cp16(undefined) -> get_cp16(0);
-get_cp16(Value) ->
-  <<Value/unsigned-integer>>.
+get_cp16(Value) -> Value.
 
-get_cp56(undefined) -> get_cp56(0);
+get_cp24(undefined) -> get_cp24(0);
+get_cp24(TotalMillis) ->
+  try
+    Remainder = TotalMillis rem ?MILLIS_IN_MINUTE,
+    {Millis, Minutes} =
+      case TotalMillis / ?MILLIS_IN_MINUTE of
+        %% Max value of 6 bits for the minutes field
+        Value when Value > 63 ->
+          {Remainder + round(Value - 63) * ?MILLIS_IN_MINUTE, 63};
+        Value ->
+          {Remainder, Value}
+      end,
+    <<(round(Millis)):16/little-integer, 16#00:2, (round(Minutes)):6>>
+  catch
+    _:Error ->
+      ?LOGERROR("CP24 get error: ~p, timestamp: ~p", [Error, TotalMillis]),
+      undefined
+  end.
+
+get_cp56(undefined) -> get_cp56(erlang:system_time(millisecond));
 get_cp56(PosixTimestamp) ->
   try
     GregorianSeconds = millis_to_seconds(PosixTimestamp) + ?UNIX_EPOCH_SECONDS,
@@ -517,38 +696,22 @@ get_cp56(PosixTimestamp) ->
     WeekDay = calendar:day_of_the_week(Year, Month, Day),
     <<(seconds_to_millis(Seconds)):16/little-integer,
       16#00:2,
-      Minute:6  /integer,
+      Minute:6,
       16#00:3,
-      Hour:5    /integer,
-      WeekDay:3 /integer,
-      Day:5     /integer,
+      Hour:5,
+      WeekDay:3,
+      Day:5,
       16#00:4,
-      Month:4   /integer,
+      Month:4,
       16#00:1,
-      (Year - ?CURRENT_MILLENNIUM):7/integer>>
+      (Year - ?CURRENT_MILLENNIUM):7>>
   catch
     _:Error ->
-      ?LOGERROR("Timestamp (CP56) get error: ~p, timestamp: ~p", [Error, PosixTimestamp]),
+      ?LOGERROR("CP56 get error: ~p, timestamp: ~p", [Error, PosixTimestamp]),
       undefined
   end.
 
-get_cp24(undefined) -> get_cp24(0);
-get_cp24(PosixTimestamp) ->
-  try
-    GregorianSeconds = millis_to_seconds(PosixTimestamp) + ?UNIX_EPOCH_SECONDS,
-    UTC = calendar:gregorian_seconds_to_datetime(GregorianSeconds),
-    {?UNIX_EPOCH_DATE, {Hours, Minutes, Seconds}} =
-      calendar:universal_time_to_local_time(UTC),
-    <<(seconds_to_millis(Seconds)):16/little-integer,
-      16#00:2, Minutes:6/integer,
-      16#00:3, Hours:5/integer>>
-  catch
-    _:Error ->
-      ?LOGERROR("Timestamp (CP24) get error: ~p, timestamp: ~p", [Error, PosixTimestamp]),
-      undefined
-  end.
-
-millis_to_seconds(Milliseconds) -> Milliseconds div 1000.
+millis_to_seconds(Millis) -> Millis div 1000.
 seconds_to_millis(Seconds) -> Seconds * 1000.
 
 parse_nva(Value) -> Value / ?SHORT_INT_MAX_VALUE.

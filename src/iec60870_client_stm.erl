@@ -214,6 +214,12 @@ handle_event(info, {asdu, Connection, ASDU}, State, #data{
       keep_state_and_data
   end;
 
+%% If we receive updates on the group while in a state
+%% other than the connected state, we will defer
+%% processing them until the current event is completed
+handle_event(info, {update_group, _, PID}, _AnyState, _Data) when PID =:= self() ->
+  {keep_state_and_data, [postpone]};
+
 handle_event(EventType, EventContent, _AnyState, #data{name = Name}) ->
   ?LOGWARNING("Client connection ~p received unexpected event type ~p, content ~p", [
     Name, EventType, EventContent

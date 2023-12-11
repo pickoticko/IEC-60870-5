@@ -200,6 +200,7 @@ handle_event(info, {write, IOA, Value}, _State, #data{
   send_items([{IOA, Value} | Items], Connection, ?COT_SPONT, ASDUSettings),
   keep_state_and_data;
 
+%% Handling incoming ASDU packets
 handle_event(info, {asdu, Connection, ASDU}, State, #data{
   name = Name,
   connection = Connection,
@@ -381,7 +382,6 @@ update_value(Name, Storage, ID, InValue) ->
   NewValue = maps:merge(OldValue, InValue#{
     accept_ts => erlang:system_time(millisecond)
   }),
-
   ets:insert(Storage, {ID, NewValue}),
   % Any updates notification
   esubscribe:notify(Name, update, {ID, NewValue}),

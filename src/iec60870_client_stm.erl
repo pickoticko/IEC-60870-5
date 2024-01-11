@@ -281,8 +281,11 @@ handle_asdu(#asdu{
     {?COT_ACTCON, ?NEGATIVE_PN} -> {next_state, ?CONNECTED, Data, [{reply, From, {error, negative_confirmation}}]};
     {?COT_ACTTERM, ?POSITIVE_PN} -> {next_state, ?CONNECTED, Data, [{reply, From, ok}]};
     {?COT_ACTTERM, ?NEGATIVE_PN} -> {next_state, ?CONNECTED, Data, [{reply, From, {error, negative_termination}}]};
-    %% TODO: Temporary case clause
-    {_UnexpectedCOT, ?POSITIVE_PN} -> keep_state_and_data
+    %% TODO: Temporary case clause (RAPTOR compatibility, SHOULD REMOVE IT)
+    {RaptorCOT, ?POSITIVE_PN} when (RaptorCOT =:= 1) orelse (RaptorCOT =:= 20) ->
+      {next_state, ?CONNECTED, Data, [{reply, From, ok}]};
+    {_OtherCOT, ?NEGATIVE_PN} ->
+      {next_state, ?CONNECTED, Data, [{reply, From, {error, negative_pn}}]}
   end;
 
 %% +--------------------------------------------------------------+

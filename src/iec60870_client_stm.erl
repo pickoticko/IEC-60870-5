@@ -21,6 +21,7 @@
 %% +--------------------------------------------------------------+
 
 -record(data, {
+  esubscribe,
   owner,
   name,
   storage,
@@ -62,11 +63,15 @@ init({Owner, #{
     {write_concurrency, auto}
   ]),
   ASDU = iec60870_asdu:get_settings(maps:with(maps:keys(?DEFAULT_ASDU_SETTINGS), Settings)),
-  case esubscribe:start_link(Name) of
-    {ok, _PID} -> ok;
-    {error, Reason} -> throw(Reason)
-  end,
+
+  EsubscribePID =
+    case esubscribe:start_link(Name) of
+      {ok, PID} -> PID;
+      {error, Reason} -> throw(Reason)
+    end,
+
   {ok, {?CONNECTING, Type, ConnectionSettings}, #data{
+    esubscribe = EsubscribePID,
     owner = Owner,
     name = Name,
     storage = Storage,
@@ -227,11 +232,13 @@ handle_event(EventType, EventContent, _AnyState, #data{name = Name}) ->
   ]),
   keep_state_and_data.
 
-terminate(Reason, _, _State) when Reason =:= normal; Reason =:= shutdown ->
+terminate(Reason, _, _State = #data{esubscribe = PID}) when Reason =:= normal; Reason =:= shutdown ->
+  exit(PID, kill),
   ?LOGDEBUG("client connection terminated. Reason: ~p", [Reason]),
   ok;
 
-terminate(Reason, _, _ClientState) ->
+terminate(Reason, _, _State = #data{esubscribe = PID}) ->
+  exit(PID, kill),
   ?LOGWARNING("client connection terminated. Reason: ~p", [Reason]),
   ok.
 

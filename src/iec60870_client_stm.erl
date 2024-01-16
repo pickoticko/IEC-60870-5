@@ -233,12 +233,12 @@ handle_event(EventType, EventContent, _AnyState, #data{name = Name}) ->
   keep_state_and_data.
 
 terminate(Reason, _, _State = #data{esubscribe = PID}) when Reason =:= normal; Reason =:= shutdown ->
-  exit(PID, kill),
+  exit(PID, shutdown),
   ?LOGDEBUG("client connection terminated. Reason: ~p", [Reason]),
   ok;
 
 terminate(Reason, _, _State = #data{esubscribe = PID}) ->
-  exit(PID, kill),
+  exit(PID, shutdown),
   ?LOGWARNING("client connection terminated. Reason: ~p", [Reason]),
   ok.
 

@@ -29,6 +29,7 @@
 %% +--------------------------------------------------------------+
 
 parse(ASDU, #{
+  coa := InCOA,
   ioa_size := IOABitSize,
   org_size := ORGBitSize,
   coa_size := COABitSize
@@ -43,6 +44,12 @@ parse(ASDU, #{
     org  := ORG,
     coa  := COA
   } = DUI,
+  if
+    COA =:= InCOA ->
+      ignore;
+    true ->
+      throw({error, invalid_coa_received})
+  end,
   ParsedObjects =
     [begin
        {Address, iec60870_type:parse_information_element(Type, Object)}

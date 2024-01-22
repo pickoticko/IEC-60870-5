@@ -21,6 +21,7 @@
 %% +--------------------------------------------------------------+
 
 -record(data, {
+  esubscribe,
   owner,
   name,
   storage,
@@ -62,11 +63,13 @@ init({Owner, #{
     {write_concurrency, auto}
   ]),
   ASDU = iec60870_asdu:get_settings(maps:with(maps:keys(?DEFAULT_ASDU_SETTINGS), Settings)),
-  case esubscribe:start_link(Name) of
-    {ok, _PID} -> ok;
-    {error, Reason} -> exit(Reason)
-  end,
+  EsubscribePID =
+    case esubscribe:start_link(Name) of
+      {ok, PID} -> PID;
+      {error, Reason} -> exit(Reason)
+    end,
   {ok, {?CONNECTING, Type, ConnectionSettings}, #data{
+    esubscribe = EsubscribePID,
     owner = Owner,
     name = Name,
     storage = Storage,
@@ -231,11 +234,13 @@ handle_event(EventType, EventContent, _AnyState, #data{name = Name}) ->
   ]),
   keep_state_and_data.
 
-terminate(Reason, _, _State) when Reason =:= normal; Reason =:= shutdown ->
+terminate(Reason, _, _State = #data{esubscribe = PID}) when Reason =:= normal; Reason =:= shutdown ->
+  exit(PID, shutdown),
   ?LOGDEBUG("client connection terminated. Reason: ~p", [Reason]),
   ok;
 
-terminate(Reason, _, _ClientState) ->
+terminate(Reason, _, _State = #data{esubscribe = PID}) ->
+  exit(PID, shutdown),
   ?LOGWARNING("client connection terminated. Reason: ~p", [Reason]),
   ok.
 
@@ -285,8 +290,11 @@ handle_asdu(#asdu{
     {?COT_ACTCON, ?NEGATIVE_PN} -> {next_state, ?CONNECTED, Data, [{reply, From, {error, negative_confirmation}}]};
     {?COT_ACTTERM, ?POSITIVE_PN} -> {next_state, ?CONNECTED, Data, [{reply, From, ok}]};
     {?COT_ACTTERM, ?NEGATIVE_PN} -> {next_state, ?CONNECTED, Data, [{reply, From, {error, negative_termination}}]};
-    %% TODO: Temporary case clause
-    {_UnexpectedCOT, ?POSITIVE_PN} -> keep_state_and_data
+    %% TODO: Temporary case clause (RAPTOR compatibility, SHOULD REMOVE IT)
+    {RaptorCOT, ?POSITIVE_PN} when (RaptorCOT =:= 1) orelse (RaptorCOT =:= 20) ->
+      {next_state, ?CONNECTED, Data, [{reply, From, ok}]};
+    {_OtherCOT, ?NEGATIVE_PN} ->
+      {next_state, ?CONNECTED, Data, [{reply, From, {error, negative_pn}}]}
   end;
 
 %% +--------------------------------------------------------------+

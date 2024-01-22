@@ -29,6 +29,7 @@
 %% +--------------------------------------------------------------+
 
 parse(ASDU, #{
+  coa := InCOA,
   ioa_size := IOABitSize,
   org_size := ORGBitSize,
   coa_size := COABitSize
@@ -43,6 +44,7 @@ parse(ASDU, #{
     org  := ORG,
     coa  := COA
   } = DUI,
+  check_common_address(InCOA, COA),
   ParsedObjects =
     [begin
        {Address, iec60870_type:parse_information_element(Type, Object)}
@@ -170,3 +172,8 @@ split(DataObjects, MaxSize) when length(DataObjects) > MaxSize ->
   [Head | split(Tail, MaxSize)];
 split(DataObjects, _MaxSize)->
   [DataObjects].
+
+check_common_address(COA, ReceivedCOA) when COA =:= ReceivedCOA ->
+  ok;
+check_common_address(_, _) ->
+  throw({error, invalid_coa_received}).

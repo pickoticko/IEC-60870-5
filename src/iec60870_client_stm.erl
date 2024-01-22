@@ -64,7 +64,7 @@ init({Owner, #{
   ASDU = iec60870_asdu:get_settings(maps:with(maps:keys(?DEFAULT_ASDU_SETTINGS), Settings)),
   case esubscribe:start_link(Name) of
     {ok, _PID} -> ok;
-    {error, Reason} -> throw(Reason)
+    {error, Reason} -> exit(Reason)
   end,
   {ok, {?CONNECTING, Type, ConnectionSettings}, #data{
     owner = Owner,
@@ -85,7 +85,11 @@ handle_event(state_timeout, connect, {?CONNECTING, Type, Settings}, #data{
   groups = Groups
 } = Data) ->
   Module = iec60870_lib:get_driver_module(Type),
-  Connection = Module:start_client(Settings),
+  try
+    Connection = Module:start_client(Settings)
+  catch
+    _Exception:Reason -> exit(Reason)
+  end,
   {next_state, {?INIT_GROUPS, Groups}, Data#data{
     connection = Connection
   }};

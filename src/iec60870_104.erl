@@ -129,6 +129,8 @@
 %% |                             API                              |
 %% +--------------------------------------------------------------+
 
+-define(CLIENTS_INIT_COUNT, 0).
+
 start_server(InSettings) ->
   Root = self(),
   Settings = #{
@@ -136,7 +138,7 @@ start_server(InSettings) ->
   } = check_settings(maps:merge(?DEFAULT_SETTINGS, InSettings)),
   case gen_tcp:listen(Port, [binary, {active, true}, {packet, raw}]) of
     {ok, ListenSocket} ->
-      wait_connection(ListenSocket, Settings, Root),
+      wait_connection(ListenSocket, 0, Settings, Root),
       ListenSocket;
     {error, Reason} ->
       throw({transport_error, Reason})
@@ -160,14 +162,26 @@ start_client(InSettings) ->
 %% |                      Init Server Socket                      |
 %% +--------------------------------------------------------------+
 
-wait_connection(ListenSocket, Settings, Root)->
+wait_connection(ListenSocket, ClientsCounter, Settings, Root)->
   spawn(fun() ->
     process_flag(trap_exit, true),
     link(Root),
     Socket = accept_loop(ListenSocket, Root),
+
+%%    ClientData =
+%%      case inet:peername(Socket) of
+%%        {ok, {IP, Port}} ->
+%%          #{socket => Socket, ip => IP, port => Port};
+%%        {error, Reason} ->
+%%          throw({error, Reason})
+%%      end,
+%%
+%%    check_client_access(ClientData, maps:get(allowed_addresses, Settings)),
+%%    check_client_count(ClientData, ClientsCounter, maps:get(max_clients, Settings)),
+
     % Handle the ListenSocket to the next process
     unlink(Root),
-    wait_connection(ListenSocket, Settings, Root),
+    wait_connection(ListenSocket, ClientsCounter, Settings, Root),
     case wait_activate(Socket, ?START_DT_ACTIVATE, <<>>) of
       {ok, Buffer} ->
         socket_send(Socket, create_u_packet(?START_DT_CONFIRM)),
@@ -584,6 +598,14 @@ check_setting(host, Host) when is_tuple( Host) ->
 check_setting(port, Port)
   when is_number(Port), Port >= ?MIN_PORT_VALUE, Port =< ?MAX_PORT_VALUE -> Port;
 
+check_setting(max_clients, Value)
+  when is_integer(Value) -> Value;
+
+check_setting(allowed_addresses, List)
+  when is_list(List) -> maps:from_keys(parse_addresses(List), allowed);
+
+check_setting(allowed_addresses, all) -> all;
+
 check_setting(k, Value)
   when is_number(Value), Value >= ?MIN_FRAME_LIMIT, Value =< ?MAX_FRAME_LIMIT -> Value;
 
@@ -671,4 +693,37 @@ socket_send(Socket, Data) ->
     {error, Error} -> throw({send_error, Error})
   end.
 
+check_client_access(#{}, all) ->
+  ok;
+check_client_access(#{socket := Socket, ip := IP}, AllowedClientsMap) ->
+  case maps:get(IP, AllowedClientsMap) of
+    allowed ->
+      ok;
+    _Other ->
+      gen_tcp:close(Socket),
+      refused
+  end.
 
+check_client_count(#{socket := Socket, ip := IP, port := Port}, Counter, MaxClients) ->
+  case Counter >= MaxClients of
+    true ->
+      ?LOGWARNING("client refused! Socket: ~p, IPv4: ~p, Port: ~p", [Socket, IP, Port]),
+      ?LOGWARNING("limit of max clients ~p reached! Current clients count: ~p", [MaxClients, Counter]),
+      gen_tcp:close(Socket),
+      refused;
+    false ->
+      ?LOGINFO("new client accepted. Socket: ~p, IPv4: ~p, Port: ~p", [Socket, IP, Port]),
+      ?LOGINFO("current count of clients: ~p", [Counter]),
+      Counter + 1
+  end.
+
+parse_addresses(ListOfAddresses) when is_list(ListOfAddresses) ->
+  parse_addresses(ListOfAddresses, []).
+
+parse_addresses([], Acc) ->
+  Acc;
+parse_addresses([StringIP | Rest], Acc) ->
+  case inet:parse_ipv4_address(StringIP) of
+    {ok, IPv4Address} -> parse_addresses(Rest, [Acc | IPv4Address]);
+    {error, Reason} -> throw({error, Reason})
+  end.

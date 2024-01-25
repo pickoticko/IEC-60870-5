@@ -323,8 +323,9 @@ loop(#state{
       exit(tcp_passive);
 
     %% Connection sent exit signal
-    {'EXIT', Connection, _Reason} ->
-      gen_tcp:close(Socket);
+    {'EXIT', Connection, Reason} ->
+      gen_tcp:close(Socket),
+      exit(Reason);
 
     %% If an ASDU packet isn't accepted because we are waiting for confirmation,
     %% we should compare the sent packets with K to avoid ignoring
@@ -335,7 +336,7 @@ loop(#state{
   end.
 
 handle_command(t1, _State) ->
-  throw(confirm_timeout);
+  exit(confirm_timeout);
 
 handle_command(t2, #state{
   socket = Socket,
@@ -362,7 +363,7 @@ handle_command(t3, #state{
 handle_command(t3, #state{
   t3 = {confirm, _Timer}
 }) ->
-  throw(heartbeat_timeout);
+  exit(heartbeat_timeout);
 
 handle_command(InvalidCommand, _State) ->
   throw({invalid_command, InvalidCommand}).
@@ -522,7 +523,7 @@ handle_packet(i, {SendCounter, ReceiveCounter, ASDU}, #state{
 } = State) ->
   if
     SendCounter =:= VR -> ok;
-    true -> throw({invalid_receive_counter, SendCounter, VR})
+    true -> exit({invalid_receive_counter, SendCounter, VR})
   end,
   Connection ! {asdu, self(), ASDU},
   reset_timer(t1, T1),
@@ -560,25 +561,25 @@ send_i_packet(ASDU, #state{
 %% +--------------------------------------------------------------+
 
 check_settings(Settings) ->
-  SettingsList = maps:to_list( maps:merge(?DEFAULT_SETTINGS, Settings) ),
+  SettingsList = maps:to_list(maps:merge(?DEFAULT_SETTINGS, Settings)),
   case [S || {S, ?REQUIRED} <- SettingsList] of
     [] -> ok;
-    Required -> throw( {required, Required} )
+    Required -> throw({required_setting, Required})
   end,
   case maps:keys(Settings) -- [host | maps:keys(?DEFAULT_SETTINGS)] of
     [] -> ok;
-    InvalidParams -> throw({invalid_params, InvalidParams} )
+    InvalidParams -> throw({invalid_settings, InvalidParams})
   end,
   maps:from_list([{K, check_setting(K, V)} || {K, V} <- SettingsList]).
 
-check_setting(host, Host) when is_tuple( Host) ->
+check_setting(host, Host) when is_tuple(Host) ->
   case tuple_to_list(Host) of
     IP when length(IP) =:= 4 ->
       case [Octet || Octet <- IP, is_integer(Octet), Octet >= 0, Octet =< 255] of
         IP -> Host;
-        _  -> throw({invalid_host, Host})
+        _  -> throw({invalid_setting, Host})
       end;
-    _ -> throw({invalid_host, Host})
+    _ -> throw({invalid_setting, Host})
   end;
 
 check_setting(port, Port)
@@ -600,7 +601,7 @@ check_setting(t3, Timeout)
   when is_number(Timeout); Timeout =:= infinity -> Timeout;
 
 check_setting(Key, Value)->
-  throw({invalid_param, Key, Value}).
+  throw({invalid_setting, {setting, Key, value, Value}}).
 
 %% +--------------------------------------------------------------+
 %% |                       Helper functions                       |
@@ -668,7 +669,7 @@ clear_timer(Type) ->
 socket_send(Socket, Data) ->
   case gen_tcp:send(Socket, Data) of
     ok -> ok;
-    {error, Error} -> throw({send_error, Error})
+    {error, Error} -> exit({send_error, Error})
   end.
 
 

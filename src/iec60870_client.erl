@@ -76,17 +76,18 @@ read(_, _) ->
   throw(bad_arg).
 
 write(#?MODULE{pid = PID}, IOA, Value) when is_map(Value) ->
-  case is_remote_command(Value) of
+  case is_process_alive(PID) of
     true ->
-      %% This call returns 'ok' either {error, Reason}.
-      gen_statem:call(PID, {write, IOA, Value});
-    false ->
-      case is_process_alive(PID) of
+      case is_remote_command(Value) of
         true ->
-          PID ! {write, IOA, Value};
+          %% This call returns 'ok' either {error, Reason}.
+          gen_statem:call(PID, {write, IOA, Value});
         false ->
-          {error, client_not_alive}
-      end
+          PID ! {write, IOA, Value},
+          ok
+      end;
+    false ->
+      {error, client_not_alive}
   end;
 write(_, _, _) ->
   throw(bad_arg).

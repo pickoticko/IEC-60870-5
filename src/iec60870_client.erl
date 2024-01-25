@@ -75,12 +75,21 @@ read(#?MODULE{storage = Storage}, ID) ->
 read(_, _) ->
   throw(bad_arg).
 
-write(#?MODULE{pid = PID}, IOA, Value) ->
+write(#?MODULE{pid = PID}, IOA, Value) when is_map(Value) ->
   case is_remote_command(Value) of
-    true -> gen_statem:call(PID, {write, IOA, Value});
-    false -> PID ! {write, IOA, Value}
-  end,
-  ok.
+    true ->
+      %% This call returns 'ok' either {error, Reason}.
+      gen_statem:call(PID, {write, IOA, Value});
+    false ->
+      case is_process_alive(PID) of
+        true ->
+          PID ! {write, IOA, Value};
+        false ->
+          {error, client_not_alive}
+      end
+  end;
+write(_, _, _) ->
+  throw(bad_arg).
 
 subscribe(#?MODULE{name = Name}, PID) when is_pid(PID) ->
     esubscribe:subscribe(Name, update, PID);

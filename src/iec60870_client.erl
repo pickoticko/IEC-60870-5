@@ -61,7 +61,10 @@ start(InSettings) ->
   end.
 
 stop(#?MODULE{pid = PID}) ->
-  gen_statem:stop(PID);
+  case is_process_alive(PID) of
+    true -> gen_statem:stop(PID);
+    false -> ok
+  end;
 stop(_) ->
   throw(bad_arg).
 

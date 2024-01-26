@@ -36,6 +36,7 @@
 -record(state,{
   server,
   module,
+  esubscribe,
   connection_settings
 }).
 
@@ -223,17 +224,23 @@ init_server(Owner, #{
 } = Settings) ->
   process_flag(trap_exit, true),
   Module = iec60870_lib:get_driver_module(Type),
-  Server = Module:start_server(Connection),
+  Server =
+    try
+      Module:start_server(Connection)
+    catch
+      _Exception:Reason -> exit(Reason)
+    end,
   Storage = ets:new(data_objects, [
     set,
     public,
     {read_concurrency, true},
     {write_concurrency, auto}
   ]),
-  case esubscribe:start_link(Name) of
-    {ok, _PID} -> ok;
-    {error, Reason} -> throw(Reason)
-  end,
+  EsubscribePID =
+    case esubscribe:start_link(Name) of
+      {ok, PID} -> PID;
+      {error, Reason} -> throw(Reason)
+    end,
   Ref = #?MODULE{
     pid = self(),
     storage = Storage,
@@ -251,12 +258,14 @@ init_server(Owner, #{
   await_connection(#state{
     module = Module,
     server = Server,
+    esubscribe = EsubscribePID,
     connection_settings = ConnectionSettings
   }).
 
 await_connection(#state{
   module = Module,
   server = Server,
+  esubscribe = EsubscribePID,
   connection_settings = ConnectionSettings
 } = State) ->
   receive
@@ -265,12 +274,13 @@ await_connection(#state{
         {ok, PID} ->
           From ! {self(), PID};
         {error, Error} ->
-          ?LOGERROR("unable to start process for incomung connection, error ~p",[Error]),
+          ?LOGERROR("unable to start process for incoming connection, error ~p",[Error]),
           From ! {self(), error}
       end,
       await_connection(State);
     {'EXIT', _, StopReason} ->
       ?LOGINFO("stop server, reason: ~p", [StopReason]),
+      exit(EsubscribePID, shutdown),
       Module:stop_server(Server),
       exit(StopReason);
     Unexpected ->

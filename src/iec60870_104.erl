@@ -181,11 +181,13 @@ wait_connection(ListenSocket, Settings, Root)->
             });
           {error, InternalError} ->
             ?LOGERROR("unable to start a process to handle the incoming connection, error ~p", [InternalError]),
-            gen_tcp:close(Socket)
+            gen_tcp:close(Socket),
+            exit(InternalError)
         end;
       {error, ActivateError} ->
         ?LOGWARNING("incoming connection activation error ~p", [ActivateError]),
-        gen_tcp:close(Socket)
+        gen_tcp:close(Socket),
+        exit(ActivateError)
     end
   end).
 

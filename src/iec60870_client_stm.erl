@@ -35,6 +35,7 @@
 %% +--------------------------------------------------------------+
 
 -define(CONNECTING, connecting).
+-define(HANDSHAKE, handshake).
 -define(CONNECTED, connected).
 -define(ACTIVATION, activation).
 -define(WRITE, write).
@@ -84,9 +85,7 @@ init({Owner, #{
 handle_event(enter, _PrevState, {?CONNECTING, _, _}, _Data) ->
   {keep_state_and_data, [{state_timeout, 0, connect}]};
 
-handle_event(state_timeout, connect, {?CONNECTING, Type, Settings}, #data{
-  groups = Groups
-} = Data) ->
+handle_event(state_timeout, connect, {?CONNECTING, Type, Settings}, Data) ->
   Module = iec60870_lib:get_driver_module(Type),
   Connection =
     try
@@ -94,9 +93,32 @@ handle_event(state_timeout, connect, {?CONNECTING, Type, Settings}, #data{
     catch
       _Exception:Reason -> exit(Reason)
     end,
-  {next_state, {?INIT_GROUPS, Groups}, Data#data{
+  {next_state, ?HANDSHAKE, Data#data{
     connection = Connection
   }};
+
+%% +--------------------------------------------------------------+
+%% |                       Handshake State                        |
+%% +--------------------------------------------------------------+
+%% | This step is necessary in order to check the connection      |
+%% | settings and whether they match the server.                  |
+%% +--------------------------------------------------------------+
+
+handle_event(enter, _PrevState, ?HANDSHAKE, #data{
+  connection = Connection,
+  asdu = ASDUSettings
+}) ->
+  [ASDU] = iec60870_asdu:build(#asdu{
+    type = ?C_TS_NA_1,
+    pn = ?POSITIVE_PN,
+    cot = ?COT_ACT,
+    objects = [{_IOA = 0, _Value = undefined}]
+  }, ASDUSettings),
+  send_asdu(Connection, ASDU),
+  {keep_state_and_data, [{state_timeout, ?DEFAULT_HANDSHAKE_TIMEOUT, ?HANDSHAKE}]};
+
+handle_event(state_timeout, ?HANDSHAKE, ?HANDSHAKE, Data) ->
+  {stop, handshake_timeout, Data};
 
 %% +--------------------------------------------------------------+
 %% |                      Init Groups State                       |
@@ -207,6 +229,25 @@ handle_event(info, {write, IOA, Value}, _State, #data{
   Items = [{IOA, Value} | NextItems],
   send_items([{IOA, Value} | Items], Connection, ?COT_SPONT, ASDUSettings),
   keep_state_and_data;
+
+%% Parsing ASDUs while in the handshake state.
+%% Successful parse = state changes to INIT_GROUPS.
+%% Failed parse = settings mismatch and we can't continue working.
+handle_event(info, {asdu, Connection, ASDU}, ?HANDSHAKE = State, #data{
+  connection = Connection,
+  asdu = ASDUSettings,
+  groups = Groups
+} = Data) ->
+  try
+    ParsedASDU = iec60870_asdu:parse(ASDU, ASDUSettings),
+    handle_asdu(ParsedASDU, State, Data),
+    {next_state, {?INIT_GROUPS, Groups}, Data#data{
+      connection = Connection
+    }}
+  catch
+    _Exception:_Reason ->
+      {stop, handshake_failed, Data}
+  end;
 
 %% Handling incoming ASDU packets
 handle_event(info, {asdu, Connection, ASDU}, State, #data{
@@ -340,6 +381,26 @@ handle_asdu(#asdu{
       ignore
   end,
   {next_state, NextState, Data};
+
+%% +--------------------------------------------------------------+
+%% |                    Handling test command                     |
+%% +--------------------------------------------------------------+
+
+%% Confirmation of the test command
+handle_asdu(#asdu{
+  type = ?C_TS_NA_1,
+  objects = [{_IOA, _Value}]
+}, ?HANDSHAKE, #data{
+  connection = Connection,
+  groups = Groups
+} = Data) ->
+  {next_state, {?INIT_GROUPS, Groups}, Data#data{
+    connection = Connection
+  }};
+
+%% +--------------------------------------------------------------+
+%% |           Handling time synchronization command              |
+%% +--------------------------------------------------------------+
 
 %% Time synchronization request
 handle_asdu(#asdu{type = ?C_CS_NA_1, objects = Objects}, _State, #data{

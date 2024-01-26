@@ -13,11 +13,20 @@
   create_information_element/2
 ]).
 
+%% +--------------------------------------------------------------+
+%% |                           Macros                             |
+%% +--------------------------------------------------------------+
+
 -define(MILLIS_IN_MINUTE, 60000).
 -define(UNIX_EPOCH_DATE, {1970, 1, 1}).
 -define(UNIX_EPOCH_SECONDS, 62167219200).
 -define(CURRENT_MILLENNIUM, 2000).
+
+%% For normalized values
 -define(SHORT_INT_MAX_VALUE, 32767).
+
+%% Object of the C_TS_NA_1 (Test Command).
+-define(TEST_COMMAND_FSP, <<2#10101010, 2#01010101>>).
 
 %% +--------------------------------------------------------------+
 %% |                           Parsing                            |
@@ -235,6 +244,10 @@ parse_information_element(?C_CI_NA_1, <<GroupCounterID>>) ->
 %% Type 103. Clock synchronization
 parse_information_element(?C_CS_NA_1, Timestamp) ->
   parse_cp56(Timestamp);
+
+%% Type 104. Test command
+parse_information_element(?C_TS_NA_1, ?TEST_COMMAND_FSP) ->
+  ?TEST_COMMAND_FSP;
 
 parse_information_element(Type, Value) ->
   throw({invalid_type_or_value, Type, Value}).
@@ -531,6 +544,10 @@ create_information_element(?C_CI_NA_1, GroupCounterID) ->
 %% Type 103. Clock synchronization
 create_information_element(?C_CS_NA_1, Timestamp) ->
   get_cp56(Timestamp);
+
+%% Type 104. Test command
+create_information_element(?C_TS_NA_1, _Ignore) ->
+  ?TEST_COMMAND_FSP;
 
 create_information_element(OtherType, _) -> throw({unsupported_type, OtherType}).
 

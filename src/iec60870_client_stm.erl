@@ -90,13 +90,14 @@ handle_event(state_timeout, connect, {?CONNECTING, Type, Settings}, #data{
   Module = iec60870_lib:get_driver_module(Type),
   Connection =
     try
-      Module:start_client(Settings)
+      Module:start_client(Settings),
+      {next_state, {?INIT_GROUPS, Groups}, Data#data{
+        connection = Connection
+      }}
     catch
-      _Exception:Reason -> exit(Reason)
-    end,
-  {next_state, {?INIT_GROUPS, Groups}, Data#data{
-    connection = Connection
-  }};
+      _Exception:Reason ->
+        {stop, Reason, Data}
+    end;
 
 %% +--------------------------------------------------------------+
 %% |                      Init Groups State                       |
@@ -221,7 +222,7 @@ handle_event(info, {asdu, Connection, ASDU}, State, #data{
     _Exception:Reason ->
       case Reason of
         {invalid_value, _Type} ->
-          exit(Reason);
+          {stop, Reason, Data};
         _Other ->
           ?LOGERROR("~p invalid ASDU received: ~p, reason: ~p", [Name, ASDU, Reason]),
           keep_state_and_data

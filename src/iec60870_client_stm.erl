@@ -88,16 +88,15 @@ handle_event(state_timeout, connect, {?CONNECTING, Type, Settings}, #data{
   groups = Groups
 } = Data) ->
   Module = iec60870_lib:get_driver_module(Type),
-  Connection =
-    try
-      Module:start_client(Settings),
-      {next_state, {?INIT_GROUPS, Groups}, Data#data{
-        connection = Connection
-      }}
-    catch
-      _Exception:Reason ->
-        {stop, Reason, Data}
-    end;
+  try
+    Connection = Module:start_client(Settings),
+    {next_state, {?INIT_GROUPS, Groups}, Data#data{
+      connection = Connection
+    }}
+  catch
+    _Exception:Reason ->
+      {stop, Reason, Data}
+  end;
 
 %% +--------------------------------------------------------------+
 %% |                      Init Groups State                       |

@@ -239,7 +239,7 @@ init_server(Owner, #{
   EsubscribePID =
     case esubscribe:start_link(Name) of
       {ok, PID} -> PID;
-      {error, Reason} -> throw(Reason)
+      {error, EsubscribeReason} -> throw(EsubscribeReason)
     end,
   Ref = #?MODULE{
     pid = self(),

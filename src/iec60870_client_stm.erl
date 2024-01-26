@@ -220,7 +220,7 @@ handle_event(info, {asdu, Connection, ASDU}, State, #data{
   catch
     _Exception:Reason ->
       case Reason of
-        {invalid_value, _Type} ->
+        {invalid_value, _Value} ->
           {stop, Reason, Data};
         _Other ->
           ?LOGERROR("~p invalid ASDU received: ~p, reason: ~p", [Name, ASDU, Reason]),

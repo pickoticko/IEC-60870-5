@@ -237,10 +237,10 @@ init_client(Owner, #{
         {error, ActivateError} ->
           ?LOGWARNING("client connection activation error: ~p", [ActivateError]),
           gen_tcp:close(Socket),
-          throw(ActivateError)
+          exit(ActivateError)
       end;
     {error, ConnectError} ->
-      throw(ConnectError)
+      exit(ConnectError)
   end.
 
 %% +--------------------------------------------------------------+

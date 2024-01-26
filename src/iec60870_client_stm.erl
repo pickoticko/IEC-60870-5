@@ -245,8 +245,7 @@ terminate(Reason, _, _State = #data{esubscribe = PID}) when Reason =:= normal; R
   ?LOGDEBUG("client connection terminated. Reason: ~p", [Reason]),
   ok;
 
-terminate(Reason, _, _State = #data{esubscribe = PID}) ->
-  exit(PID, shutdown),
+terminate(Reason, _, _State) ->
   ?LOGWARNING("client connection terminated. Reason: ~p", [Reason]),
   ok.
 

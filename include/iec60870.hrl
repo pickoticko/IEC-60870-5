@@ -79,9 +79,7 @@
 -define(C_IC_NA_1, 16#64). % 100: Group Request Command
 -define(C_CI_NA_1, 16#65). % 101: Counter Interrogation Command
 -define(C_CS_NA_1, 16#67). % 103: Clock Synchronization Command
--define(C_TS_NA_1, 16#68). % 104: Test Command
 
--define(DEFAULT_HANDSHAKE_TIMEOUT, 30000).
 -define(DEFAULT_WRITE_TIMEOUT, 30000).
 
 %% Limitations

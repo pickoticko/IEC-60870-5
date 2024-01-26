@@ -220,11 +220,12 @@ handle_event(info, {asdu, Connection, ASDU}, State, #data{
   catch
     _Exception:Reason ->
       case Reason of
-        {invalid_value, _Type} -> exit(invalid_value);
-        _Other -> ignore
-      end,
-      ?LOGERROR("~p invalid ASDU received: ~p, reason: ~p", [Name, ASDU, Reason]),
-      keep_state_and_data
+        {invalid_value, _Type} ->
+          exit(Reason);
+        _Other ->
+          ?LOGERROR("~p invalid ASDU received: ~p, reason: ~p", [Name, ASDU, Reason]),
+          keep_state_and_data
+      end
   end;
 
 %% If we receive updates on the group while in a state

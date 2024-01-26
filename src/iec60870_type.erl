@@ -237,7 +237,10 @@ parse_information_element(?C_CS_NA_1, Timestamp) ->
   parse_cp56(Timestamp);
 
 parse_information_element(Type, Value) ->
-  throw({invalid_type_or_value, Type, Value}).
+  case is_type_supported(Type) of
+    true -> exit({invalid_value, Value});
+    false -> throw({invalid_type, Value})
+  end.
 
 %% +--------------------------------------------------------------+
 %% |                          Creating                            |
@@ -626,3 +629,11 @@ seconds_to_millis(Seconds) -> Seconds * 1000.
 
 parse_nva(Value) -> Value / ?SHORT_INT_MAX_VALUE.
 get_nva(Value) -> Value * ?SHORT_INT_MAX_VALUE.
+
+is_type_supported(Type)
+  when (Type >= ?M_SP_NA_1 andalso Type =< ?M_ME_ND_1) orelse
+       (Type >= ?M_SP_TB_1 andalso Type =< ?M_EI_NA_1) orelse
+       (Type >= ?C_SC_NA_1 andalso Type =< ?C_BO_NA_1) orelse
+       (Type >= ?C_SC_TA_1 andalso Type =< ?C_BO_TA_1) orelse
+       (Type >= ?C_IC_NA_1 andalso Type =< ?C_CS_NA_1) -> true;
+is_type_supported(_Type) -> false.

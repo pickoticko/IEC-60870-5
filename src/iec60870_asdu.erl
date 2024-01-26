@@ -44,11 +44,11 @@ parse(ASDU, #{
     org  := ORG,
     coa  := COA
   } = DUI,
-  check_common_address(InCOA, COA),
   ParsedObjects =
     [begin
        {Address, iec60870_type:parse_information_element(Type, Object)}
      end || {Address, Object} <- Objects],
+  check_common_address(InCOA, COA),
   #asdu{
     type = Type,
     pn = PN,

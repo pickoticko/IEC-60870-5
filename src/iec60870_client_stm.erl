@@ -218,8 +218,12 @@ handle_event(info, {asdu, Connection, ASDU}, State, #data{
     ParsedASDU = iec60870_asdu:parse(ASDU, ASDUSettings),
     handle_asdu(ParsedASDU, State, Data)
   catch
-    _:E ->
-      ?LOGERROR("~p invalid ASDU received: ~p, error: ~p", [Name, ASDU, E]),
+    _Exception:Reason ->
+      case Reason of
+        {invalid_value, _Type} -> exit(invalid_value);
+        _Other -> ignore
+      end,
+      ?LOGERROR("~p invalid ASDU received: ~p, reason: ~p", [Name, ASDU, Reason]),
       keep_state_and_data
   end;
 

@@ -238,7 +238,7 @@ parse_information_element(?C_CS_NA_1, Timestamp) ->
 
 parse_information_element(Type, Value) ->
   case is_type_supported(Type) of
-    true -> exit({invalid_value, Value});
+    true -> throw({invalid_value, Value});
     false -> throw({invalid_type, Value})
   end.
 

@@ -44,7 +44,7 @@
 %% |                           Macros                             |
 %% +--------------------------------------------------------------+
 
--define(COMMAND_HANDLER_ARITY, 4).
+-define(COMMAND_HANDLER_ARITY, 3).
 -define(REQUIRED, {?MODULE, required}).
 
 -define(DEFAULT_SETTINGS, maps:merge(#{

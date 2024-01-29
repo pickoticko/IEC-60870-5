@@ -162,8 +162,7 @@ handle_asdu(#asdu{
   connection = Connection,
   settings = #{
     command_handler := Handler,
-    asdu := ASDUSettings,
-    root := Reference
+    asdu := ASDUSettings
   }
 })
   when (Type >= ?C_SC_NA_1 andalso Type =< ?C_BO_NA_1)
@@ -174,7 +173,7 @@ handle_asdu(#asdu{
       spawn(fun() ->
         try
           [{IOA, Value}] = Objects,
-          case Handler(Reference, Type, IOA, Value) of
+          case Handler(Type, IOA, Value) of
             {error, HandlerError} ->
               ?LOGDEBUG("remote control handler returned error: ~p", [HandlerError]),
               %% +-------[ Negative activation confirmation ]---------+
@@ -187,7 +186,7 @@ handle_asdu(#asdu{
           end
         catch
           _:Error:Stack ->
-            ?LOGERROR("remote control handler handler failed, error: ~p", [Error, Stack]),
+            ?LOGERROR("remote control handler failed, error: ~p", [Error, Stack]),
             %% +-------[ Negative activation confirmation ]---------+
             build_and_send(Self, Type, Objects, ?COT_ACTCON, ?NEGATIVE_PN, Connection, ASDUSettings)
         end

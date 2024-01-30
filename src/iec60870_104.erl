@@ -142,8 +142,8 @@ start_server(InSettings) ->
       throw({transport_error, Reason})
   end.
 
-stop_server(_) ->
-  ok.
+stop_server(ServerPort) ->
+  gen_tcp:close(ServerPort).
 
 start_client(InSettings) ->
   Owner = self(),

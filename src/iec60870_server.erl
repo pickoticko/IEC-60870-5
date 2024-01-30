@@ -152,16 +152,17 @@ update_value(#?MODULE{name = Name, storage = Storage}, ID, InValue) ->
     case ets:lookup(Storage, ID) of
       [{_, Map}] -> Map;
       _ -> #{
-        %% All object types have these keys
-        value => undefined,
+        %% All object types have this key
         group => undefined
       }
     end,
   Value = maps:merge(OldValue, InValue),
+  %% Value must contain 'value' parameter
+  check_value(Value),
   ets:insert(Storage, {ID, Value}),
-  % Any updates notification
+  %% Any updates notification
   esubscribe:notify(Name, update, {ID, Value}),
-  % Only address notification
+  %% Only address notification
   esubscribe:notify(Name, ID, Value).
 
 %% +--------------------------------------------------------------+
@@ -215,6 +216,12 @@ check_setting(groups, undefined) ->
 
 check_setting(Key, _) ->
   throw({invalid_settings, Key}).
+
+check_value(Value) ->
+  case maps:is_key(value, Value) of
+    true -> ok;
+    false -> throw({error, value_parameter_missing})
+  end.
 
 init_server(Owner, #{
   name := Name,

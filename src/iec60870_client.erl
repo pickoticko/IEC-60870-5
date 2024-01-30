@@ -81,16 +81,20 @@ read(_, _) ->
 write(#?MODULE{pid = PID}, IOA, Value) when is_map(Value) ->
   case is_process_alive(PID) of
     true ->
+      check_value(Value),
       case is_remote_command(Value) of
         true ->
           %% This call returns 'ok' either {error, Reason}.
-          gen_statem:call(PID, {write, IOA, Value});
+          case gen_statem:call(PID, {write, IOA, Value}) of
+            ok -> ok;
+            {error, Reason} -> throw(Reason)
+          end;
         false ->
           PID ! {write, IOA, Value},
           ok
       end;
     false ->
-      {error, client_not_alive}
+      throw({client_dead, PID})
   end;
 write(_, _, _) ->
   throw(bad_arg).
@@ -195,3 +199,9 @@ is_remote_command(#{type := Type})->
   (Type >= ?C_SC_NA_1 andalso Type =< ?C_BO_NA_1)
     orelse
   (Type >= ?C_SC_TA_1 andalso Type =< ?C_BO_TA_1).
+
+check_value(Value) ->
+  case maps:is_key(value, Value) of
+    true -> ok;
+    false -> throw({value_parameter_missing, Value})
+  end.

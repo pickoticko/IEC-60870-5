@@ -94,7 +94,7 @@ write(#?MODULE{pid = PID}, IOA, Value) when is_map(Value) ->
           ok
       end;
     false ->
-      throw({client_dead, PID})
+      throw(connection_closed)
   end;
 write(_, _, _) ->
   throw(bad_arg).

@@ -186,7 +186,7 @@ handle_asdu(#asdu{
           end
         catch
           _:Error:Stack ->
-            ?LOGERROR("remote control handler failed, error: ~p", [Error, Stack]),
+            ?LOGERROR("remote control handler failed, error: ~p, stack: ~p", [Error, Stack]),
             %% +-------[ Negative activation confirmation ]---------+
             build_and_send(Self, Type, Objects, ?COT_ACTCON, ?NEGATIVE_PN, Connection, ASDUSettings)
         end

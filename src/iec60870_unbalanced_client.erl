@@ -90,7 +90,7 @@ init_connect(#data{
       case transaction(?REQUEST_STATUS_LINK, Data1) of
         {?RESPONSE(Address, ?STATUS_LINK_ACCESS_DEMAND, _), Data}->
           Data;
-        error ->
+        _ ->
           exit(connect_error)
       end;
     _->
@@ -124,7 +124,7 @@ get_data(#data{
       {_, #data{} = _Data1} ->
         _Data1;
       error ->
-        exit(transaction_error)
+        init_connect( Data#data{ fcb = 1 })
     end,
   Data2 =
     case transaction(?REQUEST_DATA_CLASS_2, Data1) of
@@ -134,7 +134,7 @@ get_data(#data{
       {_, #data{} = _Data2} ->
         _Data2;
       error ->
-        exit(transaction_error)
+        init_connect( Data#data{ fcb = 1 })
     end,
   Data2.
 

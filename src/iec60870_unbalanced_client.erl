@@ -82,23 +82,29 @@ init_client(Owner, #{
   timer:send_after(?CYCLE, {update, self()}),
   loop(Data).
 
-init_connect(#data{
+init_connect(#data{ attempts = Attempts} = Data)->
+  try_connect( Data, Attempts ).
+
+try_connect(#data{
   address = Address
-} = Data0)->
-  case transaction(?RESET_REMOTE_LINK, Data0) of
+} = Data0, Attempts) when Attempts > 0->
+  case transaction(?RESET_REMOTE_LINK, Data0#data{fcb = 1}) of
     {?RESPONSE(Address, ?ACKNOWLEDGE, _), Data1} ->
       case transaction(?REQUEST_STATUS_LINK, Data1) of
         {?RESPONSE(Address, ?STATUS_LINK_ACCESS_DEMAND, _), Data}->
           Data;
         _ ->
-          exit(connect_error)
+          try_connect( Data0, Attempts - 1 )
       end;
     _->
-      exit(connect_error)
-  end.
+      try_connect( Data0, Attempts - 1 )
+  end;
+try_connect( _Data, _Attempts = 0 )->
+  exit( connect_error ).
 
 loop(#data{
-  owner = Owner
+  owner = Owner,
+  attempts = Attempts
 } = Data)->
   receive
     {update, Self} when Self =:= self() ->
@@ -106,7 +112,7 @@ loop(#data{
       Data1 = get_data(Data),
       loop(Data1);
     {asdu, Owner, ASDU} ->
-      Data1 = send_asdu(ASDU, Data),
+      Data1 = send_asdu(ASDU, Data, Attempts),
       loop(Data1);
     Unexpected ->
       ?LOGWARNING("unexpected message ~p", [Unexpected]),
@@ -124,7 +130,8 @@ get_data(#data{
       {_, #data{} = _Data1} ->
         _Data1;
       error ->
-        init_connect( Data#data{ fcb = 1 })
+        ?LOGWARNING("transaction error"),
+        init_connect( Data )
     end,
   Data2 =
     case transaction(?REQUEST_DATA_CLASS_2, Data1) of
@@ -134,20 +141,27 @@ get_data(#data{
       {_, #data{} = _Data2} ->
         _Data2;
       error ->
-        init_connect( Data#data{ fcb = 1 })
+        ?LOGWARNING("transaction error"),
+        init_connect( Data )
     end,
   Data2.
 
-send_asdu(ASDU, Data) ->
+send_asdu(ASDU, Data, Attempts) when Attempts > 0->
   case transaction(?USER_DATA_CONFIRM, ASDU, Data) of
     {?RESPONSE(_, ?ACKNOWLEDGE, _), Data1} ->
       Data1;
     {Unexpected, _Data} ->
-      ?LOGERROR("unexpected send asdu confirmation ~p", [Unexpected]),
-      exit(unexpected_data_confirm);
+      ?LOGWARNING("unexpected send asdu confirmation ~p", [Unexpected]),
+      Data1 = init_connect( Data ),
+      send_asdu( ASDU, Data1, Attempts -1 );
     error ->
-      exit(transaction_error)
-  end.
+      ?LOGWARNING("transaction error"),
+      Data1 = init_connect( Data ),
+      send_asdu( ASDU, Data1, Attempts -1 )
+  end;
+send_asdu(_ASDU, _Data, 0 = _Attempts)->
+  exit(send_asdu_error).
+
 
 transaction(FC, Data) ->
   transaction(FC, undefined, Data).

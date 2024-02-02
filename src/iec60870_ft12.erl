@@ -110,16 +110,20 @@ loop(#state{
 } = State) ->
   receive
     {Port, data, Data} ->
+      ?LOGINFO("DEBUG: data ~p",[ Data ]),
       case parse_frame(<<Buffer/binary, Data/binary>>, AddressSize) of
         {Frame, TailBuffer} ->
+          ?LOGINFO("DEBUG: parsed frame ~p, tail ~p",[ Frame, TailBuffer ]),
           Owner ! {data, self(), Frame},
           loop(State#state{buffer = TailBuffer});
         TailBuffer ->
+          ?LOGINFO("DEBUG: update buffer ~p",[ TailBuffer ]),
           loop(State#state{buffer = TailBuffer})
       end;
 
     {send, Owner, Frame} ->
       Packet = build_frame(Frame, AddressSize),
+      ?LOGINFO("DEBUG:send packet ~p",[ Packet ]),
       eserial:send(Port, Packet),
       loop(State);
 
@@ -203,7 +207,7 @@ parse_frame(<<
       end
   end;
 
-parse_frame(<<?START_DATA_CHAR,_/binary>> = Buffer, _AddressSize) ->
+parse_frame(<<?START_DATA_CHAR,_/binary>> = Buffer, _AddressSize) when size( Buffer ) < 4->
   Buffer;
 
 parse_frame(<<_, Tail/binary>>, AddressSize) ->

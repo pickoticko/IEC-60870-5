@@ -229,6 +229,7 @@ port_loop(#port_state{port = Port, clients = Clients} = State) ->
           From ! {response, self(), Response}
       after
         Timeout->
+          iec60870_ft12:clear( Port ),
           From ! {error, self()}
       end,
       port_loop(State);

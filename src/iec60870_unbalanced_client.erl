@@ -127,7 +127,6 @@ get_data(#data{
       error ->
         exit(transaction_error)
     end,
-  ?LOGINFO("get_data, data (1): ~p", [Data1]),
   Data2 =
     case transaction(?REQUEST_DATA_CLASS_2, Data1) of
       {?RESPONSE(_, ?USER_DATA, ASDUClass2), _Data2} ->
@@ -138,7 +137,6 @@ get_data(#data{
       error ->
         exit(transaction_error)
     end,
-  ?LOGINFO("get_data, data (2): ~p", [Data2]),
   Data2.
 
 send_asdu(ASDU, Data) ->

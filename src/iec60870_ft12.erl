@@ -110,6 +110,7 @@ loop(#state{
 } = State) ->
   receive
     {Port, data, Data} ->
+      ?LOGINFO("loop (1), data: ~p", [Data]),
       case parse_frame(<<Buffer/binary, Data/binary>>, AddressSize) of
         {Frame, TailBuffer} ->
           Owner ! {data, self(), Frame},
@@ -120,6 +121,7 @@ loop(#state{
 
     {send, Owner, Frame} ->
       Packet = build_frame(Frame, AddressSize),
+      ?LOGINFO("loop (2), packet: ~p", [Packet]),
       eserial:send(Port, Packet),
       loop(State);
 

@@ -15,7 +15,6 @@
   check_options/1,
   start_link/1,
   send/2,
-  clear/1,
   stop/1
 ]).
 
@@ -66,10 +65,6 @@ send(Port, Frame) ->
   Port ! {send, self(), Frame},
   ok.
 
-clear(Port) ->
-  Port ! {clear, self()},
-  ok.
-
 check_options(#{port := Port} = _Options) when is_list(Port); is_binary(Port) ->
   % TODO. validate other options
   ok;
@@ -110,28 +105,31 @@ loop(#state{
 } = State) ->
   receive
     {Port, data, Data} ->
-      ?LOGINFO("DEBUG: data ~p",[ Data ]),
       case parse_frame(<<Buffer/binary, Data/binary>>, AddressSize) of
         {Frame, TailBuffer} ->
-          ?LOGINFO("DEBUG: parsed frame ~p, tail ~p",[ Frame, TailBuffer ]),
           Owner ! {data, self(), Frame},
           loop(State#state{buffer = TailBuffer});
         TailBuffer ->
-          ?LOGINFO("DEBUG: update buffer ~p",[ TailBuffer ]),
           loop(State#state{buffer = TailBuffer})
       end;
 
     {send, Owner, Frame} ->
-      Packet = build_frame(Frame, AddressSize),
-      ?LOGINFO("DEBUG:send packet ~p",[ Packet ]),
-      eserial:send(Port, Packet),
-      loop(State);
+      % If the request is RESET_REMOTE_LINK then we purge all the stuff in the buffer
+      State1 =
+        case Frame#frame.control_field of
+          #control_field_request{ function_code = _ResetLink = 0 } ->
+            %% TODO: ClearWindow should be calculated from the baudrate
+            timer:sleep(_ClearWindow = 100),
+            drop_data(Port),
+            State#state{ buffer = <<>> };
+          _->
+            State
+        end,
 
-    {clear, Owner} ->
-      %% TODO: ClearWindow should be calculated from the baudrate
-      timer:sleep(_ClearWindow = 100),
-      drop_data(Port),
-      loop(State#state{buffer = <<>>});
+      Packet = build_frame(Frame, AddressSize),
+      eserial:send(Port, Packet),
+
+      loop(State1);
 
     {stop, Owner} ->
       eserial:close(Port)

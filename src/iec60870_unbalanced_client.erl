@@ -214,7 +214,9 @@ start_client(Port, Client, #{
   timeout := Timeout,
   attempts := Attempts
 }) ->
-  case iec60870_101:connect( Address, _Direction = 0, Port, Timeout, Attempts ) of
+  SendReceive = fun(Request) -> iec60870_101:send_receive(Port, Request, Timeout ) end,
+
+  case iec60870_101:connect( Address, _Direction = 0, SendReceive, Attempts ) of
     {ok, State} ->
       erlang:monitor(process, Client),
       {ok, State};

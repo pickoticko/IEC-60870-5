@@ -10,8 +10,9 @@
 ]).
 
 -export([
-  connect/5,
-  transaction/4
+  connect/4,
+  transaction/4,
+  send_receive/3
 ]).
 
 %--------request codes-------------------
@@ -47,9 +48,8 @@
 -record(state,{
   address,
   direction,
-  port,
+  send_receive,
   fcb,
-  timeout,
   attempts
 }).
 
@@ -85,13 +85,12 @@ check_settings(Settings) ->
 %%====================================================================================
 %%  101 request-response transaction
 %%====================================================================================
-connect( Address, Direction, Port, Timeout, Attempts )->
+connect( Address, Direction, SendReceive, Attempts )->
   connect(#state{
     address = Address,
     direction = Direction,
-    port = Port,
+    send_receive = SendReceive,
     fcb = undefined,
-    timeout = Timeout,
     attempts = Attempts
   }).
 
@@ -120,12 +119,11 @@ connect(InState) ->
 transaction(FC, Data, OnResponse, #state{ attempts = Attempts }=State)->
   transaction(Attempts, FC, Data, OnResponse, State).
 transaction(Attempts, FC, Data, OnResponse, #state{
-  port = Port,
-  timeout = Timeout
+  send_receive = SendReceive
 }=State)->
 
   Request = request(FC, Data, State),
-  case send_receive(Port, Request, Timeout) of
+  case SendReceive( Request ) of
     {ok, Response} ->
       case OnResponse( Response ) of
         ok ->
@@ -153,13 +151,12 @@ reset_link(#state{ attempts = Attempts } = State)->
 
 reset_link(Attempts, #state{
   address = Address,
-  port = Port,
-  timeout = Timeout
+  send_receive = SendReceive
 } = State)->
 
   Request = request(?RESET_REMOTE_LINK, _Data = undefined, State),
 
-  case send_receive(Port, Request, Timeout) of
+  case SendReceive( Request ) of
     {ok, Response} ->
       case Response of
         #frame{ address = Address, control_field = #control_field_response{

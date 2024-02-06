@@ -78,7 +78,7 @@ loop(#data{
   receive
     {update, Self} when Self =:= self() ->
       timer:send_after(?CYCLE, {update, Self}),
-      get_data(Port),
+      get_data(Data),
       loop(Data);
     {asdu, Owner, ASDU} ->
       send_asdu(ASDU, Port),

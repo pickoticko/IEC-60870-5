@@ -96,16 +96,16 @@ parse_information_element(?M_IT_TA_1, <<BCR:40, Timestamp/binary>>) ->
   #{value => Value, bcr => BCR, ts => parse_cp24(Timestamp)};
 
 %% Type 17. Protection equipment with time tag
-parse_information_element(?M_EP_TA_1, <<SEP, Duration:16, Timestamp/binary>>) ->
+parse_information_element(?M_EP_TA_1, <<SEP, Duration:16/little, Timestamp/binary>>) ->
   <<_Ignore:6, ES:2>> = <<SEP>>,
   #{value => ES, sep => SEP, duration => Duration, ts => parse_cp24(Timestamp)};
 
 %% Type 18. Packed events of protection equipment with time tag
-parse_information_element(?M_EP_TB_1, <<SPE, QDP, Duration:16, Timestamp24/binary>>) ->
+parse_information_element(?M_EP_TB_1, <<SPE, QDP, Duration:16/little, Timestamp24/binary>>) ->
   #{value => SPE, qdp => QDP, duration => Duration, ts => parse_cp24(Timestamp24)};
 
 %% Type 19. Packed output circuit information of protection equipment with time tag
-parse_information_element(?M_EP_TC_1, <<OCI, QDP, Duration:16, Timestamp24/binary>>) ->
+parse_information_element(?M_EP_TC_1, <<OCI, QDP, Duration:16/little, Timestamp24/binary>>) ->
   #{value => OCI, qdp => QDP, duration => Duration, ts => parse_cp24(Timestamp24)};
 
 %% Type 20. Packed single-point information with status change detection
@@ -350,21 +350,21 @@ create_information_element(?M_EP_TA_1, #{value := ES} = Object) ->
   Duration = maps:get(duration, Object, undefined),
   Timestamp = maps:get(ts, Object, undefined),
   <<Rest:6, _Ignore:2>> = <<SEP>>,
-  <<Rest:6, (round(ES)):2, (get_cp16(Duration)):16, (get_cp24(Timestamp))/binary>>;
+  <<Rest:6, (round(ES)):2, (get_cp16(Duration)):16/little, (get_cp24(Timestamp))/binary>>;
 
 %% Type 18. Packed events of protection equipment with time tag
 create_information_element(?M_EP_TB_1, #{value := SPE} = Object) ->
   QDP = maps:get(qdp, Object, 0),
   Duration = maps:get(duration, Object, undefined),
   Timestamp = maps:get(ts, Object, undefined),
-  <<SPE, QDP, (get_cp16(Duration)):16, (get_cp24(Timestamp))/binary>>;
+  <<SPE, QDP, (get_cp16(Duration)):16/little, (get_cp24(Timestamp))/binary>>;
 
 %% Type 19. Packed output circuit information of protection equipment with time tag
 create_information_element(?M_EP_TC_1, #{value := OCI} = Object) ->
   QDP = maps:get(qdp, Object, 0),
   Duration = maps:get(duration, Object, undefined),
   Timestamp = maps:get(ts, Object, undefined),
-  <<OCI, QDP, (get_cp16(Duration)):16, (get_cp24(Timestamp))/binary>>;
+  <<OCI, QDP, (get_cp16(Duration)):16/little, (get_cp24(Timestamp))/binary>>;
 
 %% Type 20. Packed single-point information with status change detection
 create_information_element(?M_PS_NA_1, #{value := SCD} = Object) ->

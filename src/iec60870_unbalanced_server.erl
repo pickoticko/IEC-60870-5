@@ -226,9 +226,9 @@ handle_request(?REQUEST_DATA_CLASS_2, UserData, #data{
   address = Address,
   connection = Connection
 } = Data) ->
-  Response =
-    if
-      is_pid(Connection) ->
+  if
+    is_pid(Connection) ->
+      Response =
         case check_data(Connection) of
           {ok, ConnectionData} ->
             #frame{
@@ -252,13 +252,14 @@ handle_request(?REQUEST_DATA_CLASS_2, UserData, #data{
                 function_code = ?NACK_DATA_NOT_AVAILABLE
               }
             }
-        end;
-      true ->
-        ?LOGWARNING("user data received on not initialized connection ~p", [UserData])
-    end,
-  Data#data{
-    sent_frame = send_response(Port, Response)
-  };
+        end,
+      Data#data{
+        sent_frame = send_response(Port, Response)
+      };
+    true ->
+      ?LOGWARNING("user data received on no longer alive connection ~p", [UserData]),
+      Data
+  end;
 
 handle_request(InvalidFC, _UserData, Data) ->
   ?LOGERROR("invalid request function code received ~p", [InvalidFC]),

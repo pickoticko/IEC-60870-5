@@ -93,7 +93,7 @@ loop(#data{
     {'DOWN', _, process, Connection, _Error} ->
       loop( Data#data{connection = undefined});
     {stop, Root} ->
-      iec60870_ft12:stop(port)
+      iec60870_ft12:stop(Port)
   end.
 
 check_fcb(#control_field_request{fcv = 0, fcb = _ReqFCB} , _FCB) ->

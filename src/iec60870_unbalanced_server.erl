@@ -124,26 +124,26 @@ handle_request(?USER_DATA_CONFIRM, ASDU, #data{
   connection = Connection,
   port = Port,
   address = Address
-} = Data)->
+} = Data) ->
   if
-    is_pid( Connection )->
-      Connection ! { asdu, self(), ASDU },
+    is_pid(Connection) ->
+      Connection ! {asdu, self(), ASDU},
       Data#data{
-        sent_frame = send_response( Port, ?ACKNOWLEDGE_FRAME(Address) )
+        sent_frame = send_response(Port, ?ACKNOWLEDGE_FRAME(Address))
       };
     true ->
-      ?LOGWARNING("user data received on not initialized connection ~p",[ ASDU ] ),
+      ?LOGWARNING("user data with confirm frame type received on no longer alive connection ~p", [ASDU]),
       Data
   end;
 
 handle_request(?USER_DATA_NO_REPLY, ASDU, #data{
   connection = Connection
-} = Data)->
+} = Data) ->
   if
-    is_pid( Connection )->
-      Connection ! { asdu, self(), ASDU };
+    is_pid(Connection) ->
+      Connection ! {asdu, self(), ASDU};
     true ->
-      ?LOGWARNING("user data received on not initialized connection ~p",[ ASDU ] )
+      ?LOGWARNING("user data with no reply frame type received on no longer alive connection ~p", [ASDU])
   end,
   Data;
 
@@ -152,7 +152,7 @@ handle_request(?ACCESS_DEMAND, _UserData, #data{
   address = Address
 } = Data)->
   Data#data{
-    sent_frame = send_response( Port, #frame{
+    sent_frame = send_response(Port, #frame{
       address = Address,
       control_field = #control_field_response{
         direction = 0,
@@ -182,7 +182,7 @@ handle_request(?REQUEST_STATUS_LINK, UserData, #data{
         })
       };
     true ->
-      ?LOGWARNING("user data received on no longer alive connection ~p", [UserData]),
+      ?LOGWARNING("request status of link received on no longer alive connection ~p", [UserData]),
       Data
   end;
 
@@ -238,7 +238,7 @@ handle_request(?REQUEST_DATA_CLASS_2, UserData, #data{
         sent_frame = send_response(Port, Response)
       };
     true ->
-      ?LOGWARNING("user data received on no longer alive connection ~p", [UserData]),
+      ?LOGWARNING("data class 2 request received on no longer alive connection ~p", [UserData]),
       Data
   end;
 

@@ -139,13 +139,20 @@ handle_asdu(#asdu{
   objects = Objects
 }, #data{
   settings = #{
+    command_handler := Handler,
     root := Root
   }
 })
   when (Type >= ?M_SP_NA_1 andalso Type =< ?M_ME_ND_1)
     orelse (Type >= ?M_SP_TB_1 andalso Type =< ?M_EP_TD_1)
     orelse (Type =:= ?M_EI_NA_1) ->
-  [iec60870_server:update_value(Root, IOA, Value) || {IOA, Value} <- Objects],
+  %% When a command handler is defined, any information data objects should be ignored.
+  case is_function(Handler) of
+    true ->
+      ignore;
+    false ->
+      [iec60870_server:update_value(Root, IOA, Value) || {IOA, Value} <- Objects]
+  end,
   keep_state_and_data;
 
 %% Remote control commands

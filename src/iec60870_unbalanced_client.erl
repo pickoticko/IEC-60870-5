@@ -14,8 +14,9 @@
 %% +--------------------------------------------------------------+
 
 -define(START_TIMEOUT, 1000).
--define(NOT(X), abs(X - 1)).
 -define(CYCLE, 100).
+
+-define(NOT(X), abs(X - 1)).
 
 -define(RESPONSE(Address, FC, UserData), #frame{
   address = Address,
@@ -43,7 +44,7 @@
 %% +--------------------------------------------------------------+
 
 start(Owner, Options) ->
-  PID = spawn_link(fun()->init_client(Owner, Options) end),
+  PID = spawn_link(fun() -> init_client(Owner, Options) end),
   receive
     {connected, PID} ->
       PID;
@@ -61,9 +62,7 @@ stop(Port)->
 %% +--------------------------------------------------------------+
 
 init_client(Owner, Options) ->
-
   Port = start_port(Options),
-
   Owner ! {connected, self()},
   timer:send_after(?CYCLE, {update, self()}),
   loop(#data{
@@ -74,7 +73,7 @@ init_client(Owner, Options) ->
 loop(#data{
   owner = Owner,
   port = Port
-} = Data)->
+} = Data) ->
   receive
     {update, Self} when Self =:= self() ->
       timer:send_after(?CYCLE, {update, Self}),
@@ -92,41 +91,37 @@ get_data(#data{
   owner = Owner,
   port = Port
 }) ->
-
   Self = self(),
-
   OnResponse =
-    fun( Response ) ->
+    fun(Response) ->
       case Response of
-        #frame{ control_field = #control_field_response{ function_code = ?USER_DATA }, data = ASDUClass1 }->
+        #frame{control_field = #control_field_response{function_code = ?USER_DATA}, data = ASDUClass1} ->
           Owner ! {asdu, Self, ASDUClass1},
           ok;
-        #frame{ control_field = #control_field_response{ function_code = ?NACK_DATA_NOT_AVAILABLE } }->
+        #frame{control_field = #control_field_response{function_code = ?NACK_DATA_NOT_AVAILABLE}} ->
           ok;
-        _->
+        _ ->
           error
       end
     end,
-
-  %--------Class 1 data request--------------------
+  %% +-----------[ Class 1 data request ]-----------+
   case transaction(?REQUEST_DATA_CLASS_1, _Data1 = undefined, Port, OnResponse) of
     ok -> ok;
-    {error, ErrorClass1} -> exit( ErrorClass1 )
+    {error, ErrorClass1} -> exit(ErrorClass1)
   end,
-
-  %--------Class 2 data request--------------------
+  %% +-----------[ Class 2 data request ]-----------+
   case transaction(?REQUEST_DATA_CLASS_2, _Data2 = undefined, Port, OnResponse) of
     ok -> ok;
-    {error, ErrorClass2} -> exit( ErrorClass2 )
+    {error, ErrorClass2} -> exit(ErrorClass2)
   end.
 
-send_asdu(ASDU, Port)->
+send_asdu(ASDU, Port) ->
   OnResponse =
-    fun( Response )->
+    fun(Response) ->
       case Response of
-        #frame{ control_field = #control_field_response{ function_code = ?ACKNOWLEDGE }}->
+        #frame{control_field = #control_field_response{function_code = ?ACKNOWLEDGE}} ->
           ok;
-        _->
+        _ ->
           error
       end
     end,
@@ -139,23 +134,23 @@ transaction(FC, Data, Port, OnResponse) ->
   Port ! {request, self(), FC, Data, OnResponse},
   receive
     {ok, Port} -> ok;
-    {error, Port, Error}->{error, Error};
-    {'EXIT', Port, Reason}->{error,{port_error, Reason}}
+    {error, Port, Error} -> {error, Error};
+    {'EXIT', Port, Reason} -> {error, {port_error, Reason}}
   end.
 
+%% +--------------------------------------------------------------+
+%% |                         Shared port                          |
+%% +--------------------------------------------------------------+
 
-%%=================================================================================
-%%  Shared port
-%%=================================================================================
 start_port(#{port := PortName} = Options) ->
   case whereis(list_to_atom(PortName)) of
     Port when is_pid(Port) ->
-      link( Port ),
+      link(Port),
       Port ! {add_client, self(), Options},
       receive
         {ready, Port} -> Port;
-        {error, Port, Error}-> exit(Error);
-        {'EXIT', Port, Reason}-> exit( Reason )
+        {error, Port, Error} -> exit(Error);
+        {'EXIT', Port, Reason} -> exit(Reason)
       end;
     _ ->
       Client = self(),
@@ -167,14 +162,12 @@ start_port(#{port := PortName} = Options) ->
   end.
 
 init_port(Client, Options) ->
-
   Port = iec60870_ft12:start_link(maps:with([port, port_options, address_size], Options)),
-
-  case start_client( Port, Client, Options ) of
+  case start_client(Port, Client, Options) of
     {ok, State} ->
       Client ! {ready, self()},
       port_loop(#port_state{port = Port, clients = #{Client => State}});
-    {error, Error}->
+    {error, Error} ->
       exit(Error)
   end.
 
@@ -182,30 +175,38 @@ port_loop(#port_state{port = Port, clients = Clients} = State) ->
   receive
     {request, From, FC, Data, OnResponse} ->
       case Clients of
-        #{ From := ClientState }->
-          case iec60870_101:transaction(FC, Data, OnResponse, ClientState ) of
+        #{From := ClientState} ->
+          case iec60870_101:transaction(FC, Data, OnResponse, ClientState) of
             {ok, NewClientState} ->
               From ! {ok, self()},
-              port_loop(State#port_state{ clients = Clients#{ From => NewClientState } });
-            {error, Error}->
+              port_loop(State#port_state{
+                clients = Clients#{
+                  From => NewClientState
+                }
+              });
+            {error, Error} ->
               From ! {error, self(), Error},
-              port_loop( State )
+              port_loop(State)
           end
       end;
     {add_client, Client, Options} ->
-      case start_client( Port, Client, Options ) of
+      case start_client(Port, Client, Options) of
         {ok, State} ->
           Client ! {ready, self()},
-          port_loop(State#port_state{clients = #{Client => State}});
-        {error, Error}->
+          port_loop(State#port_state{
+            clients = #{
+              Client => State
+            }
+          });
+        {error, Error} ->
           exit(Error)
       end;
     {'EXIT', Client, _Reason} ->
-      port_loop(State#port_state{clients = stop_client( Client, Clients )});
+      port_loop(State#port_state{clients = stop_client(Client, Clients)});
     {'DOWN', _, process, Client, _Error}->
-      port_loop(State#port_state{clients = stop_client( Client, Clients )});
+      port_loop(State#port_state{clients = stop_client(Client, Clients)});
     Unexpected ->
-      ?LOGWARNING("unexpected mesaage received ~p", [Unexpected]),
+      ?LOGWARNING("unexpected message received ~p", [Unexpected]),
       port_loop(State)
   end.
 
@@ -214,17 +215,16 @@ start_client(Port, Client, #{
   timeout := Timeout,
   attempts := Attempts
 }) ->
-  SendReceive = fun(Request) -> iec60870_101:send_receive(Port, Request, Timeout ) end,
-
-  case iec60870_101:connect( Address, _Direction = 0, SendReceive, Attempts ) of
+  SendReceive = fun(Request) -> iec60870_101:send_receive(Port, Request, Timeout) end,
+  case iec60870_101:connect(Address, _Direction = 0, SendReceive, Attempts) of
     {ok, State} ->
       erlang:monitor(process, Client),
       {ok, State};
-    Error->
+    Error ->
       Error
   end.
 
-stop_client( Client, Clients )->
+stop_client(Client, Clients)->
   case maps:remove(Client, Clients) of
     Clients1 when map_size(Clients1) > 0 ->
       Clients1;

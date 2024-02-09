@@ -15,23 +15,26 @@
   send_receive/3
 ]).
 
-%--------request codes-------------------
+%% +--------------------------------------------------------------+
+%% |                       Macros & Records                       |
+%% +--------------------------------------------------------------+
+
+%% Master request codes
 -define(RESET_REMOTE_LINK, 0).
 -define(LINK_TEST, 2).
--define(USER_DATA_CONFIRM, 3).
 -define(REQUEST_STATUS_LINK, 9).
-
 -define(REQUEST_DATA_CLASS_1, 10).
 -define(REQUEST_DATA_CLASS_2, 11).
 
+%% Slave request codes
 -define(ACKNOWLEDGE, 0).
+-define(USER_DATA_CONFIRM, 3).
 -define(STATUS_LINK_ACCESS_DEMAND, 11).
-
 
 -define(NOT(X), abs(X - 1)).
 
+%% Connection settings
 -define(REQUIRED, {?MODULE, required}).
-
 -define(DEFAULT_SETTINGS, #{
   port => ?REQUIRED,
   balanced => ?REQUIRED,
@@ -52,6 +55,10 @@
   fcb,
   attempts
 }).
+
+%% +--------------------------------------------------------------+
+%% |                             API                              |
+%% +--------------------------------------------------------------+
 
 start_server(InSettings) ->
   Root = self(),
@@ -81,11 +88,11 @@ check_settings(Settings) ->
   % TODO: Add settings validation
   Settings.
 
+%% +--------------------------------------------------------------+
+%% |               101 Request-Response Transaction               |
+%% +--------------------------------------------------------------+
 
-%%====================================================================================
-%%  101 request-response transaction
-%%====================================================================================
-connect( Address, Direction, SendReceive, Attempts )->
+connect(Address, Direction, SendReceive, Attempts) ->
   connect(#state{
     address = Address,
     direction = Direction,
@@ -94,118 +101,112 @@ connect( Address, Direction, SendReceive, Attempts )->
     attempts = Attempts
   }).
 
-connect(#state{ attempts = Attempts } = State) ->
-  connect( Attempts, State ).
+connect(#state{attempts = Attempts} = State) ->
+  connect(Attempts, State).
 connect(Attempts, #state{
   send_receive = SendReceive
-} =State) when Attempts > 0 ->
-
-  case reset_link( State ) of
+} = State) when Attempts > 0 ->
+  case reset_link(State) of
     {ok, ResetState} ->
       Request = request(?REQUEST_STATUS_LINK, _Data = undefined, ResetState),
-
-      case SendReceive( Request ) of
+      case SendReceive(Request) of
         {ok, Response} ->
           case Response of
-            #frame{ control_field = #control_field_response{
-              function_code = ?STATUS_LINK_ACCESS_DEMAND
-            }} ->
-              {ok, ResetState#state{ fcb = 0 }};
-            _->
-              ?LOGWARNING("unexpected response on reset link ~p, left attempts ~p",[Response, Attempts - 1]),
-              connect(Attempts - 1, State )
+            #frame{
+              control_field = #control_field_response{
+                function_code = ?STATUS_LINK_ACCESS_DEMAND
+              }
+            } ->
+              {ok, ResetState#state{fcb = 0}};
+            _ ->
+              ?LOGWARNING("unexpected response on reset link. Response: ~p. Attempts: ~p", [Response, Attempts - 1]),
+              connect(Attempts - 1, State)
           end;
         {error, Error}->
-          ?LOGWARNING("reset link attempt error ~p, left attempts ~p",[Error, Attempts - 1]),
-          connect(Attempts - 1, State )
+          ?LOGWARNING("reset link attempt error. Error: ~p, Attempts: ~p", [Error, Attempts - 1]),
+          connect(Attempts - 1, State)
       end;
-    Error->
-      Error
-  end;
-connect( _Attempts = 0, _State)->
-  {error, connect_error}.
-
-transaction(FC, Data, OnResponse, #state{ attempts = Attempts }=State)->
-  transaction(Attempts, FC, Data, OnResponse, State).
-transaction(Attempts, FC, Data, OnResponse, #state{
-  send_receive = SendReceive
-}=State)->
-
-  Request = request(FC, Data, State),
-  case SendReceive( Request ) of
-    {ok, Response} ->
-      case OnResponse( Response ) of
-        ok ->
-          NewFCB = Request#frame.control_field#control_field_request.fcb,
-          {ok, State#state{ fcb = NewFCB }};
-        error ->
-          ?LOGWARNING("unexpected response received, request: ~p, response ~p",[ Request, Response ]),
-          retry( Attempts - 1, FC, Data, OnResponse, State, {unexpected_response, Response} )
-      end;
-    {error, Error}->
-      ?LOGWARNING("send-receive error, request: ~p, error ~p",[ Request, Error ]),
-      retry( Attempts - 1, FC, Data, OnResponse, State, Error )
-  end.
-
-retry( Attempts, FC, Data, OnResponse, State, _Error ) when Attempts > 0->
-  case connect( State ) of
-    {ok, ReconnectState} ->
-      transaction( Attempts, FC, Data, OnResponse, ReconnectState );
     Error ->
       Error
   end;
-retry( 0 = _Attempts, _FC, _Data, _OnResponse, _State, Error )->
+connect(_Attempts = 0, _State) ->
+  {error, connect_error}.
+
+transaction(FC, Data, OnResponse, #state{attempts = Attempts} = State)->
+  transaction(Attempts, FC, Data, OnResponse, State).
+transaction(Attempts, FC, Data, OnResponse, #state{
+  send_receive = SendReceive
+} = State) ->
+  Request = request(FC, Data, State),
+  case SendReceive(Request) of
+    {ok, Response} ->
+      case OnResponse(Response) of
+        ok ->
+          NewFCB = Request#frame.control_field#control_field_request.fcb,
+          {ok, State#state{fcb = NewFCB}};
+        error ->
+          ?LOGWARNING("unexpected response received. Request: ~p, Response: ~p", [Request, Response]),
+          retry(Attempts - 1, FC, Data, OnResponse, State, {unexpected_response, Response})
+      end;
+    {error, Error} ->
+      ?LOGWARNING("send-receive error. Request: ~p, Error: ~p", [Request, Error]),
+      retry(Attempts - 1, FC, Data, OnResponse, State, Error)
+  end.
+
+retry(Attempts, FC, Data, OnResponse, State, _Error) when Attempts > 0 ->
+  case connect(State) of
+    {ok, ReconnectState} ->
+      transaction(Attempts, FC, Data, OnResponse, ReconnectState);
+    Error ->
+      Error
+  end;
+retry(0 = _Attempts, _FC, _Data, _OnResponse, _State, Error)->
   {error, Error}.
 
-
-
-reset_link(#state{ attempts = Attempts } = State)->
-  reset_link( Attempts, State ).
+reset_link(#state{attempts = Attempts} = State)->
+  reset_link(Attempts, State).
 
 reset_link(Attempts, #state{
   address = Address,
   send_receive = SendReceive
 } = State)->
-
   Request = request(?RESET_REMOTE_LINK, _Data = undefined, State),
-
-  case SendReceive( Request ) of
+  case SendReceive(Request) of
     {ok, Response} ->
       case Response of
-        #frame{ address = Address, control_field = #control_field_response{
+        #frame{address = Address, control_field = #control_field_response{
           function_code = ?ACKNOWLEDGE
         }} ->
-          {ok, State#state{ fcb = 0 }};
-        _->
-          ?LOGWARNING("unexpected response on reset link ~p, left attempts ~p",[Response, Attempts - 1]),
-          reset_link(Attempts - 1, State )
+          {ok, State#state{fcb = 0}};
+        _ ->
+          ?LOGWARNING("unexpected response on reset link request. Response: ~p, Attempts left: ~p",[Response, Attempts - 1]),
+          reset_link(Attempts - 1, State)
       end;
-    {error, Error}->
-      ?LOGWARNING("reset link attempt error ~p, left attempts ~p",[Error, Attempts - 1]),
-      reset_link(Attempts - 1, State )
+    {error, Error} ->
+      ?LOGWARNING("reset link request attempt error. Error: ~p, Attempts left: ~p",[Error, Attempts - 1]),
+      reset_link(Attempts - 1, State)
   end;
-reset_link(0 = _Attempts, _State)->
+reset_link(0 = _Attempts, _State) ->
+  ?LOGERROR("reset link request failed, no attempts left..."),
   {error, reset_link_error}.
-
 
 request(FC, UserData, #state{
   address = Address,
   direction = Dir,
   fcb = FCB
-})->
-
+}) ->
   #frame{
     address = Address,
     control_field = #control_field_request{
       direction = Dir,
       fcb = handle_fcb(FC, FCB),
-      fcv = handle_fcv( FC ),
+      fcv = handle_fcv(FC),
       function_code = FC
     },
     data = UserData
   }.
 
-send_receive(Port, Request, Timeout)->
+send_receive(Port, Request, Timeout) ->
   Address = Request#frame.address,
   ok = iec60870_ft12:send(Port, Request),
   receive
@@ -213,19 +214,19 @@ send_receive(Port, Request, Timeout)->
       case Response of
         #frame{address = Address, control_field = #control_field_response{}} ->
           {ok, Response};
-        _->
-          ?LOGWARNING("invalid response received, request ~p, response ~p", [Request, Response]),
+        _ ->
+          ?LOGWARNING("invalid response received. Request: ~p, Response: ~p", [Request, Response]),
           {error, invalid_response}
       end
   after
-    Timeout-> {error, timeout}
+    Timeout -> {error, timeout}
   end.
 
 handle_fcb(FC, FCB) ->
   case FC of
     ?RESET_REMOTE_LINK   -> 0;
     ?REQUEST_STATUS_LINK -> 0;
-    _-> ?NOT(FCB)
+    _ -> ?NOT(FCB)
   end.
 
 handle_fcv(FC) ->
@@ -233,8 +234,6 @@ handle_fcv(FC) ->
     ?REQUEST_DATA_CLASS_1 -> 1;
     ?REQUEST_DATA_CLASS_2 -> 1;
     ?USER_DATA_CONFIRM    -> 1;
-
-    ?LINK_TEST         -> 1;
-
-    _Other-> 0
+    ?LINK_TEST            -> 1;
+    _Other -> 0
   end.

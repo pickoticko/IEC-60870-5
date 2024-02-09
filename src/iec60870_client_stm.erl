@@ -235,18 +235,18 @@ handle_event(info, {update_group, _, PID}, _AnyState, _Data) when PID =:= self()
   {keep_state_and_data, [postpone]};
 
 handle_event(EventType, EventContent, _AnyState, #data{name = Name}) ->
-  ?LOGWARNING("Client connection ~p received unexpected event type ~p, content ~p", [
+  ?LOGWARNING("client connection ~p received unexpected event type ~p, content ~p", [
     Name, EventType, EventContent
   ]),
   keep_state_and_data.
 
 terminate(Reason, _, _State = #data{esubscribe = PID}) when Reason =:= normal; Reason =:= shutdown ->
   exit(PID, shutdown),
-  ?LOGDEBUG("client connection terminated. Reason: ~p", [Reason]),
+  ?LOGDEBUG("client connection terminated with reason: ~p", [Reason]),
   ok;
 
 terminate(Reason, _, _State) ->
-  ?LOGWARNING("client connection terminated. Reason: ~p", [Reason]),
+  ?LOGWARNING("client connection terminated with reason: ~p", [Reason]),
   ok.
 
 code_change(_OldVsn, State, _Extra) ->

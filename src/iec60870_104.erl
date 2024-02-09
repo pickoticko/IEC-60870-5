@@ -180,12 +180,12 @@ wait_connection(ListenSocket, Settings, Root)->
               buffer = Buffer
             });
           {error, InternalError} ->
-            ?LOGERROR("unable to start a process to handle the incoming connection, error ~p", [InternalError]),
+            ?LOGERROR("unable to start a process to handle the incoming connection with error: ~p", [InternalError]),
             gen_tcp:close(Socket),
             exit(InternalError)
         end;
       {error, ActivateError} ->
-        ?LOGWARNING("incoming connection activation error ~p", [ActivateError]),
+        ?LOGWARNING("error activating incoming connection: ~p", [ActivateError]),
         gen_tcp:close(Socket),
         exit(ActivateError)
     end
@@ -224,7 +224,7 @@ init_client(Owner, #{
     {ok, Socket} ->
       %% Sending the activation command and waiting for its confirmation
       socket_send(Socket, create_u_packet(?START_DT_ACTIVATE)),
-      case wait_activate( Socket, ?START_DT_CONFIRM, <<>>) of
+      case wait_activate(Socket, ?START_DT_CONFIRM, <<>>) of
         {ok, Buffer} ->
           %% The confirmation has been received and the client is ready to work
           Owner ! {ready, self()},
@@ -255,7 +255,7 @@ wait_activate(Socket, Code, Buffer) ->
           {ok, RestBuffer};
         Head = <<?START_BYTE, _/binary>> when size(Head) < 6 ->
           wait_activate(Socket, Code, Head);
-        Unexpected->
+        Unexpected ->
           {error, {unexpected_request, Unexpected}}
       end;
     {tcp_closed, Socket} ->
@@ -333,7 +333,7 @@ loop(#state{
     %% we should compare the sent packets with K to avoid ignoring
     %% other ASDUs
     Unexpected when length(Sent) =< K ->
-      ?LOGWARNING("unexpected message ~p", [Unexpected]),
+      ?LOGWARNING("unexpected message received ~p", [Unexpected]),
       loop(State)
   end.
 

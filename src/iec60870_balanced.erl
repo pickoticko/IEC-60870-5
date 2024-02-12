@@ -59,29 +59,23 @@ init(Owner, Direction, #{
   timeout := Timeout,
   attempts := Attempts
 } = Options) ->
-
   Port = iec60870_ft12:start_link(maps:with([port, port_options, address_size], Options)),
   Owner ! {ready, self()},
-
   Data = #data{
     owner = Owner,
     address = Address,
     direction = Direction,
     port = Port
   },
-  SendReceive = fun( Request )->send_receive( Data, Request, Timeout )  end,
-
-  case iec60870_101:connect( Address, Direction, SendReceive, Attempts ) of
+  SendReceive = fun(Request) -> send_receive(Data, Request, Timeout) end,
+  case iec60870_101:connect(Address, Direction, SendReceive, Attempts) of
     {ok, State} ->
-
       Owner ! {connected, self()},
       Connection =
         receive
           {connection, Owner, _Connection} -> _Connection
         end,
-
       send_delayed_asdu(Connection),
-
       loop(#data{
         owner = Owner,
         address = Address,
@@ -90,11 +84,11 @@ init(Owner, Direction, #{
         port = Port,
         connection = Connection
       });
-    {error, Error}->
-      exit( Error )
+    {error, Error} ->
+      exit(Error)
   end.
 
-send_delayed_asdu(Connection)->
+send_delayed_asdu(Connection) ->
   receive
     {asdu, Self, ASDU} when Self =:= self() ->
       Connection ! {asdu, Self, ASDU},
@@ -141,8 +135,11 @@ loop(#data{
           end
         end,
       case iec60870_101:transaction(?USER_DATA_CONFIRM, ASDU, OnResponse, State) of
-        {ok, State1} -> loop( Data#data{state = State1 });
-        {error, Error}-> exit( Error )
+        {ok, State1} ->
+          loop(Data#data{state = State1});
+        {error, Error} ->
+          Owner ! {error, self(), Error},
+          loop(Data)
       end;
     {stop, Owner} ->
       iec60870_ft12:stop(Port);

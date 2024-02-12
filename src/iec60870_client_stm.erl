@@ -232,7 +232,7 @@ handle_event(info, {asdu, Connection, ASDU}, State, #data{
 handle_event(info, {send_error, Connection, Error}, _AnyState, #data{
   connection = Connection
 } = _Data) ->
-  ?LOGWARNING("client connection send error: ~p", [Error]),
+  ?LOGWARNING("client connection failed to send packet, error: ~p", [Error]),
   keep_state_and_data;
 
 %% If we receive updates on the group while in a state

@@ -80,7 +80,13 @@ loop(#data{
       get_data(Data),
       loop(Data);
     {asdu, Owner, ASDU} ->
-      send_asdu(ASDU, Port),
+      case send_asdu(ASDU, Port) of
+        ok ->
+          success;
+        {error, Error} ->
+          %% Failed send errors are handled by statem
+          Owner ! {error, self(), Error}
+      end,
       loop(Data);
     Unexpected ->
       ?LOGWARNING("unexpected message ~p", [Unexpected]),
@@ -127,7 +133,7 @@ send_asdu(ASDU, Port) ->
     end,
   case transaction(?USER_DATA_CONFIRM, ASDU, Port, OnResponse) of
     ok-> ok;
-    {error, Error} -> exit(Error)
+    {error, Error} -> {error, Error}
   end.
 
 transaction(FC, Data, Port, OnResponse) ->

@@ -228,6 +228,13 @@ handle_event(info, {asdu, Connection, ASDU}, State, #data{
       end
   end;
 
+%% Unexpected errors received from client connection
+handle_event(info, {error, Connection, Error}, _AnyState, #data{
+  connection = Connection
+} = _Data) ->
+  ?LOGWARNING("client connection error: ~p", [Error]),
+  keep_state_and_data;
+
 %% If we receive updates on the group while in a state
 %% other than the connected state, we will defer
 %% processing them until the current event is completed

@@ -84,8 +84,8 @@ loop(#data{
         ok ->
           success;
         {error, Error} ->
-          %% Failed send errors are handled by statem
-          Owner ! {error, self(), Error}
+          %% Failed send errors are handled by client state machine
+          Owner ! {send_error, self(), Error}
       end,
       loop(Data);
     Unexpected ->

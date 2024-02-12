@@ -138,7 +138,7 @@ loop(#data{
         {ok, State1} ->
           loop(Data#data{state = State1});
         {error, Error} ->
-          Owner ! {error, self(), Error},
+          Owner ! {send_error, self(), Error},
           loop(Data)
       end;
     {stop, Owner} ->

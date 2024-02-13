@@ -166,6 +166,9 @@ retry(0 = _Attempts, _FC, _Data, _OnResponse, _State, Error)->
 reset_link(#state{attempts = Attempts} = State)->
   reset_link(Attempts, State).
 
+reset_link(0 = _Attempts, _State) ->
+  ?LOGERROR("reset link request failed, no attempts left..."),
+  {error, reset_link_error};
 reset_link(Attempts, #state{
   address = Address,
   send_receive = SendReceive
@@ -185,10 +188,7 @@ reset_link(Attempts, #state{
     {error, Error} ->
       ?LOGWARNING("reset link request attempt error. Error: ~p, Attempts left: ~p",[Error, Attempts - 1]),
       reset_link(Attempts - 1, State)
-  end;
-reset_link(0 = _Attempts, _State) ->
-  ?LOGERROR("reset link request failed, no attempts left..."),
-  {error, reset_link_error}.
+  end.
 
 request(FC, UserData, #state{
   address = Address,

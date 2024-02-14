@@ -148,6 +148,7 @@ handle_event(enter, _PrevState, {?GROUP_REQUEST, update, #{id := GroupID}, _}, #
   {keep_state_and_data, Actions};
 
 handle_event(state_timeout, timeout, {?GROUP_REQUEST, update, #{id := ID}, _NextState}, _Data) ->
+  ?LOGWARNING("group request timeout on group: ~p", [ID]),
   {stop, {group_request_timeout, ID}};
 
 %% +--------------------------------------------------------------+

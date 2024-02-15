@@ -73,6 +73,7 @@ loop(#data{
 } = Data) ->
   receive
     {data, Port, #frame{address = ReqAddress}} when ReqAddress =/= Address ->
+      ?LOGWARNING("received unexpected data link address: ~p", [ReqAddress]),
       loop(Data);
     {data, Port, Unexpected = #frame{control_field = #control_field_response{}}}->
       ?LOGWARNING("unexpected response frame received ~p", [Unexpected]),
@@ -91,8 +92,10 @@ loop(#data{
           loop(Data)
       end;
     {'DOWN', _, process, Connection, _Error} ->
-      loop( Data#data{connection = undefined});
+      ?LOGWARNING("server connection is down"),
+      loop(Data#data{connection = undefined});
     {stop, Root} ->
+      ?LOGWARNING("server has been terminated by the owner"),
       iec60870_ft12:stop(Port)
   end.
 

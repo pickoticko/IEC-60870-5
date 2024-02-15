@@ -15,7 +15,7 @@
 
 get_driver_module('104') -> iec60870_104;
 get_driver_module('101') -> iec60870_101;
-get_driver_module(Type)  -> throw({invalid_type, Type}).
+get_driver_module(Type)  -> throw({invalid_protocol_type, Type}).
 
 bytes_to_bits(Bytes) -> Bytes * 8.
 

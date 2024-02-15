@@ -238,8 +238,8 @@ parse_information_element(?C_CS_NA_1, Timestamp) ->
 
 parse_information_element(Type, Value) ->
   case is_type_supported(Type) of
-    true -> throw({invalid_value, Type, Value});
-    false -> throw({invalid_type, Type})
+    true -> throw({invalid_object, Type, Value});
+    false -> throw({invalid_object_type, Type})
   end.
 
 %% +--------------------------------------------------------------+
@@ -535,7 +535,7 @@ create_information_element(?C_CI_NA_1, GroupCounterID) ->
 create_information_element(?C_CS_NA_1, Timestamp) ->
   get_cp56(Timestamp);
 
-create_information_element(OtherType, _) -> throw({unsupported_type, OtherType}).
+create_information_element(OtherType, _) -> throw({unsupported_object_type, OtherType}).
 
 %% +--------------------------------------------------------------+
 %% |                     Internal functions                       |
@@ -550,7 +550,7 @@ parse_cp24(<<
   Millis + (Minutes * ?MILLIS_IN_MINUTE);
 parse_cp24(InvalidTimestamp) ->
   ?LOGWARNING("Invalid CP24 has been received: ~p", [InvalidTimestamp]),
-  undefined.
+  throw({invalid_object_ts, InvalidTimestamp}).
 
 parse_cp56(<<
   Millis:16 /little-integer,
@@ -575,7 +575,10 @@ parse_cp56(<<
     _:Error ->
       ?LOGERROR("CP56 parse error: ~p, timestamp: ~p", [Error, Timestamp]),
       none
-  end.
+  end;
+parse_cp56(InvalidTimestamp) ->
+  ?LOGWARNING("Invalid CP56 has been received: ~p", [InvalidTimestamp]),
+  throw({invalid_object_ts, InvalidTimestamp}).
 
 get_cp16(undefined) -> get_cp16(0);
 get_cp16(Value) -> Value.

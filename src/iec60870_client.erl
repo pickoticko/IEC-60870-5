@@ -86,14 +86,18 @@ write(#?MODULE{pid = PID}, IOA, Value) when is_map(Value) ->
         true ->
           %% This call returns 'ok' either {error, Reason}.
           case gen_statem:call(PID, {write, IOA, Value}) of
-            ok -> ok;
-            {error, Reason} -> throw(Reason)
+            ok ->
+              ok;
+            {error, Reason} ->
+              ?LOGERROR("write operation call failed with reason: ~p", [Reason]),
+              throw(Reason)
           end;
         false ->
           PID ! {write, IOA, Value},
           ok
       end;
     false ->
+      ?LOGERROR("write operation called on no longer alive connection"),
       throw(connection_closed)
   end;
 write(_, _, _) ->

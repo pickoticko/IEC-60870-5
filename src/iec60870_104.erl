@@ -81,6 +81,7 @@
 -define(MAX_PORT_VALUE, 65535).
 -define(MIN_PORT_VALUE, 0).
 
+-define(MAX_COUNTER, 32767).
 -define(REQUIRED,{?MODULE, required}).
 
 -define(DEFAULT_SETTINGS, #{
@@ -531,7 +532,7 @@ handle_packet(i, {SendCounter, ReceiveCounter, ASDU}, #state{
   reset_timer(t1, T1),
   State1 = check_t2(State),
   State1#state{
-    vr = VR + 1,
+    vr = update_receive_counter(VR, SendCounter),
     vw = VW - 1,
     sent = [S || S <- Sent, S > ReceiveCounter]
   }.
@@ -674,4 +675,11 @@ socket_send(Socket, Data) ->
     {error, Error} -> exit({send_error, Error})
   end.
 
-
+%% When control field of received packets
+%% is overflowed we should reset its value.
+%%  - VR from station A
+%%  - VS from station B
+update_receive_counter(_VR, VS)
+  when VS >= ?MAX_COUNTER -> 0;
+update_receive_counter(VR, _VS) ->
+  VR + 1.

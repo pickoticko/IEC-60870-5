@@ -553,10 +553,15 @@ send_i_packet(ASDU, #state{
     true ->
       exit({max_number_of_unconfirmed_packets_reached, K})
   end,
+  NewVS =
+    if
+      VS >= ?MAX_COUNTER -> 0;
+      true -> VS + 1
+    end,
   State#state{
-    vs = VS + 1,
+    vs = NewVS,
     vw = W,
-    sent = [VS + 1 | Sent]
+    sent = [NewVS | Sent]
   }.
 
 %% +--------------------------------------------------------------+

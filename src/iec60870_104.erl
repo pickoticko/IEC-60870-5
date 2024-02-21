@@ -500,9 +500,10 @@ handle_packet(s, ReceiveCounter, #state{
   t1 = T1
 } = State) ->
   reset_timer(t1, T1),
+  FirstSent = get_first_element(Sent),
   State#state{
     t1 = undefined,
-    sent = [S || S <- Sent, S > ReceiveCounter]
+    sent = [S || S <- Sent, ReceiveCounter < S, FirstSent >= S]
   };
 
 %% +--------------------------------------------------------------+
@@ -531,10 +532,18 @@ handle_packet(i, {SendCounter, ReceiveCounter, ASDU}, #state{
   Connection ! {asdu, self(), ASDU},
   reset_timer(t1, T1),
   State1 = check_t2(State),
+  FirstSent = get_first_element(Sent),
+  %% When control field of received packets
+  %% is overflowed we should reset its value.
+  NewVR =
+    case SendCounter >= ?MAX_COUNTER of
+      true  -> 0;
+      false -> VR + 1
+    end,
   State1#state{
-    vr = update_receive_counter(VR, SendCounter),
+    vr = NewVR,
     vw = VW - 1,
-    sent = [S || S <- Sent, S > ReceiveCounter]
+    sent = [S || S <- Sent, ReceiveCounter < S, FirstSent >= S]
   }.
 
 send_i_packet(ASDU, #state{
@@ -553,6 +562,8 @@ send_i_packet(ASDU, #state{
     true ->
       exit({max_number_of_unconfirmed_packets_reached, K})
   end,
+  %% When control field of sent packets
+  %% is overflowed we should reset its value.
   NewVS =
     if
       VS >= ?MAX_COUNTER -> 0;
@@ -680,11 +691,5 @@ socket_send(Socket, Data) ->
     {error, Error} -> exit({send_error, Error})
   end.
 
-%% When control field of received packets
-%% is overflowed we should reset its value.
-%%  - VR from station A
-%%  - VS from station B
-update_receive_counter(_VR, VS)
-  when VS >= ?MAX_COUNTER -> 0;
-update_receive_counter(VR, _VS) ->
-  VR + 1.
+get_first_element([]) -> [];
+get_first_element([First | _]) -> First.

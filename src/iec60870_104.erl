@@ -550,7 +550,7 @@ handle_packet(i, {SendCounter, ReceiveCounter, ASDU}, #state{
 
 %% When the quantity of transmitted packets does not match
 %% the number of packets received by the client.
-handle_packet(i, {SendCounter, _ReceiveCounter, _ASDU}, #state{vr = VR, overflows = Overflows}) ->
+handle_packet(i, {SendCounter, _ReceiveCounter, _ASDU}, #state{vr = VR}) ->
   exit({invalid_receive_counter, SendCounter, VR}).
 
 send_i_packet(ASDU, #state{

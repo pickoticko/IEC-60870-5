@@ -536,8 +536,13 @@ handle_packet(i, {SendCounter, ReceiveCounter, ASDU}, #state{
   %% When control field of received packets
   %% is overflowed we should reset its value.
   TotalReceived = ReceiveCounter + (?MAX_COUNTER * OverflowCounter),
+  NewVR =
+    case SendCounter >= ?MAX_COUNTER of
+      true  -> 0;
+      false -> VR + 1
+    end,
   NewState#state{
-    vr = VR + 1,
+    vr = NewVR,
     vw = VW - 1,
     sent = [S || S <- Sent, TotalReceived < S]
   };

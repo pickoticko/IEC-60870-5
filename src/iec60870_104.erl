@@ -502,12 +502,9 @@ handle_packet(s, ReceiveCounter, #state{
   overflows = OverflowCount
 } = State) ->
   reset_timer(t1, T1),
-  %% We're multiplying the counter of received client packets by
-  %% the number of overflows in order to filter the list correctly.
-  TotalReceived = ReceiveCounter + (?MAX_COUNTER * OverflowCount),
   State#state{
     t1 = undefined,
-    sent = [S || S <- Sent, TotalReceived < S]
+    sent = [S || S <- Sent, (ReceiveCounter + (OverflowCount * ?MAX_COUNTER)) < S]
   };
 
 %% +--------------------------------------------------------------+
@@ -535,17 +532,15 @@ handle_packet(i, {SendCounter, ReceiveCounter, ASDU}, #state{
   NewState = check_t2(State),
   %% When control field of received packets
   %% is overflowed we should reset its value.
-  {NewVR, UpdatedOverflowCount} =
+  NewVR =
     case VR >= ?MAX_COUNTER of
-      true -> {0, OverflowCount + 1};
-      false -> {VR + 1, OverflowCount}
+      true  -> 0;
+      false -> VR + 1
     end,
-  TotalReceived = ReceiveCounter + (?MAX_COUNTER * OverflowCount),
   NewState#state{
     vr = NewVR,
     vw = VW - 1,
-    overflows = UpdatedOverflowCount,
-    sent = [S || S <- Sent, TotalReceived < S]
+    sent = [S || S <- Sent, (ReceiveCounter + (OverflowCount * ?MAX_COUNTER)) < S]
   };
 
 %% When the quantity of transmitted packets does not match
@@ -559,6 +554,7 @@ send_i_packet(ASDU, #state{
     k := K
   },
   vs = VS,
+  overflows = OverflowCount,
   socket = Socket,
   sent = Sent
 } = State) ->
@@ -569,10 +565,17 @@ send_i_packet(ASDU, #state{
     true ->
       exit({max_number_of_unconfirmed_packets_reached, K})
   end,
-  NewVS = VS + 1,
+  %% When control field of sent packets
+  %% is overflowed we should reset its value.
+  {NewVS, UpdatedOverflowCount} =
+    case VS >= ?MAX_COUNTER of
+      true  -> {0, OverflowCount + 1};
+      false -> {VS + 1, OverflowCount}
+    end,
   State#state{
     vs = NewVS,
     vw = W,
+    overflows = UpdatedOverflowCount,
     sent = [NewVS | Sent]
   }.
 

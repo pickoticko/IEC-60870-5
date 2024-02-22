@@ -499,12 +499,12 @@ handle_packet(u, _Data, State)->
 handle_packet(s, ReceiveCounter, #state{
   sent = Sent,
   t1 = T1,
-  overflows = OverflowCounter
+  overflows = OverflowCount
 } = State) ->
   reset_timer(t1, T1),
   %% We're multiplying the counter of received client packets by
   %% the number of overflows in order to filter the list correctly.
-  TotalReceived = ReceiveCounter + (?MAX_COUNTER * OverflowCounter),
+  TotalReceived = ReceiveCounter + (?MAX_COUNTER * OverflowCount),
   State#state{
     t1 = undefined,
     sent = [S || S <- Sent, TotalReceived < S]
@@ -526,30 +526,31 @@ handle_packet(i, {SendCounter, ReceiveCounter, ASDU}, #state{
   vr = VR,
   vw = VW,
   sent = Sent,
-  overflows = OverflowCounter,
+  overflows = OverflowCount,
   connection = Connection,
   t1 = T1
-} = State) when SendCounter =:= (VR - (?MAX_COUNTER * OverflowCounter)) ->
+} = State) when SendCounter =:= VR ->
   Connection ! {asdu, self(), ASDU},
   reset_timer(t1, T1),
   NewState = check_t2(State),
   %% When control field of received packets
   %% is overflowed we should reset its value.
-  TotalReceived = ReceiveCounter + (?MAX_COUNTER * OverflowCounter),
-  NewVR =
-    case SendCounter >= ?MAX_COUNTER of
-      true  -> 0;
-      false -> VR + 1
+  {NewVR, UpdatedOverflowCount} =
+    case VR >= ?MAX_COUNTER of
+      true -> {0, OverflowCount + 1};
+      false -> {VR + 1, OverflowCount}
     end,
+  TotalReceived = ReceiveCounter + (?MAX_COUNTER * OverflowCount),
   NewState#state{
     vr = NewVR,
     vw = VW - 1,
+    overflows = UpdatedOverflowCount,
     sent = [S || S <- Sent, TotalReceived < S]
   };
 
 %% When the quantity of transmitted packets does not match
 %% the number of packets received by the client.
-handle_packet(i, {SendCounter, _ReceiveCounter, _ASDU}, #state{vr = VR}) ->
+handle_packet(i, {SendCounter, _ReceiveCounter, _ASDU}, #state{vr = VR, overflows = Overflows}) ->
   exit({invalid_receive_counter, SendCounter, VR}).
 
 send_i_packet(ASDU, #state{
@@ -568,15 +569,11 @@ send_i_packet(ASDU, #state{
     true ->
       exit({max_number_of_unconfirmed_packets_reached, K})
   end,
-  %% When control field of sent packets is overflowed
-  %% we should save overflows count.
   NewVS = VS + 1,
-  OverflowsCount = NewVS div ?MAX_COUNTER,
   State#state{
     vs = NewVS,
     vw = W,
-    sent = [NewVS | Sent],
-    overflows = OverflowsCount
+    sent = [NewVS | Sent]
   }.
 
 %% +--------------------------------------------------------------+

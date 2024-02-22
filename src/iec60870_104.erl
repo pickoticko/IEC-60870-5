@@ -504,7 +504,7 @@ handle_packet(s, ReceiveCounter, #state{
   reset_timer(t1, T1),
   %% We're multiplying the counter of received client packets by
   %% the number of overflows in order to filter the list correctly.
-  TotalReceived = ReceiveCounter + ?MAX_COUNTER * OverflowCounter,
+  TotalReceived = ReceiveCounter + (?MAX_COUNTER * OverflowCounter),
   State#state{
     t1 = undefined,
     sent = [S || S <- Sent, TotalReceived < S]
@@ -529,20 +529,15 @@ handle_packet(i, {SendCounter, ReceiveCounter, ASDU}, #state{
   overflows = OverflowCounter,
   connection = Connection,
   t1 = T1
-} = State) when SendCounter =:= VR ->
+} = State) when SendCounter =:= (VR - (?MAX_COUNTER * OverflowCounter)) ->
   Connection ! {asdu, self(), ASDU},
   reset_timer(t1, T1),
   NewState = check_t2(State),
   %% When control field of received packets
   %% is overflowed we should reset its value.
-  NewVR =
-    case SendCounter >= ?MAX_COUNTER of
-      true  -> 0;
-      false -> VR + 1
-    end,
-  TotalReceived = ReceiveCounter + ?MAX_COUNTER * OverflowCounter,
+  TotalReceived = ReceiveCounter + (?MAX_COUNTER * OverflowCounter),
   NewState#state{
-    vr = NewVR,
+    vr = VR + 1,
     vw = VW - 1,
     sent = [S || S <- Sent, TotalReceived < S]
   };
@@ -559,8 +554,7 @@ send_i_packet(ASDU, #state{
   },
   vs = VS,
   socket = Socket,
-  sent = Sent,
-  overflows = OverflowCounter
+  sent = Sent
 } = State) ->
   if
     length(Sent) =< K ->
@@ -570,17 +564,14 @@ send_i_packet(ASDU, #state{
       exit({max_number_of_unconfirmed_packets_reached, K})
   end,
   %% When control field of sent packets is overflowed
-  %% we should reset its value and save overflows count.
-  {NewVS, UpdatedOverflowsCounter} =
-    case VS >= ?MAX_COUNTER of
-      true  -> {0, OverflowCounter + 1};
-      false -> {VS + 1, OverflowCounter}
-    end,
+  %% we should save overflows count.
+  NewVS = VS + 1,
+  OverflowsCount = NewVS div ?MAX_COUNTER,
   State#state{
     vs = NewVS,
     vw = W,
     sent = [NewVS | Sent],
-    overflows = UpdatedOverflowsCounter
+    overflows = OverflowsCount
   }.
 
 %% +--------------------------------------------------------------+

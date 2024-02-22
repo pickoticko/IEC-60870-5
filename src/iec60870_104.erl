@@ -567,11 +567,8 @@ send_i_packet(ASDU, #state{
   end,
   %% When control field of sent packets
   %% is overflowed we should reset its value.
-  {NewVS, UpdatedOverflowCount} =
-    case VS >= ?MAX_COUNTER of
-      true  -> {0, OverflowCount + 1};
-      false -> {VS + 1, OverflowCount}
-    end,
+  NewVS = VS + 1,
+  UpdatedOverflowCount = NewVS div ?MAX_COUNTER,
   State#state{
     vs = NewVS,
     vw = W,

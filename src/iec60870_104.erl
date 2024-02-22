@@ -554,7 +554,6 @@ send_i_packet(ASDU, #state{
     k := K
   },
   vs = VS,
-  overflows = OverflowCount,
   socket = Socket,
   sent = Sent
 } = State) ->

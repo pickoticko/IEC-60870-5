@@ -57,11 +57,12 @@ init(Root, #{
   address := Address
 } = Options) ->
   Port = iec60870_ft12:start_link(maps:with([port, port_options, address_size], Options)),
+  %% TODO: We should start connection before returning ready, not vice versa.
+  Root ! {ready, self()},
   Connection =
     case iec60870_server:start_connection(Root, {?MODULE, self()}, self()) of
       {ok, NewConnection} ->
         erlang:monitor(process, NewConnection),
-        Root ! {ready, self()},
         NewConnection;
       error ->
         exit(server_stm_start_failed)

@@ -190,7 +190,7 @@ handle_event({call, From}, {write, IOA, Value}, State, Data) ->
     State =:= ?CONNECTED ->
       {next_state, {?WRITE, From, IOA, Value}, Data, [{state_timeout, ?DEFAULT_WRITE_TIMEOUT, ?CONNECTED}]};
     true ->
-      {keep_state_and_data, [{reply, From, {error, connection_not_ready}}]}
+      {keep_state_and_data, [{reply, From, {error, {connection_not_ready, State}}}]}
   end;
 
 %% +--------------------------------------------------------------+

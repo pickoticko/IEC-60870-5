@@ -85,6 +85,8 @@
 -define(REQUIRED,{?MODULE, required}).
 
 -define(DEFAULT_SETTINGS, #{
+  whitelist => all,
+  clients_limit => 99,
   port => ?DEFAULT_PORT,
   t1 => 30000,
   t2 => 5000,
@@ -138,7 +140,7 @@ start_server(InSettings) ->
   } = check_settings(maps:merge(?DEFAULT_SETTINGS, InSettings)),
   case gen_tcp:listen(Port, [binary, {active, true}, {packet, raw}]) of
     {ok, ListenSocket} ->
-      wait_connection(ListenSocket, Settings, Root),
+      init_controller(ListenSocket, Settings, Root),
       ListenSocket;
     {error, Reason} ->
       throw({transport_error, Reason})
@@ -162,34 +164,69 @@ start_client(InSettings) ->
 %% |                      Init Server Socket                      |
 %% +--------------------------------------------------------------+
 
-wait_connection(ListenSocket, Settings, Root)->
+init_controller(ListenSocket, Settings, Root) ->
+  spawn(
+    fun() ->
+      wait_connection(ListenSocket, _Controller = self(), Settings, Root),
+      controller_loop(ListenSocket, Settings, Root, _ClientsCount = #{})
+    end).
+
+controller_loop(ListenSocket, Settings, Root, Clients) ->
+  receive
+    {client_connect_request, ConnectionPID, Socket} ->
+      NewClients =
+        case verify_client(Socket, maps:size(Clients), Settings) of
+          ok ->
+            erlang:monitor(process, ConnectionPID),
+            ConnectionPID ! {allowed, self(), ConnectionPID},
+            Clients#{ConnectionPID => Socket};
+          {error, Reason} ->
+            ConnectionPID ! {rejected, self(), ConnectionPID, Reason},
+            Clients
+        end,
+      controller_loop(ListenSocket, Settings, Root, NewClients);
+    {'DOWN', _Ref, process, ConnectionPID, _Reason} ->
+      case maps:size(Clients) of
+        0 -> wait_connection(ListenSocket, _Controller = self(), Settings, Root);
+        _ -> ignore
+      end,
+      NewClients = maps:remove(ConnectionPID, Clients),
+      controller_loop(ListenSocket, Settings, Root, NewClients)
+  end.
+
+wait_connection(ListenSocket, Controller, Settings, Root) ->
   spawn(fun() ->
     process_flag(trap_exit, true),
     link(Root),
     Socket = accept_loop(ListenSocket, Root),
-    % Handle the ListenSocket to the next process
     unlink(Root),
-    wait_connection(ListenSocket, Settings, Root),
-    case wait_activate(Socket, ?START_DT_ACTIVATE, <<>>) of
-      {ok, Buffer} ->
-        socket_send(Socket, create_u_packet(?START_DT_CONFIRM)),
-        case iec60870_server:start_connection(Root, ListenSocket, self() ) of
-          {ok, Connection} ->
-            init_loop( #state{
-              socket = Socket,
-              connection = Connection,
-              settings = Settings,
-              buffer = Buffer
-            });
-          {error, InternalError} ->
-            ?LOGERROR("unable to start a process to handle the incoming connection with error: ~p", [InternalError]),
-            gen_tcp:close(Socket),
-            exit(InternalError)
+    %% Passing the listen socket and controller to the next process.
+    wait_connection(ListenSocket, Controller, Settings, Root),
+    Controller ! {client_connect_request, self(), Socket},
+    receive
+      {allowed, Controller, Self} when Self =:= self() ->
+        case wait_activate(Socket, ?START_DT_ACTIVATE, <<>>) of
+          {ok, Buffer} ->
+            socket_send(Socket, create_u_packet(?START_DT_CONFIRM)),
+            case iec60870_server:start_connection(Root, ListenSocket, self()) of
+              {ok, Connection} ->
+                init_loop(#state{
+                  socket = Socket,
+                  connection = Connection,
+                  settings = Settings,
+                  buffer = Buffer
+                });
+              {error, InternalError} ->
+                ?LOGERROR("unable to start a process to handle the incoming connection due to an error: ~p", [InternalError]),
+                close_connection(Socket, InternalError)
+            end;
+          {error, ActivateError} ->
+            ?LOGERROR("error activating incoming connection: ~p", [ActivateError]),
+            close_connection(Socket, ActivateError)
         end;
-      {error, ActivateError} ->
-        ?LOGWARNING("error activating incoming connection: ~p", [ActivateError]),
-        gen_tcp:close(Socket),
-        exit(ActivateError)
+      {rejected, Controller, Self, Reason} when Self =:= self() ->
+        ?LOGERROR("connection was refused to the client due to the following reason: ~p", [Reason]),
+        close_connection(Socket, Reason)
     end
   end).
 
@@ -601,6 +638,17 @@ check_setting(host, Host) when is_tuple(Host) ->
     _ -> throw({invalid_setting, Host})
   end;
 
+check_setting(whitelist, all) -> all;
+check_setting(whitelist, Whitelist)
+  when is_list(Whitelist) ->
+  case Whitelist of
+    [] -> throw({whitelist_empty});
+    _Other -> maps:to_list([{IP, allowed} || IP <- Whitelist])
+  end;
+
+check_setting(clients_limit, MaxClients)
+  when is_integer(MaxClients) -> MaxClients;
+
 check_setting(port, Port)
   when is_number(Port), Port >= ?MIN_PORT_VALUE, Port =< ?MAX_PORT_VALUE -> Port;
 
@@ -690,3 +738,35 @@ socket_send(Socket, Data) ->
     ok -> ok;
     {error, Error} -> exit({send_error, Error})
   end.
+
+verify_client(Socket, ClientsCount, Settings) ->
+  try
+    check_whitelist_member(Socket, maps:get(whitelist, Settings)),
+    check_clients_limit(ClientsCount, maps:get(clients_limit, Settings)),
+    ok
+  catch
+    _Exception:Reason ->
+      {error, Reason}
+  end.
+
+%% Check if a client is in a whitelist.
+check_whitelist_member(_Socket, all) -> ok;
+check_whitelist_member(Socket, Whitelist) ->
+  try
+    {IP, _Port} = inet:peername(Socket),
+    _Exists = maps:get(IP, Whitelist),
+    ok
+  catch
+    _Exception:_Reason ->
+      throw({not_allowed, Socket})
+  end.
+
+%% Check if the maximum number of clients is exceeded.
+check_clients_limit(ClientsCount, MaxClientsCount)
+  when ClientsCount < MaxClientsCount -> ok;
+check_clients_limit(ClientsCount, _MaxClientsCount) ->
+  throw({clients_limit_exceeded, ClientsCount}).
+
+close_connection(Socket, Reason) ->
+  gen_tcp:close(Socket),
+  exit(Reason).

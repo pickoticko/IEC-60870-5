@@ -49,8 +49,10 @@ start(Owner, Options) ->
     {connected, PID} ->
       PID;
     {'EXIT', PID, Reason} ->
+      ?LOGERROR("client is down due to a reason: ~p", [Reason]),
       throw(Reason);
     {'EXIT', Owner, Reason} ->
+      ?LOGERROR("client is down due to owner process shutdown, reason: ~p", [Reason]),
       exit(PID, Reason)
   end.
 
@@ -207,10 +209,10 @@ port_loop(#port_state{port = Port, clients = Clients} = State) ->
         {error, Error} ->
           exit(Error)
       end;
-    {'EXIT', Client, _Reason} ->
-      port_loop(State#port_state{clients = stop_client(Client, Clients)});
-    {'DOWN', _, process, Client, _Error}->
-      port_loop(State#port_state{clients = stop_client(Client, Clients)});
+    {'EXIT', Client, Reason} ->
+      port_loop(State#port_state{clients = stop_client(Client, Clients, Reason)});
+    {'DOWN', _, process, Client, Reason}->
+      port_loop(State#port_state{clients = stop_client(Client, Clients, Reason)});
     Unexpected ->
       ?LOGWARNING("unexpected message received ~p", [Unexpected]),
       port_loop(State)
@@ -230,10 +232,11 @@ start_client(Port, Client, #{
       Error
   end.
 
-stop_client(Client, Clients)->
+stop_client(Client, Clients, Reason)->
   case maps:remove(Client, Clients) of
     Clients1 when map_size(Clients1) > 0 ->
       Clients1;
     _ ->
+      ?LOGERROR("client is shut down due to a reason: ~p", [Reason]),
       exit(shutdown)
   end.

@@ -200,6 +200,7 @@ accept_loop(ListenSocket, Root) ->
     {error, timeout} ->
       receive
         {'EXIT', Root, Reason} ->
+          ?LOGERROR("connection is down due to owner process shutdown"),
           timer:sleep(1000),
           catch gen_tcp:close(ListenSocket),
           catch gen_tcp:shutdown(ListenSocket, read_write),
@@ -328,6 +329,7 @@ loop(#state{
 
     %% Connection sent exit signal
     {'EXIT', Connection, Reason} ->
+      ?LOGERROR("connection is down due to a reason: ~p", [Reason]),
       gen_tcp:close(Socket),
       exit(Reason);
 

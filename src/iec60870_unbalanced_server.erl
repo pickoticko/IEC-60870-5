@@ -39,8 +39,11 @@
 start(Root, Options) ->
   PID = spawn_link(fun() -> init(Root, Options) end),
   receive
-    {ready, PID} -> PID;
-    {'EXIT', PID, Reason} -> throw(Reason)
+    {ready, PID} ->
+      PID;
+    {'EXIT', PID, Reason} ->
+      ?LOGERROR("connection is down due to an error: ~p", [Reason]),
+      throw(Reason)
   end.
 
 stop(PID) ->
@@ -54,12 +57,20 @@ init(Root, #{
   address := Address
 } = Options) ->
   Port = iec60870_ft12:start_link(maps:with([port, port_options, address_size], Options)),
-  Root ! {ready, self()},
+  Connection =
+    case iec60870_server:start_connection(Root, {?MODULE, self()}, self()) of
+      {ok, NewConnection} ->
+        erlang:monitor(process, NewConnection),
+        Root ! {ready, self()},
+        NewConnection;
+      error ->
+        exit(server_stm_start_failed)
+    end,
   loop(#data{
     root = Root,
     address = Address,
     port = Port,
-    connection = undefined,
+    connection = Connection,
     fcb = undefined
   }).
 
@@ -167,23 +178,15 @@ handle_request(?ACCESS_DEMAND, _UserData, #data{
   };
 
 handle_request(?REQUEST_STATUS_LINK, _UserData, #data{
-  root = Root,
   port = Port,
   address = Address,
   connection = Connection
 } = Data) ->
   if
     is_pid(Connection) ->
-      ?LOGINFO("server on port ~p received request for status link... restarting the connection", [Port]),
-      exit(Connection, shutdown);
-    true ->
-      ignore
-  end,
-  case iec60870_server:start_connection(Root, {?MODULE, self()}, self()) of
-    {ok, NewConnection} ->
-      erlang:monitor(process, NewConnection),
+      ?LOGINFO("server on port ~p received request for status link...", [Port]),
       Data#data{
-        connection = NewConnection,
+        connection = Connection,
         sent_frame = send_response(Port, #frame{
           address = Address,
           control_field = #control_field_response{
@@ -194,19 +197,9 @@ handle_request(?REQUEST_STATUS_LINK, _UserData, #data{
           }
         })
       };
-    error ->
-      Data#data{
-        connection = undefined,
-        sent_frame = send_response(Port, #frame{
-          address = Address,
-          control_field = #control_field_response{
-            direction = 0,
-            acd = 0,
-            dfc = 0,
-            function_code = ?ERR_NOT_FUNCTIONING
-          }
-        })
-      }
+    true ->
+      ?LOGWARNING("request status link received on no longer alive connection"),
+      Data
   end;
 
 handle_request(?REQUEST_DATA_CLASS_1, _UserData, #data{

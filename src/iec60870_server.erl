@@ -65,7 +65,6 @@ start(InSettings) ->
   PID = spawn_link(fun() -> init_server(Self, Settings) end),
   receive
     {ready, PID, ServerRef} ->
-      unlink(PID),
       ServerRef;
     {'EXIT', PID, Reason} ->
       ?LOGERROR("server failed to start due to a reason: ~p", [Reason]),

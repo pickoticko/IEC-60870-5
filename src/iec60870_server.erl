@@ -68,6 +68,7 @@ start(InSettings) ->
       unlink(PID),
       ServerRef;
     {'EXIT', PID, Reason} ->
+      ?LOGERROR("server failed to start due to a reason: ~p", [Reason]),
       throw(Reason)
   end.
 
@@ -246,7 +247,7 @@ init_server(Owner, #{
   EsubscribePID =
     case esubscribe:start_link(Name) of
       {ok, PID} -> PID;
-      {error, EsubscribeReason} -> throw(EsubscribeReason)
+      {error, EsubscribeReason} -> exit(EsubscribeReason)
     end,
   Ref = #?MODULE{
     pid = self(),

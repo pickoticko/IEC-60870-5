@@ -58,7 +58,6 @@ init(Root, #{
 } = Options) ->
   Switch = iec60870_switch:start(Options),
   %% TODO: We should start connection before returning ready, not vice versa.
-  io:format("DEBUG: Switch PID in unbalanced server: ~p~n", [Switch]),
   Root ! {ready, self()},
   Connection =
     case iec60870_server:start_connection(Root, {?MODULE, self()}, self()) of

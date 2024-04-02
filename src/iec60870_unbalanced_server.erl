@@ -26,7 +26,7 @@
 -record(data, {
   root,
   address,
-  port,
+  switch,
   fcb,
   sent_frame,
   connection
@@ -56,8 +56,9 @@ stop(PID) ->
 init(Root, #{
   address := Address
 } = Options) ->
-  Port = iec60870_ft12:start_link(maps:with([port, port_options, address_size], Options)),
+  Switch = iec60870_switch:start(Options),
   %% TODO: We should start connection before returning ready, not vice versa.
+  io:format("DEBUG: Switch PID in unbalanced server: ~p~n", [Switch]),
   Root ! {ready, self()},
   Connection =
     case iec60870_server:start_connection(Root, {?MODULE, self()}, self()) of
@@ -70,27 +71,27 @@ init(Root, #{
   loop(#data{
     root = Root,
     address = Address,
-    port = Port,
+    switch = Switch,
     connection = Connection,
     fcb = undefined
   }).
 
 loop(#data{
   root = Root,
-  port = Port,
+  switch = Switch,
   address = Address,
   fcb = FCB,
   sent_frame = SentFrame,
   connection = Connection
 } = Data) ->
   receive
-    {data, Port, #frame{address = ReqAddress}} when ReqAddress =/= Address ->
+    {data, Switch, #frame{address = ReqAddress}} when ReqAddress =/= Address ->
       ?LOGWARNING("received unexpected data link address: ~p", [ReqAddress]),
       loop(Data);
-    {data, Port, Unexpected = #frame{control_field = #control_field_response{}}}->
+    {data, Switch, Unexpected = #frame{control_field = #control_field_response{}}}->
       ?LOGWARNING("unexpected response frame received ~p", [Unexpected]),
       loop(Data);
-    {data, Port, #frame{control_field = CF, data = UserData}} ->
+    {data, Switch, #frame{control_field = CF, data = UserData}} ->
       case check_fcb(CF, FCB) of
         {ok, NextFCB} ->
           Data1 = handle_request(CF#control_field_request.function_code, UserData, Data),
@@ -98,7 +99,7 @@ loop(#data{
         error->
           ?LOGWARNING("check fcb error, cf ~p, FCB ~p", [CF, FCB]),
           case SentFrame of
-            #frame{} -> iec60870_ft12:send(Port, SentFrame);
+            #frame{} -> send_response(Switch, SentFrame);
             _ -> ignore
           end,
           loop(Data)
@@ -107,8 +108,7 @@ loop(#data{
       ?LOGWARNING("server connection is down"),
       loop(Data#data{connection = undefined});
     {stop, Root} ->
-      ?LOGWARNING("server has been terminated by the owner"),
-      iec60870_ft12:stop(Port)
+      ?LOGWARNING("server has been terminated by the owner")
   end.
 
 check_fcb(#control_field_request{fcv = 0, fcb = _ReqFCB} , _FCB) ->
@@ -119,32 +119,32 @@ check_fcb(#control_field_request{fcv = 1, fcb = RecFCB} , _FCB) ->
   {ok, RecFCB}.
 
 handle_request(?RESET_REMOTE_LINK, _UserData, #data{
-  port = Port,
+  switch = Switch,
   address = Address
 } = Data) ->
   Data#data{
-    sent_frame = send_response(Port, ?ACKNOWLEDGE_FRAME(Address))
+    sent_frame = send_response(Switch, ?ACKNOWLEDGE_FRAME(Address))
   };
 
 handle_request(?RESET_USER_PROCESS, _UserData, #data{
-  port = Port,
+  switch = Switch,
   address = Address
 } = Data)->
   % TODO. Do we need to do anything? May be restart connection?
   Data#data{
-    sent_frame = send_response(Port, ?ACKNOWLEDGE_FRAME(Address))
+    sent_frame = send_response(Switch, ?ACKNOWLEDGE_FRAME(Address))
   };
 
 handle_request(?USER_DATA_CONFIRM, ASDU, #data{
   connection = Connection,
-  port = Port,
+  switch = Switch,
   address = Address
 } = Data) ->
   if
     is_pid(Connection) ->
       Connection ! {asdu, self(), ASDU},
       Data#data{
-        sent_frame = send_response(Port, ?ACKNOWLEDGE_FRAME(Address))
+        sent_frame = send_response(Switch, ?ACKNOWLEDGE_FRAME(Address))
       };
     true ->
       ?LOGWARNING("user data with confirm frame type received on no longer alive connection ~p", [ASDU]),
@@ -163,11 +163,11 @@ handle_request(?USER_DATA_NO_REPLY, ASDU, #data{
   Data;
 
 handle_request(?ACCESS_DEMAND, _UserData, #data{
-  port = Port,
+  switch = Switch,
   address = Address
 } = Data)->
   Data#data{
-    sent_frame = send_response(Port, #frame{
+    sent_frame = send_response(Switch, #frame{
       address = Address,
       control_field = #control_field_response{
         direction = 0,
@@ -179,16 +179,16 @@ handle_request(?ACCESS_DEMAND, _UserData, #data{
   };
 
 handle_request(?REQUEST_STATUS_LINK, _UserData, #data{
-  port = Port,
+  switch = Switch,
   address = Address,
   connection = Connection
 } = Data) ->
   if
     is_pid(Connection) ->
-      ?LOGINFO("server on port ~p received request for status link...", [Port]),
+      ?LOGINFO("server on port ~p received request for status link...", [Switch]),
       Data#data{
         connection = Connection,
-        sent_frame = send_response(Port, #frame{
+        sent_frame = send_response(Switch, #frame{
           address = Address,
           control_field = #control_field_response{
             direction = 0,
@@ -204,11 +204,11 @@ handle_request(?REQUEST_STATUS_LINK, _UserData, #data{
   end;
 
 handle_request(?REQUEST_DATA_CLASS_1, _UserData, #data{
-  port = Port,
+  switch = Switch,
   address = Address
 } = Data) ->
   Data#data{
-    sent_frame = send_response(Port, #frame{
+    sent_frame = send_response(Switch, #frame{
       address = Address,
       control_field = #control_field_response{
         direction = 0,
@@ -220,7 +220,7 @@ handle_request(?REQUEST_DATA_CLASS_1, _UserData, #data{
   };
 
 handle_request(?REQUEST_DATA_CLASS_2, UserData, #data{
-  port = Port,
+  switch = Switch,
   address = Address,
   connection = Connection
 } = Data) ->
@@ -252,7 +252,7 @@ handle_request(?REQUEST_DATA_CLASS_2, UserData, #data{
             }
         end,
       Data#data{
-        sent_frame = send_response(Port, Response)
+        sent_frame = send_response(Switch, Response)
       };
     true ->
       ?LOGWARNING("data class 2 request received on no longer alive connection ~p", [UserData]),
@@ -263,8 +263,8 @@ handle_request(InvalidFC, _UserData, Data) ->
   ?LOGERROR("invalid request function code received ~p", [InvalidFC]),
   Data.
 
-send_response(Port, Frame) ->
-  iec60870_ft12:send(Port, Frame),
+send_response(Switch, Frame) ->
+  Switch ! {send, self(), Frame},
   Frame.
 
 check_data(Connection) ->

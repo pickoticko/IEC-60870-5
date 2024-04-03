@@ -184,7 +184,7 @@ handle_request(?REQUEST_STATUS_LINK, _UserData, #data{
 } = Data) ->
   if
     is_pid(Connection) ->
-      ?LOGINFO("server on port ~p received request for status link...", [Switch]),
+      ?LOGINFO("server with link address ~p received request for status link...", [Address]),
       Data#data{
         connection = Connection,
         sent_frame = send_response(Switch, #frame{

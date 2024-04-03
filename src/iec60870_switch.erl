@@ -33,7 +33,7 @@ start(#{port := PortName} = Options) ->
 init_switch(ServerPID, Options = #{port := PortName, address := Address}) ->
   Port = iec60870_ft12:start_link(maps:with([port, port_options, address_size], Options)),
   ServerPID ! {ready, self()},
-  erlang:register(PortName, self()),
+  erlang:register(list_to_atom(PortName), self()),
   erlang:monitor(process, ServerPID),
   switch_loop(#switch_state{
     port = Port,

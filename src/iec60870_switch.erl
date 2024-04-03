@@ -30,9 +30,10 @@ start(#{port := PortName} = Options) ->
       end
   end.
 
-init_switch(ServerPID, Options = #{address := Address}) ->
+init_switch(ServerPID, Options = #{port := PortName, address := Address}) ->
   Port = iec60870_ft12:start_link(maps:with([port, port_options, address_size], Options)),
   ServerPID ! {ready, self()},
+  erlang:register(PortName, self()),
   erlang:monitor(process, ServerPID),
   switch_loop(#switch_state{
     port = Port,
@@ -87,8 +88,8 @@ switch_loop(#switch_state{
       switch_loop(State)
   end.
 
-% Remove a server PID value from the map
-remove_server(TargetPID, Servers) ->
+%% Remove a server PID value from the map
+remove_server(TargetPID, Servers) when length(Servers) > 0 ->
   TargetKey = maps:fold(
     fun(Key, Value, AccIn) ->
       case Value =:= TargetPID of
@@ -96,4 +97,10 @@ remove_server(TargetPID, Servers) ->
         false -> AccIn
       end
     end, null, Servers),
-  maps:remove(TargetKey, Servers).
+  maps:remove(TargetKey, Servers);
+
+%% No servers left to handle
+remove_server(_TargetPID, _Servers) ->
+  ?LOGWARNING("no servers to handle, switch is shutting down"),
+  exit(shutdown).
+

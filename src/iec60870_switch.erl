@@ -71,6 +71,7 @@ switch_loop(#switch_state{
 
     % New server added to the switch
     {add_server, NewServerPID, #{address := NewLinkAddress} = _Options} ->
+      NewServerPID ! {ready, self()},
       erlang:monitor(process, NewServerPID),
       switch_loop(State#switch_state{
         % PIDs are mapped through data link addresses

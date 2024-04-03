@@ -169,8 +169,9 @@ start_port(#{port := PortName} = Options) ->
       end
   end.
 
-init_port(Client, Options) ->
+init_port(Client, #{port := PortName} = Options) ->
   Port = iec60870_ft12:start_link(maps:with([port, port_options, address_size], Options)),
+  erlang:register(list_to_atom(PortName), self()),
   case start_client(Port, Client, Options) of
     {ok, State} ->
       Client ! {ready, self()},

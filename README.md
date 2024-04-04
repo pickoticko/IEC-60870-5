@@ -89,7 +89,7 @@ To start the connection, both ```start_client``` and ```start_server``` require 
 > groups => [#{id => 1, update => 1000, timeout => 2000}, #{...}, ...]
 > ```
 
-### IEC101 client or server
+### IEC101 client / server example
 ```erlang
 #{
 	name => iec101_client_example, 
@@ -172,7 +172,7 @@ To start the connection, both ```start_client``` and ```start_server``` require 
 },
 ```
 
-### IEC104 server: All settings are identical to the client, except without the ```host``` field.
+### IEC104 server example: all settings are identical to the client, except without the ```host``` field.
 
 ## Architecture diagrams
 ### IEC104 client diagram
@@ -180,5 +180,5 @@ To start the connection, both ```start_client``` and ```start_server``` require 
 
 ## Authors
 Contributors names and contact info:  
-- Alikhan Tokenov, alikhantokenov@gmail.com  
 - Vozzhenikov Roman, vzroman@gmail.com  
+- Alikhan Tokenov, alikhantokenov@gmail.com  

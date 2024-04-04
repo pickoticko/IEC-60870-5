@@ -25,7 +25,7 @@ Add dependency to your ```rebar.config```
 ```
 {iec60870, {git, "https://github.com/pickoticko/IEC-60870-5.git", {branch, "master"}}}
 ```  
-Then don't forget to add the library to relx release (if needed)
+Don't forget to add the library to the relx release (if needed)
 ```
 {iec60870, load}
 ```
@@ -44,59 +44,110 @@ Then don't forget to add the library to relx release (if needed)
 | `read/2`               | Client / Server, Address                       | Object     | Read a value from the cache by an address |
 | `write/2`              | Client / Server, Address, Value                | OK         | Writes a value to the cache |
 
-### Usage
-To start the connection, both ```start_client``` and ```start_server``` require a map passed with these arguments. 
-**IEC101 Client / Server:** 
-```erlang
-#{
-	name => iec101_client_example, % Unique name of the connection
-	type => '101', % Type of the connection
-	groups => [],  % Group requests
-	coa_size => 2, % Common Address Size (bytes)
-	org_size => 1, % Originator Address Size (bytes)
-	ioa_size => 3, % Information Object Size (bytes)
-	coa => 1,      % Common Address
-	org => 0,      % Originator Address
-	connection => #{
-		port => "/dev/ttyUSB0",   % Serial port name
-		balanced => false,        % Balanced - true, unbalanced - false
-		port_options => #{      
-			baudrate => 9600, % Communication speed
-			parity => 1,      % Parity bit: 0 - None, 1 - Even, 2 - Odd
-			stopbits => 1,    % Number of stop bits 
-			bytesize => 8     % Number of data bits
-		},
-		address => 1,      % Data link address
-		address_size => 2, % Data link address size
-		timeout => 5000,   % Connect timeout
-		attempts => 99     % Attempts to connect
-	}
-},
-```
-**IEC104 Client:**
-```erlang
-#{
-	name => iec104_client_example, % Unique name of the connection
-	type => '104', % Type of the connection
-	groups => [],  % Group requests
-	coa_size => 2, % Common Address Size (bytes)
-	org_size => 1, % Originator Address Size (bytes)
-	ioa_size => 3, % Information Object Size (bytes)
-	coa => 1,      % Common Address
-	org => 0,      % Originator Address
-	connection => #{
-		host => {127, 0, 0, 1}, % Server IP address
-		port => 2404, % Listening port (default: 2404, reserved: 2405)
-		t1 => 30000,  % T1 packets timeout
-		t2 => 5000,   % T2 acknowledge timeout
-		t3 => 15000,  % T3 idle (testfr packets) timeout
-		k => 12,      % Maximum transmitted APDUs
-		w => 8        % Maximum received APDUs
-	}
-},
-```
-**IEC104 Server:** All settings are identical to the client, except without the ```host``` field.
+## Usage
+To start the connection, both ```start_client``` and ```start_server``` require a map passed with arguments provided below:  
 
+### Parameters description for IEC101
+| Key          | Data type | Description                     | Value                            |
+|:---------    |:----------|:--------------------------------|:---------------------------------|
+| name         | Atom      | Name of the connection          | Any unique                       |
+| type         | Atom      | Type of the connection          | '101' or '104'                   |
+| coa          | Integer   | Common Address                  | Depends on COA size              |
+| org          | Integer   | Originator Address              | Depends on ORG size              |
+| coa_size     | Integer   | Common Address Size             | From 1 to 2                      |
+| org_size     | Integer   | Originator Address Size         | From 0 to 1                      |
+| ioa_size     | Integer   | Information Object Address Size | From 1 to 3                      |
+| port         | String    | Group requests list             | Described below                  |
+| balanced     | Boolean   | Enable balanced transmission    | Default: unbalanced transmission |
+| baudrate     | Integer   | Communication speed             | Recommended: from 9600 to 115200 |
+| parity       | Integer   | Parity bit                      | 0 - none, 1 - even, 2 - odd      |
+| stopbits     | Integer   | Group requests list             | The number of stop bits          |
+| bytesize     | Integer   | Group requests list             | The number of data bits          |
+| address      | Integer   | Group requests list             | Data Link Address                |
+| address_size | Integer   | Group requests list             | Data Link Address size           |
+| timeout      | Integer   | Group requests list             | Connect timeout                  |
+| attempts     | Integer   | Group requests list             | Attempts to connect              |
+
+### IEC101 client or server
+```erlang
+#{
+	name => iec101_client_example, 
+	type => '101', 
+	groups => [], 
+	coa_size => 2,
+	org_size => 1, 
+	ioa_size => 3, 
+	coa => 1,   
+	org => 0,     
+	connection => #{
+		port => "/dev/ttyUSB0",  
+		balanced => false,        
+		port_options => #{      
+			baudrate => 9600, 
+			parity => 1,     
+			stopbits => 1,     
+			bytesize => 8    
+		},
+		address => 1,      
+		address_size => 2, 
+		timeout => 5000,   
+		attempts => 99  
+	}
+},
+```
+
+### Parameters description for IEC101
+| Key      | Data type | Description                     | Value                         |
+|:---------|:----------|:--------------------------------|:------------------------------|
+| name     | Atom      | Name of the connection          | Any unique                    |
+| type     | Atom      | Type of the connection          | '101' or '104'                |
+| coa      | Integer   | Common Address                  | Depends on COA size           |
+| org      | Integer   | Originator Address              | Depends on ORG size           |
+| coa_size | Integer   | Common Address Size             | From 1 to 2                   |
+| org_size | Integer   | Originator Address Size         | From 0 to 1                   |
+| ioa_size | Integer   | Information Object Address Size | From 1 to 3                   |
+| groups   | List      | Group requests list             | Described below               |
+| host     | Tuple     | IPv4 address of the server      | Any                           |
+| port     | Integer   | Port number                     | Recommended: 2404 or 2405     |
+| t1       | Integer   | Packets timeout                 | Recommended: 1 to 255 seconds |
+| t2       | Integer   | Acknowledge timeout             | Recommended: 1 to 255 seconds |
+| t3       | Integer   | Test packets timeout            | Recommended: 1 to 255 seconds |
+| k        | Integer   | Maximum transmitted APDUs       | 1 to 32767                    |
+| w        | Integer   | Maximum received APDUs          | 1 to 32767                    |
+
+Group requests:
+```erlang
+% Group requests are made using this parameter
+% ID - the numbering of group in the protocol ranges from 0 to 16 inclusive.
+% Update - the frequency of sending group requests (milliseconds)
+% Timeout - timeout for responding to a group request (milliseconds)
+groups => [#{id => 1, update => 1000, timeout => 2000}, #{...}, ...]
+```
+
+### IEC104 client example 
+```erlang
+#{
+	name => iec104_client_example, 
+	type => '104', 
+	groups => [], 
+	coa_size => 2, 
+	org_size => 1, 
+	ioa_size => 3, 
+	coa => 1,    
+	org => 0,   
+	connection => #{
+		host => {127, 0, 0, 1}, 
+		port => 2404, 
+		t1 => 30000,  
+		t2 => 5000,   
+		t3 => 15000,  
+		k => 12,      
+		w => 8        
+	}
+},
+```
+
+### IEC104 server: All settings are identical to the client, except without the ```host``` field.
 ## Authors
 Contributors names and contact info:  
 - Alikhan Tokenov, alikhantokenov@gmail.com  

@@ -172,7 +172,8 @@ To start the connection, both ```start_client``` and ```start_server``` require 
 },
 ```
 
-### IEC104 server example: all settings are identical to the client, except without the ```host``` field.
+### IEC104 server example
+All settings are identical to the client, except without the ```host``` field.
 
 ## Architecture diagrams
 ### IEC104 client diagram

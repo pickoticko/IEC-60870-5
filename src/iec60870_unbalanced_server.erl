@@ -42,7 +42,7 @@ start(Root, Options) ->
     {ready, PID} ->
       PID;
     {'EXIT', PID, Reason} ->
-      ?LOGERROR("connection is down due to an error: ~p", [Reason]),
+      ?LOGERROR("server is down due to an error: ~p", [Reason]),
       throw(Reason)
   end.
 
@@ -85,18 +85,18 @@ loop(#data{
 } = Data) ->
   receive
     {data, Switch, #frame{address = ReqAddress}} when ReqAddress =/= Address ->
-      ?LOGWARNING("received unexpected data link address: ~p", [ReqAddress]),
+      ?LOGWARNING("server w/ link address ~p received unexpected link address: ~p", [Address, ReqAddress]),
       loop(Data);
-    {data, Switch, Unexpected = #frame{control_field = #control_field_response{}}}->
-      ?LOGWARNING("unexpected response frame received ~p", [Unexpected]),
+    {data, Switch, Unexpected = #frame{control_field = #control_field_response{}}} ->
+      ?LOGWARNING("server w/ link address ~p received unexpected response frame: ~p", [Address, Unexpected]),
       loop(Data);
     {data, Switch, #frame{control_field = CF, data = UserData}} ->
       case check_fcb(CF, FCB) of
         {ok, NextFCB} ->
           Data1 = handle_request(CF#control_field_request.function_code, UserData, Data),
           loop(Data1#data{fcb = NextFCB});
-        error->
-          ?LOGWARNING("check fcb error, cf ~p, FCB ~p", [CF, FCB]),
+        error ->
+          ?LOGWARNING("server w/ link address ~p got check fcb error. CF: ~p, FCB: ~p", [Address, CF, FCB]),
           case SentFrame of
             #frame{} -> send_response(Switch, SentFrame);
             _ -> ignore
@@ -104,17 +104,17 @@ loop(#data{
           loop(Data)
       end;
     {'DOWN', _, process, Connection, _Error} ->
-      ?LOGWARNING("server connection is down"),
+      ?LOGWARNING("server w/ link address ~p is down", [Address]),
       loop(Data#data{connection = undefined});
     {stop, Root} ->
-      ?LOGWARNING("server has been terminated by the owner")
+      ?LOGWARNING("server w/ link address ~p has been terminated by the owner", [Address])
   end.
 
-check_fcb(#control_field_request{fcv = 0, fcb = _ReqFCB} , _FCB) ->
+check_fcb(#control_field_request{fcv = 0, fcb = _ReqFCB}, _FCB) ->
   {ok, 0}; %% TODO. Is it correct to treat fcv = 0 as a reset?
-check_fcb(#control_field_request{fcv = 1, fcb = FCB} , FCB) ->
+check_fcb(#control_field_request{fcv = 1, fcb = FCB}, FCB) ->
   error;
-check_fcb(#control_field_request{fcv = 1, fcb = RecFCB} , _FCB) ->
+check_fcb(#control_field_request{fcv = 1, fcb = RecFCB}, _FCB) ->
   {ok, RecFCB}.
 
 handle_request(?RESET_REMOTE_LINK, _UserData, #data{
@@ -128,7 +128,7 @@ handle_request(?RESET_REMOTE_LINK, _UserData, #data{
 handle_request(?RESET_USER_PROCESS, _UserData, #data{
   switch = Switch,
   address = Address
-} = Data)->
+} = Data) ->
   % TODO. Do we need to do anything? May be restart connection?
   Data#data{
     sent_frame = send_response(Switch, ?ACKNOWLEDGE_FRAME(Address))
@@ -146,25 +146,26 @@ handle_request(?USER_DATA_CONFIRM, ASDU, #data{
         sent_frame = send_response(Switch, ?ACKNOWLEDGE_FRAME(Address))
       };
     true ->
-      ?LOGWARNING("user data with confirm frame type received on no longer alive connection ~p", [ASDU]),
+      ?LOGWARNING("received user data with confirm frame type on inactive server w/ link address: ~p, data: ~p", [Address, ASDU]),
       Data
   end;
 
 handle_request(?USER_DATA_NO_REPLY, ASDU, #data{
-  connection = Connection
+  connection = Connection,
+  address = Address
 } = Data) ->
   if
     is_pid(Connection) ->
       Connection ! {asdu, self(), ASDU};
     true ->
-      ?LOGWARNING("user data with no reply frame type received on no longer alive connection ~p", [ASDU])
+      ?LOGWARNING("received user data with no reply frame type on inactive server w/ link address: ~p, data: ~p", [Address, ASDU])
   end,
   Data;
 
 handle_request(?ACCESS_DEMAND, _UserData, #data{
   switch = Switch,
   address = Address
-} = Data)->
+} = Data) ->
   Data#data{
     sent_frame = send_response(Switch, #frame{
       address = Address,
@@ -184,7 +185,7 @@ handle_request(?REQUEST_STATUS_LINK, _UserData, #data{
 } = Data) ->
   if
     is_pid(Connection) ->
-      ?LOGINFO("server with link address ~p received request for status link...", [Address]),
+      ?LOGINFO("server w/ link address ~p received a request for status link", [Address]),
       Data#data{
         connection = Connection,
         sent_frame = send_response(Switch, #frame{
@@ -198,7 +199,7 @@ handle_request(?REQUEST_STATUS_LINK, _UserData, #data{
         })
       };
     true ->
-      ?LOGWARNING("request status link received on no longer alive connection"),
+      ?LOGWARNING("received status link request on inactive server w/ link address: ~p", [Address]),
       Data
   end;
 
@@ -218,7 +219,7 @@ handle_request(?REQUEST_DATA_CLASS_1, _UserData, #data{
     })
   };
 
-handle_request(?REQUEST_DATA_CLASS_2, UserData, #data{
+handle_request(?REQUEST_DATA_CLASS_2, _UserData, #data{
   switch = Switch,
   address = Address,
   connection = Connection
@@ -254,12 +255,12 @@ handle_request(?REQUEST_DATA_CLASS_2, UserData, #data{
         sent_frame = send_response(Switch, Response)
       };
     true ->
-      ?LOGWARNING("data class 2 request received on no longer alive connection ~p", [UserData]),
+      ?LOGWARNING("received data class 2 request on inactive server w/ link address: ~p", [Address]),
       Data
   end;
 
-handle_request(InvalidFC, _UserData, Data) ->
-  ?LOGERROR("invalid request function code received ~p", [InvalidFC]),
+handle_request(InvalidFC, _UserData, #data{address = Address} = Data) ->
+  ?LOGERROR("server w/ link address ~p received invalid request function code: ~p", [Address, InvalidFC]),
   Data.
 
 send_response(Switch, Frame) ->

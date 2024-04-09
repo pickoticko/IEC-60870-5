@@ -91,7 +91,7 @@ loop(#data{
       end,
       loop(Data);
     Unexpected ->
-      ?LOGWARNING("unexpected message ~p", [Unexpected]),
+      ?LOGWARNING("client received unexpected message: ~p", [Unexpected]),
       loop(Data)
   end.
 
@@ -215,7 +215,7 @@ port_loop(#port_state{port = Port, clients = Clients} = State) ->
     {'DOWN', _, process, Client, Reason}->
       port_loop(State#port_state{clients = stop_client(Client, Clients, Reason)});
     Unexpected ->
-      ?LOGWARNING("unexpected message received ~p", [Unexpected]),
+      ?LOGWARNING("client received unexpected message: ~p", [Unexpected]),
       port_loop(State)
   end.
 

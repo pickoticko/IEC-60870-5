@@ -51,11 +51,11 @@
 %% |                            API                               |
 %% +--------------------------------------------------------------+
 
-start_link(InOptions)->
+start_link(InOptions) ->
   Options = maps:merge(?DEFAULT_OPTIONS, InOptions),
   check_options(Options),
   Self = self(),
-  PID = spawn_link(fun()-> init(Self, Options) end),
+  PID = spawn_link(fun() -> init(Self, Options) end),
   receive
     {ready, PID} -> PID;
     {'EXIT', PID, Reason} -> throw(Reason)
@@ -114,21 +114,19 @@ loop(#state{
       end;
 
     {send, Owner, Frame} ->
-      % If the request is RESET_REMOTE_LINK then we purge all the stuff in the buffer
       State1 =
         case Frame#frame.control_field of
-          #control_field_request{ function_code = _ResetLink = 0 } ->
+          % If the request is reset remote link then we delete all the data from the buffer
+          #control_field_request{function_code = _ResetLink = 0} ->
             %% TODO: ClearWindow should be calculated from the baudrate
             timer:sleep(_ClearWindow = 100),
             drop_data(Port),
-            State#state{ buffer = <<>> };
-          _->
+            State#state{buffer = <<>>};
+          _ ->
             State
         end,
-
       Packet = build_frame(Frame, AddressSize),
       eserial:send(Port, Packet),
-
       loop(State1);
 
     {stop, Owner} ->
@@ -145,7 +143,7 @@ parse_frame(<<
         Checksum ->
           case parse_control_field(<<ControlField>>) of
             error ->
-              ?LOGERROR("invalid control field ~p", [ControlField]),
+              ?LOGERROR("invalid control field: ~p", [ControlField]),
               Tail;
             CFRec ->
               {#frame{
@@ -155,7 +153,7 @@ parse_frame(<<
               }, Tail}
           end;
         Sum ->
-          ?LOGERROR("invalid control sum ~p", [Sum]),
+          ?LOGERROR("invalid control sum: ~p", [Sum]),
           Tail
       end;
     _ ->
@@ -205,7 +203,7 @@ parse_frame(<<
       end
   end;
 
-parse_frame(<<?START_DATA_CHAR,_/binary>> = Buffer, _AddressSize) when size( Buffer ) < 4->
+parse_frame(<<?START_DATA_CHAR, _/binary>> = Buffer, _AddressSize) when size(Buffer) < 4 ->
   Buffer;
 
 parse_frame(<<_, Tail/binary>>, AddressSize) ->
@@ -270,7 +268,7 @@ build_control_field(#control_field_response{
 control_sum(Data) ->
   control_sum(Data, 0).
 
-control_sum(<<Head, Rest/binary>>, Sum)->
+control_sum(<<Head, Rest/binary>>, Sum) ->
   control_sum(Rest, Sum + Head);
 
 control_sum(<<>>, Sum) ->

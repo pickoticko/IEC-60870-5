@@ -102,6 +102,6 @@ remove_server(TargetPID, Servers) when length(Servers) > 0 ->
 
 %% No servers left to handle
 remove_server(_TargetPID, _Servers) ->
-  ?LOGWARNING("no servers to handle, switch is shutting down"),
+  ?LOGWARNING("no servers left to handle, switch is shutting down"),
   exit(shutdown).
 

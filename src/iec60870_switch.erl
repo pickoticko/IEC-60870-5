@@ -2,69 +2,82 @@
 -include("iec60870.hrl").
 -include("ft12.hrl").
 
+%%% +--------------------------------------------------------------+
+%%% |                             API                              |
+%%% +--------------------------------------------------------------+
+
 -export([
   start/1,
   add_server/2
 ]).
 
+%%% +--------------------------------------------------------------+
+%%% |                       Macros & Records                       |
+%%% +--------------------------------------------------------------+
+
 -record(switch_state, {
   name,
-  ft12_port,
+  port_ft12,
   servers
 }).
+
+%%% +--------------------------------------------------------------+
+%%% |                      API implementation                      |
+%%% +---------------------------------------API-----------------------+
 
 start(Options) ->
   Owner = self(),
   PID = spawn(fun() -> init_switch(Owner, Options) end),
   receive
-    {ready, PID, Switch} ->
-      Switch;
-    {error, PID, InitError} ->
-      exit(InitError)
+    {ready, PID, Switch} -> Switch;
+    {error, PID, InitError} -> exit(InitError)
   end.
 
-add_server( Switch, Address )->
-  erlang:monitor( process, Switch ),
+add_server(Switch, Address) ->
+  erlang:monitor(process, Switch),
   Switch ! {add_server, self(), Address},
   receive
     {ok, Switch} -> ok;
-    {error, Switch, Error} ->
-      exit( Error );
-    {'DOWN', _, process, Switch, Reason}->
-      exit(Reason )
+    {error, Switch, Error} -> exit(Error);
+    {'DOWN', _, process, Switch, Reason} -> exit(Reason)
   end.
+
+%%% +--------------------------------------------------------------+
+%%% |                      Internal functions                      |
+%%% +--------------------------------------------------------------+
 
 init_switch(ServerPID, #{port := PortName} = Options) ->
   RegisterName = list_to_atom(PortName),
-  case catch register( RegisterName, self() ) of
-    {'EXIT',_} ->
-      case whereis( RegisterName ) of
-        Switch when is_pid( Switch )->
+  case catch register(RegisterName, self()) of
+    % Probably already registered
+    % Check the registered PID by the port name
+    {'EXIT', _} ->
+      case whereis(RegisterName) of
+        Switch when is_pid(Switch) ->
           ServerPID ! {ready, self(), Switch};
-        _->
-          init_switch( ServerPID, Options )
+        _ ->
+          init_switch(ServerPID, Options)
       end;
+    % Succeeded to register port, start the switch
     true ->
       case catch iec60870_ft12:start_link(maps:with([port, port_options, address_size], Options)) of
-        {'EXIT',_} ->
-          ServerPID ! {error, self(), init_serial_port_error};
-        FT12_Port ->
+        {'EXIT', _} ->
+          ServerPID ! {error, self(), serial_port_init_fail};
+        PortFT12 ->
           ServerPID ! {ready, self(), self()},
-          switch_loop(#switch_state{ ft12_port = FT12_Port, servers = #{}, name = PortName } )
+          switch_loop(#switch_state{port_ft12 = PortFT12, servers = #{}, name = PortName})
       end
   end.
 
-
 switch_loop(#switch_state{
   name = Name,
-  ft12_port = FT12_Port,
+  port_ft12 = PortFT12,
   servers = Servers
 } = State) ->
-  io:format("Switch loop. Servers: ~p~n", [Servers]),
   receive
-    % Message from the FT12
-    {data, FT12_Port, Frame = #frame{address = LinkAddress}} ->
-      % Checking if the link address is served by a switch
+    % Message from FT12
+    {data, PortFT12, Frame = #frame{address = LinkAddress}} ->
+      % Check if the link address is served by a switch
       case maps:get(LinkAddress, Servers, none) of
         none ->
           ?LOGWARNING("switch received unexpected link address: ~p", [LinkAddress]);
@@ -73,43 +86,41 @@ switch_loop(#switch_state{
       end,
       switch_loop(State);
 
-    % Handle send requests from one of the servers
+    % Handle send requests from the server
     {send, ServerPID, Frame = #frame{address = LinkAddress}} ->
       % Checking if the link address is served by a switch
       case maps:get(LinkAddress, Servers, none) of
         none ->
           ?LOGWARNING("switch received unexpected link address: ~p", [LinkAddress]);
         ServerPID ->
-          iec60870_ft12:send(FT12_Port, Frame);
+          iec60870_ft12:send(PortFT12, Frame);
         _Other ->
           ?LOGWARNING("switch received unexpected server PID: ~p", [ServerPID])
       end,
       switch_loop(State);
 
-    % New server added to the switch
+    % Add new server to the switch
     {add_server, ServerPID, LinkAddress } ->
-      io:format("Switch. Adding server. Link Address: ~p, PID: ~p~n", [LinkAddress, ServerPID]),
       erlang:monitor(process, ServerPID),
       ServerPID ! {ok, self()},
       switch_loop(State#switch_state{
-        % PIDs are mapped through data link addresses
+        % Link addresses are associated with server PIDs
         servers = Servers#{LinkAddress => ServerPID}
       });
+
+    % Message from the server which has been shut down
     {'DOWN', _, process, DeadServer, _Reason} ->
-      io:format("Switch. Down from ~p!~n", [DeadServer]),
-      RestServers = maps:filter(fun(_A, PID)-> PID =/= DeadServer end, Servers),
+      % Retrieve all servers except the one that has been shut down
+      RestServers = maps:filter(fun(_A, PID) -> PID =/= DeadServer end, Servers),
       if
-        map_size( RestServers ) =:= 0 ->
-          ?LOGINFO("~p stop server shared port",[ Name ]),
-          exit( normal );
+        map_size(RestServers) =:= 0 ->
+          ?LOGINFO("switch on port ~p has been shutdown due to no remaining servers", [Name]),
+          exit(normal);
         true ->
           switch_loop(State#switch_state{servers = RestServers})
       end;
+
     Unexpected ->
-      ?LOGWARNING("switch received unexpected message: ~p", [Unexpected]),
+      ?LOGWARNING("switch on port ~p received unexpected message: ~p", [Name, Unexpected]),
       switch_loop(State)
   end.
-
-
-
-

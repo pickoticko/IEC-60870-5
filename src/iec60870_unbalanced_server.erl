@@ -57,15 +57,11 @@ stop(PID) ->
 init(Root, #{
   address := Address
 } = Options) ->
-
   Switch = iec60870_switch:start(Options),
+  iec60870_switch:add_server(Switch, Address),
 
-  iec60870_switch:add_server( Switch, Address ),
-
-  %% TODO: We should start connection before returning ready, not vice versa.
   Root ! {ready, self()},
-
-  Connection = start_connection( Root ),
+  Connection = start_connection(Root),
 
   loop(#data{
     name = maps:get(port, Options),
@@ -76,7 +72,7 @@ init(Root, #{
     fcb = undefined
   }).
 
-start_connection( Root )->
+start_connection(Root) ->
   case iec60870_server:start_connection(Root, {?MODULE, self()}, self()) of
     {ok, NewConnection} ->
       erlang:monitor(process, NewConnection),

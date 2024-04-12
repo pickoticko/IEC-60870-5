@@ -1,3 +1,8 @@
+%%% +----------------------------------------------------------------+
+%%% | Copyright (c) 2024. Tokenov Alikhan, alikhantokenov@gmail.com  |
+%%% | All rights reserved.                                           |
+%%% | License can be found in the LICENSE file.                      |
+%%% +----------------------------------------------------------------+
 
 -ifndef(iec60870_balanced).
 -define(iec60870_balanced, 1).

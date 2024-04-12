@@ -1,3 +1,8 @@
+%%% +----------------------------------------------------------------+
+%%% | Copyright (c) 2024. Tokenov Alikhan, alikhantokenov@gmail.com  |
+%%% | All rights reserved.                                           |
+%%% | License can be found in the LICENSE file.                      |
+%%% +----------------------------------------------------------------+
 
 -ifndef(iec60870_unbalanced).
 -define(iec60870_unbalanced, 1).
@@ -20,6 +25,5 @@
 -define(STATUS_LINK_ACCESS_DEMAND, 11).
 -define(ERR_NOT_FUNCTIONING, 14).
 -define(ERR_NOT_IMPLEMENTED, 15).
-
 
 -endif.

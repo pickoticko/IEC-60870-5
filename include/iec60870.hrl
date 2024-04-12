@@ -1,9 +1,11 @@
-%% +--------------------------------------------------------------+
-%% | Copyright (c) 2023, Faceplate LTD. All Rights Reserved.      |
-%% | Author: Tokenov Alikhan, @alikhantokenov@gmail.com           |
-%% +--------------------------------------------------------------+
+%%% +----------------------------------------------------------------+
+%%% | Copyright (c) 2024. Tokenov Alikhan, alikhantokenov@gmail.com  |
+%%% | All rights reserved.                                           |
+%%% | License can be found in the LICENSE file.                      |
+%%% +----------------------------------------------------------------+
+
 -ifndef(iec60870).
--define(iec608701, 1).
+-define(iec60870, 1).
 
 -define(LOGERROR(Text), logger:error(Text)).
 -define(LOGERROR(Text,Params), logger:error( Text, Params)).

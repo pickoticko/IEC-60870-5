@@ -1,4 +1,4 @@
-# IEC104 Protocol Library
+# IEC-60870-5 Protocol Library
 
 ## Description
 **IEC-60870-5 (IEC101 & IEC104)** is a standard for power system monitoring, control, and other related communications to automate electric power systems.  

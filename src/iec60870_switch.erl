@@ -11,39 +11,56 @@
   servers
 }).
 
-start(#{port := PortName} = Options) ->
-  case whereis(list_to_atom(PortName)) of
-    Switch when is_pid(Switch) ->
-      link(Switch),
-      Switch ! {add_server, self(), Options},
-      receive
-        {ready, Switch} -> Switch;
-        {error, Switch, Error} -> exit(Error);
-        {'EXIT', Switch, Reason} -> exit(Reason)
-      end;
-    _ ->
-      ServerPID = self(),
-      Switch = spawn_link(fun() -> init_switch(ServerPID, Options) end),
-      receive
-        {ready, Switch} -> Switch;
-        {'EXIT', Switch, Reason} -> exit(Reason)
-      end
+start(Options) ->
+  Owner = self(),
+  PID = spawn(fun() -> init_switch(Owner, Options) end),
+  receive
+    {ready, PID, Switch} -> Switch;
+    {'EXIT', PID, Reason} -> exit(Reason)
   end.
 
 init_switch(ServerPID, Options = #{port := PortName, address := Address}) ->
-  Port = iec60870_ft12:start_link(maps:with([port, port_options, address_size], Options)),
-  ServerPID ! {ready, self()},
-  erlang:register(list_to_atom(PortName), self()),
-  erlang:monitor(process, ServerPID),
-  switch_loop(#switch_state{
-    port = Port,
-    servers = #{Address => ServerPID}
-  }).
+  % Succeeded to register switch port
+  case iec60870_lib:try_register(list_to_atom(PortName), self()) of
+    ok ->
+      io:format("Switch. Register success, PID: ~p, address: ~p~n", [self(), Address]),
+      process_flag(trap_exit, true),
+      erlang:monitor(process, ServerPID),
+      link(ServerPID),
+      Port = iec60870_ft12:start_link(maps:with([port, port_options, address_size], Options)),
+      ServerPID ! {ready, self(), self()},
+      switch_loop(#switch_state{
+        port = Port,
+        servers = #{Address => ServerPID}
+      });
+    % Failed to register switch port.
+    % Check for existing port.
+    {error, failed} ->
+      io:format("Switch. Already registered, PID: ~p, address: ~p~n", [self(), Address]),
+      case whereis(list_to_atom(PortName)) of
+        Switch when is_pid(Switch) ->
+          Switch ! {add_server, self(), ServerPID, Options},
+          receive
+            {success, Switch} ->
+              ServerPID ! {ready, self(), Switch},
+              Switch;
+            {error, Switch, Error} ->
+              exit(Error);
+            {'EXIT', Switch, Reason} ->
+              exit(Reason)
+          end;
+        % No registered ports found
+        _Error ->
+          ?LOGERROR("failed to find switch"),
+          exit(shutdown)
+      end
+  end.
 
 switch_loop(#switch_state{
   port = Port,
   servers = Servers
 } = State) ->
+  io:format("Switch loop. Servers: ~p~n", [Servers]),
   receive
     % Message from the FT12
     {data, Port, Frame = #frame{address = LinkAddress}} ->
@@ -70,9 +87,11 @@ switch_loop(#switch_state{
       switch_loop(State);
 
     % New server added to the switch
-    {add_server, NewServerPID, #{address := NewLinkAddress} = _Options} ->
-      NewServerPID ! {ready, self()},
+    {add_server, From, NewServerPID, #{address := NewLinkAddress} = _Options} ->
+      io:format("Switch. Adding server. Link Address: ~p, PID: ~p~n", [NewLinkAddress, NewServerPID]),
+      link(NewServerPID),
       erlang:monitor(process, NewServerPID),
+      From ! {success, self()},
       switch_loop(State#switch_state{
         % PIDs are mapped through data link addresses
         servers = Servers#{NewLinkAddress => NewServerPID}
@@ -80,8 +99,10 @@ switch_loop(#switch_state{
 
     % Handling signals from the servers
     {'EXIT', DeadServer, _Reason} ->
+      io:format("Switch. Exit from ~p!~n", [DeadServer]),
       switch_loop(State#switch_state{servers = remove_server(DeadServer, Servers)});
     {'DOWN', _, process, DeadServer, _Reason} ->
+      io:format("Switch. Down from ~p!~n", [DeadServer]),
       switch_loop(State#switch_state{servers = remove_server(DeadServer, Servers)});
 
     Unexpected ->
@@ -90,18 +111,20 @@ switch_loop(#switch_state{
   end.
 
 %% Remove a server PID value from the map
-remove_server(TargetPID, Servers) when length(Servers) > 0 ->
-  TargetKey = maps:fold(
-    fun(Key, Value, AccIn) ->
-      case Value =:= TargetPID of
-        true -> Key;
-        false -> AccIn
-      end
-    end, null, Servers),
-  maps:remove(TargetKey, Servers);
+remove_server(TargetPID, Servers) ->
+  case maps:size(Servers) > 0 of
+    true ->
+      TargetKey = maps:fold(
+        fun(Key, Value, AccIn) ->
+          case Value =:= TargetPID of
+            true -> Key;
+            false -> AccIn
+          end
+        end, null, Servers),
+      maps:remove(TargetKey, Servers);
+    false ->
+      ?LOGWARNING("no servers left to handle, switch is shutting down"),
+      exit(shutdown)
+  end.
 
-%% No servers left to handle
-remove_server(_TargetPID, _Servers) ->
-  ?LOGWARNING("no servers left to handle, switch is shutting down"),
-  exit(shutdown).
 

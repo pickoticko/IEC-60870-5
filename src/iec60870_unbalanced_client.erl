@@ -150,37 +150,50 @@ transaction(FC, Data, Port, OnResponse) ->
 %% |                         Shared port                          |
 %% +--------------------------------------------------------------+
 
-start_port(#{port := PortName} = Options) ->
-  case whereis(list_to_atom(PortName)) of
-    Port when is_pid(Port) ->
-      link(Port),
-      Port ! {add_client, self(), Options},
-      receive
-        {ready, Port} -> Port;
-        {error, Port, Error} -> exit(Error);
-        {'EXIT', Port, Reason} -> exit(Reason)
-      end;
-    _ ->
-      Client = self(),
-      Port = spawn_link(fun() -> init_port(Client, Options) end),
-      receive
-        {ready, Port} -> Port;
-        {'EXIT', Port, Reason} -> exit(Reason)
-      end
+start_port(Options) ->
+  Client = self(),
+  PID = spawn(fun() -> init_port(Client, Options) end),
+  receive
+    {ready, PID, Port} -> Port;
+    {'EXIT', PID, Reason} -> exit(Reason)
   end.
 
 init_port(Client, #{port := PortName} = Options) ->
-  Port = iec60870_ft12:start_link(maps:with([port, port_options, address_size], Options)),
-  erlang:register(list_to_atom(PortName), self()),
-  case start_client(Port, Client, Options) of
-    {ok, State} ->
-      Client ! {ready, self()},
-      port_loop(#port_state{port = Port, clients = #{Client => State}});
-    {error, Error} ->
-      exit(Error)
+  case iec60870_lib:try_register(list_to_atom(PortName), self()) of
+    % Succeeded to register port
+    % Initializing port
+    ok ->
+      process_flag(trap_exit, true),
+      link(Client),
+      Port = iec60870_ft12:start_link(maps:with([port, port_options, address_size], Options)),
+      case start_client(Port, Client, Options) of
+        {ok, State} ->
+          Client ! {ready, self(), Port},
+          port_loop(#port_state{port = Port, clients = #{Client => State}});
+        {error, Error} ->
+          exit(Error)
+      end;
+    % Port registration failed, it probably already exists elsewhere.
+    % Check for existing port.
+    {error, failed} ->
+      case whereis(list_to_atom(PortName)) of
+        Port when is_pid(Port) ->
+          Port ! {add_client, Client, Options},
+          receive
+            {success, Port} ->
+              Client ! {ready, self(), Port},
+              Port;
+            {error, Port, Error} -> exit(Error);
+            {'EXIT', Port, Reason} -> exit(Reason)
+          end;
+        % No registered ports found
+        _Error ->
+          ?LOGERROR("failed to get shared port"),
+          exit(shutdown)
+      end
   end.
 
-port_loop(#port_state{port = Port, clients = Clients} = State) ->
+port_loop(#port_state{port = Port, clients = Clients} = SharedState) ->
   receive
     {request, From, FC, Data, OnResponse} ->
       case Clients of
@@ -188,35 +201,39 @@ port_loop(#port_state{port = Port, clients = Clients} = State) ->
           case iec60870_101:transaction(FC, Data, OnResponse, ClientState) of
             {ok, NewClientState} ->
               From ! {ok, self()},
-              port_loop(State#port_state{
+              port_loop(SharedState#port_state{
                 clients = Clients#{
                   From => NewClientState
                 }
               });
             {error, Error} ->
               From ! {error, self(), Error},
-              port_loop(State)
+              port_loop(SharedState)
           end
       end;
+
     {add_client, Client, Options} ->
       case start_client(Port, Client, Options) of
-        {ok, State} ->
-          Client ! {ready, self()},
-          port_loop(State#port_state{
-            clients = #{
-              Client => State
+        {ok, NewClientState} ->
+          link(Client),
+          Client ! {success, self()},
+          port_loop(SharedState#port_state{
+            clients = Clients#{
+              Client => NewClientState
             }
           });
         {error, Error} ->
           exit(Error)
       end;
+
     {'EXIT', Client, Reason} ->
-      port_loop(State#port_state{clients = stop_client(Client, Clients, Reason)});
+      port_loop(SharedState#port_state{clients = stop_client(Client, Clients, Reason)});
     {'DOWN', _, process, Client, Reason}->
-      port_loop(State#port_state{clients = stop_client(Client, Clients, Reason)});
+      port_loop(SharedState#port_state{clients = stop_client(Client, Clients, Reason)});
+
     Unexpected ->
       ?LOGWARNING("client received unexpected message: ~p", [Unexpected]),
-      port_loop(State)
+      port_loop(SharedState)
   end.
 
 start_client(Port, Client, #{

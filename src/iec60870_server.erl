@@ -1,11 +1,17 @@
+%%% +----------------------------------------------------------------+
+%%% | Copyright (c) 2024. Tokenov Alikhan, alikhantokenov@gmail.com  |
+%%% | All rights reserved.                                           |
+%%% | License that can be found in the LICENSE file.                 |
+%%% +----------------------------------------------------------------+
+
 -module(iec60870_server).
 
 -include("iec60870.hrl").
 -include("asdu.hrl").
 
-%% +--------------------------------------------------------------+
-%% |                           External API                       |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                              API                             |
+%%% +--------------------------------------------------------------+
 
 -export([
   start/1,
@@ -17,15 +23,19 @@
   get_pid/1
 ]).
 
-%% +--------------------------------------------------------------+
-%% |                        Cross module API                      |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                        Cross module API                      |
+%%% +--------------------------------------------------------------+
 
 -export([
   start_connection/3,
   find_group_items/2,
   update_value/3
 ]).
+
+%%% +--------------------------------------------------------------+
+%%% |                       Macros & Records                       |
+%%% +--------------------------------------------------------------+
 
 -record(?MODULE, {
   storage,
@@ -40,10 +50,6 @@
   connection_settings
 }).
 
-%% +--------------------------------------------------------------+
-%% |                           Macros                             |
-%% +--------------------------------------------------------------+
-
 -define(COMMAND_HANDLER_ARITY, 3).
 -define(REQUIRED, {?MODULE, required}).
 
@@ -56,7 +62,7 @@
 }, ?DEFAULT_ASDU_SETTINGS)).
 
 %% +--------------------------------------------------------------+
-%% |                             API                              |
+%% |                      API implementation                      |
 %% +--------------------------------------------------------------+
 
 start(InSettings) ->
@@ -73,7 +79,6 @@ start(InSettings) ->
 
 stop(#?MODULE{pid = PID}) ->
   exit(PID, shutdown);
-
 stop(_) ->
   throw(bad_arg).
 
@@ -103,7 +108,6 @@ subscribe(#?MODULE{name = Name}, PID, AddressList) when is_pid(PID), is_list(Add
      esubscribe:subscribe(Name, Address, PID)
    end || Address <- AddressList],
   ok;
-
 subscribe(#?MODULE{name = Name}, PID, Address) when is_pid(PID) ->
   esubscribe:subscribe(Name, Address, PID);
 subscribe(_, _, _) ->
@@ -130,9 +134,9 @@ get_pid(#?MODULE{pid = PID}) ->
 get_pid(_) ->
   throw(bad_arg).
 
-%% +--------------------------------------------------------------+
-%% |                       Cross Module API                       |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                Cross Module API Implementation               |
+%%% +--------------------------------------------------------------+
 
 find_group_items(#?MODULE{storage = Storage}, _GroupID = 0) ->
   ets:tab2list(Storage);
@@ -168,60 +172,6 @@ update_value(#?MODULE{name = Name, storage = Storage}, ID, InValue) ->
 %% +--------------------------------------------------------------+
 %% |                       Internal functions                     |
 %% +--------------------------------------------------------------+
-
-check_settings(Settings)->
-  SettingsList = maps:to_list(Settings),
-  case [S || {S, ?REQUIRED} <- SettingsList] of
-    [] -> ok;
-    Required -> throw({required, Required})
-  end,
-  case maps:keys(Settings) -- maps:keys(?DEFAULT_SETTINGS) of
-    [] -> ok;
-    InvalidParams -> throw({invalid_params, InvalidParams})
-  end,
-  OwnSettings = maps:without(maps:keys(?DEFAULT_ASDU_SETTINGS), Settings),
-  maps:merge(
-    maps:map(fun check_setting/2, OwnSettings),
-    maps:with(maps:keys(?DEFAULT_ASDU_SETTINGS), Settings)
-  ).
-
-check_setting(name, ConnectionName)
-  when is_atom(ConnectionName) -> ConnectionName;
-
-check_setting(command_handler, undefined) ->
-  undefined;
-check_setting(command_handler, HandlerFunction)
-  when is_function(HandlerFunction, ?COMMAND_HANDLER_ARITY) -> HandlerFunction;
-
-check_setting(type, Type)
-  when Type =:= '101'; Type =:= '104' -> Type;
-
-check_setting(connection, Settings)
-  when is_map(Settings) -> Settings;
-
-check_setting(groups, Groups) when is_list(Groups) ->
-  [case Group of
-     #{id := _ID} ->
-       Group;
-     Group when is_integer(Group) ->
-       #{
-         id => Group,
-         update => undefined
-       };
-     _ ->
-       throw({bad_group_settings, Group})
-   end || Group <- lists:uniq(Groups)];
-check_setting(groups, undefined) ->
-  [];
-
-check_setting(Key, _) ->
-  throw({invalid_settings, Key}).
-
-check_value(Value) ->
-  case maps:is_key(value, Value) of
-    true -> ok;
-    false -> throw({error, value_parameter_missing})
-  end.
 
 init_server(Owner, #{
   name := Name,
@@ -295,5 +245,56 @@ await_connection(#state{
       await_connection(State)
   end.
 
+check_settings(Settings)->
+  SettingsList = maps:to_list(Settings),
+  case [S || {S, ?REQUIRED} <- SettingsList] of
+    [] -> ok;
+    Required -> throw({required, Required})
+  end,
+  case maps:keys(Settings) -- maps:keys(?DEFAULT_SETTINGS) of
+    [] -> ok;
+    InvalidParams -> throw({invalid_params, InvalidParams})
+  end,
+  OwnSettings = maps:without(maps:keys(?DEFAULT_ASDU_SETTINGS), Settings),
+  maps:merge(
+    maps:map(fun check_setting/2, OwnSettings),
+    maps:with(maps:keys(?DEFAULT_ASDU_SETTINGS), Settings)
+  ).
 
+check_setting(name, ConnectionName)
+  when is_atom(ConnectionName) -> ConnectionName;
 
+check_setting(command_handler, undefined) ->
+  undefined;
+check_setting(command_handler, HandlerFunction)
+  when is_function(HandlerFunction, ?COMMAND_HANDLER_ARITY) -> HandlerFunction;
+
+check_setting(type, Type)
+  when Type =:= '101'; Type =:= '104' -> Type;
+
+check_setting(connection, Settings)
+  when is_map(Settings) -> Settings;
+
+check_setting(groups, Groups) when is_list(Groups) ->
+  [case Group of
+     #{id := _ID} ->
+       Group;
+     Group when is_integer(Group) ->
+       #{
+         id => Group,
+         update => undefined
+       };
+     _ ->
+       throw({bad_group_settings, Group})
+   end || Group <- lists:uniq(Groups)];
+check_setting(groups, undefined) ->
+  [];
+
+check_setting(Key, _) ->
+  throw({invalid_settings, Key}).
+
+check_value(Value) ->
+  case maps:is_key(value, Value) of
+    true -> ok;
+    false -> throw({error, value_parameter_missing})
+  end.

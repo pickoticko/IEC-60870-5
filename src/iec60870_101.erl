@@ -1,7 +1,7 @@
 %%% +----------------------------------------------------------------+
 %%% | Copyright (c) 2024. Tokenov Alikhan, alikhantokenov@gmail.com  |
 %%% | All rights reserved.                                           |
-%%% | License that can be found in the LICENSE file.                 |
+%%% | License can be found in the LICENSE file.                      |
 %%% +----------------------------------------------------------------+
 
 -module(iec60870_101).

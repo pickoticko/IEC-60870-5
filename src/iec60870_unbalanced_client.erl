@@ -1,17 +1,27 @@
+%%% +----------------------------------------------------------------+
+%%% | Copyright (c) 2024. Tokenov Alikhan, alikhantokenov@gmail.com  |
+%%% | All rights reserved.                                           |
+%%% | License can be found in the LICENSE file.                      |
+%%% +----------------------------------------------------------------+
+
 -module(iec60870_unbalanced_client).
 
 -include("iec60870.hrl").
 -include("ft12.hrl").
 -include("unbalanced.hrl").
 
+%%% +--------------------------------------------------------------+
+%%% |                             API                              |
+%%% +--------------------------------------------------------------+
+
 -export([
   start/2,
   stop/1
 ]).
 
-%% +--------------------------------------------------------------+
-%% |                           Macros                             |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                       Macros & Records                       |
+%%% +--------------------------------------------------------------+
 
 -define(START_TIMEOUT, 1000).
 -define(CYCLE, 100).
@@ -41,9 +51,9 @@
   port
 }).
 
-%% +--------------------------------------------------------------+
-%% |                             API                              |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                       API implementation                     |
+%%% +--------------------------------------------------------------+
 
 start(Owner, Options) ->
   PID = spawn_link(fun() -> init_client(Owner, Options) end),
@@ -58,18 +68,17 @@ start(Owner, Options) ->
       exit(PID, Reason)
   end.
 
-stop(Port)->
+stop(Port) ->
   exit(Port, shutdown).
 
-%% +--------------------------------------------------------------+
-%% |                      Internal functions                      |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                      Internal functions                      |
+%%% +--------------------------------------------------------------+
 
 init_client(Owner, Options) ->
   Port = start_port(Options),
   connect(Port, Options),
   Owner ! {connected, self()},
-
   timer:send_after(?CYCLE, {update, self()}),
   loop(#data{
     name = maps:get(port, Options),
@@ -77,15 +86,15 @@ init_client(Owner, Options) ->
     port = Port
   }).
 
-connect( Port, Options )->
-  erlang:monitor( process, Port ),
+connect(Port, Options) ->
+  erlang:monitor(process, Port),
   Port ! {add_client, self(), Options},
   receive
     {ok, Port} -> ok;
     {error, Port, ConnectError} ->
-      exit( ConnectError );
-    {'DOWN', _, process, Port, Reason}->
-      exit(Reason )
+      exit(ConnectError);
+    {'DOWN', _, process, Port, Reason} ->
+      exit(Reason)
   end.
 
 loop(#data{
@@ -103,13 +112,13 @@ loop(#data{
         ok ->
           success;
         {error, Error} ->
-          %% Failed send errors are handled by client state machine
+          % Failed send errors are handled by client state machine
           Owner ! {send_error, self(), Error}
       end,
       loop(Data);
-    {'DOWN', _, process, Port, Reason}->
+    {'DOWN', _, process, Port, Reason} ->
       ?LOGWARNING("~p client down because of the port error: ~p", [Name, Reason]),
-      exit( {down_port, Reason} );
+      exit({down_port, Reason});
     Unexpected ->
       ?LOGWARNING("~p client received unexpected message: ~p", [Name, Unexpected]),
       loop(Data)
@@ -154,7 +163,7 @@ send_asdu(ASDU, Port) ->
       end
     end,
   case transaction(?USER_DATA_CONFIRM, ASDU, Port, OnResponse) of
-    ok-> ok;
+    ok -> ok;
     {error, Error} -> {error, Error}
   end.
 
@@ -166,9 +175,9 @@ transaction(FC, Data, Port, OnResponse) ->
     {'EXIT', Port, Reason} -> {error, {port_error, Reason}}
   end.
 
-%% +--------------------------------------------------------------+
-%% |                         Shared port                          |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                         Shared port                          |
+%%% +--------------------------------------------------------------+
 
 start_port(Options) ->
   Client = self(),

@@ -1,7 +1,17 @@
+%%% +----------------------------------------------------------------+
+%%% | Copyright (c) 2024. Tokenov Alikhan, alikhantokenov@gmail.com  |
+%%% | All rights reserved.                                           |
+%%% | License can be found in the LICENSE file.                      |
+%%% +----------------------------------------------------------------+
+
 -module(iec60870_asdu).
 
 -include("iec60870.hrl").
 -include("asdu.hrl").
+
+%%% +--------------------------------------------------------------+
+%%% |                            API                               |
+%%% +--------------------------------------------------------------+
 
 -export([
   get_settings/1,
@@ -9,9 +19,9 @@
   build/2
 ]).
 
-%% +--------------------------------------------------------------+
-%% |                           Macros                             |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                           Macros                             |
+%%%Ғ +--------------------------------------------------------------+
 
 %% SQ (Structure Qualifier) bit specifies how information are addressed
 -define(SQ_DISCONTINUOUS, 0).
@@ -24,10 +34,11 @@
 -define(TRANSPORT_CONSTANT_COST, 4).
 -define(ASDU_CONSTANT_COST, 3).
 
-%% +--------------------------------------------------------------+
-%% |                             API                              |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                         Implementation                       |
+%%% +--------------------------------------------------------------+
 
+%% ASDU parser
 parse(ASDU, #{
   coa := InCOA,
   ioa_size := IOABitSize,
@@ -59,6 +70,7 @@ parse(ASDU, #{
     objects = ParsedObjects
   }.
 
+%% ASDU builder
 build(#asdu{
   type = Type,
   cot = COT,
@@ -98,15 +110,16 @@ build(#asdu{
       (create_information_objects(Type, InformationObjects, IOABitSize))/binary>>
    end || InformationObjects <- InformationObjectsList].
 
+%% Bytes conversion to bits
 get_settings(#{
   coa_size := COASize,
   org_size := ORGSize,
   ioa_size := IOASize
 } = Settings) ->
   Settings#{
-    coa_size => COASize * 8,
-    org_size => ORGSize * 8,
-    ioa_size => IOASize * 8
+    coa_size => iec60870_lib:bytes_to_bits(COASize),
+    org_size => iec60870_lib:bytes_to_bits(ORGSize),
+    ioa_size => iec60870_lib:bytes_to_bits(IOASize)
   }.
 
 %% +--------------------------------------------------------------+

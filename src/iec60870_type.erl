@@ -1,26 +1,35 @@
-%% +--------------------------------------------------------------+
-%% | Copyright (c) 2023, Faceplate LTD. All Rights Reserved.      |
-%% | Author: Tokenov Alikhan, @alikhantokenov@gmail.com           |
-%% +--------------------------------------------------------------+
+%%% +----------------------------------------------------------------+
+%%% | Copyright (c) 2024. Tokenov Alikhan, alikhantokenov@gmail.com  |
+%%% | All rights reserved.                                           |
+%%% | License can be found in the LICENSE file.                      |
+%%% +----------------------------------------------------------------+
 
 -module(iec60870_type).
 
 -include("iec60870.hrl").
 -include("asdu.hrl").
 
+%%% +--------------------------------------------------------------+
+%%% |                             API                              |
+%%% +--------------------------------------------------------------+
+
 -export([
   parse_information_element/2,
   create_information_element/2
 ]).
+
+%%% +--------------------------------------------------------------+
+%%% |                       Macros & Records                       |
+%%% +--------------------------------------------------------------+
 
 -define(MILLIS_IN_MINUTE, 60000).
 -define(UNIX_EPOCH_DATE, {1970, 1, 1}).
 -define(UNIX_EPOCH_SECONDS, 62167219200).
 -define(CURRENT_MILLENNIUM, 2000).
 
-%% +--------------------------------------------------------------+
-%% |                           Parsing                            |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                           Parsing                            |
+%%% +--------------------------------------------------------------+
 
 %% Type 1. Single point information
 parse_information_element(?M_SP_NA_1, <<SIQ>>) ->
@@ -631,6 +640,8 @@ seconds_to_millis(Seconds) -> Seconds * 1000.
 
 -define(SHORT_INT_MIN_VALUE, -32768).
 -define(SHORT_INT_MAX_VALUE, 32767).
+
+%% NVA parsing and building
 
 %% Range = Short Int Max - Short Int Min
 -define(DELTA_X, 65535).

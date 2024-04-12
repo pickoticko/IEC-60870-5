@@ -30,11 +30,13 @@
 }).
 
 -record(port_state, {
-  port,
+  name,
+  ft12_port,
   clients
 }).
 
 -record(data, {
+  name,
   owner,
   port
 }).
@@ -64,15 +66,33 @@ stop(Port)->
 %% +--------------------------------------------------------------+
 
 init_client(Owner, Options) ->
+
   Port = start_port(Options),
+
+  connect( Port, Options ),
+
   Owner ! {connected, self()},
   timer:send_after(?CYCLE, {update, self()}),
+
   loop(#data{
+    name = maps:get(port, Options),
     owner = Owner,
     port = Port
   }).
 
+connect( Port, Options )->
+  erlang:monitor( process, Port ),
+  Port ! {add_client, self(), Options},
+  receive
+    {ok, Port} -> ok;
+    {error, Port, ConnectError} ->
+      exit( ConnectError );
+    {'DOWN', _, process, Port, Reason}->
+      exit(Reason )
+  end.
+
 loop(#data{
+  name = Name,
   owner = Owner,
   port = Port
 } = Data) ->
@@ -90,8 +110,11 @@ loop(#data{
           Owner ! {send_error, self(), Error}
       end,
       loop(Data);
+    {'DOWN', _, process, Port, Reason}->
+      ?LOGWARNING("~p client down because of the port error: ~p", [Name, Reason]),
+      exit( {down_port, Reason} );
     Unexpected ->
-      ?LOGWARNING("client received unexpected message: ~p", [Unexpected]),
+      ?LOGWARNING("~p client received unexpected message: ~p", [Name, Unexpected]),
       loop(Data)
   end.
 
@@ -154,46 +177,33 @@ start_port(Options) ->
   Client = self(),
   PID = spawn(fun() -> init_port(Client, Options) end),
   receive
-    {ready, PID, Port} -> Port;
-    {'EXIT', PID, Reason} -> exit(Reason)
+    {ready, PID, Port} ->
+      Port;
+    {error, PID, InitError} ->
+      exit(InitError)
   end.
 
 init_port(Client, #{port := PortName} = Options) ->
-  case iec60870_lib:try_register(list_to_atom(PortName), self()) of
-    % Succeeded to register port
-    % Initializing port
-    ok ->
-      process_flag(trap_exit, true),
-      link(Client),
-      Port = iec60870_ft12:start_link(maps:with([port, port_options, address_size], Options)),
-      case start_client(Port, Client, Options) of
-        {ok, State} ->
-          Client ! {ready, self(), Port},
-          port_loop(#port_state{port = Port, clients = #{Client => State}});
-        {error, Error} ->
-          exit(Error)
+  RegisterName = list_to_atom(PortName),
+  case catch register( RegisterName, self() ) of
+    {'EXIT',_} ->
+      case whereis( RegisterName ) of
+        Port when is_pid( Port )->
+          Client ! {ready, self(), Port};
+        _->
+          init_client( Client, Options )
       end;
-    % Port registration failed, it probably already exists elsewhere.
-    % Check for existing port.
-    {error, failed} ->
-      case whereis(list_to_atom(PortName)) of
-        Port when is_pid(Port) ->
-          Port ! {add_client, Client, Options},
-          receive
-            {success, Port} ->
-              Client ! {ready, self(), Port},
-              Port;
-            {error, Port, Error} -> exit(Error);
-            {'EXIT', Port, Reason} -> exit(Reason)
-          end;
-        % No registered ports found
-        _Error ->
-          ?LOGERROR("failed to get shared port"),
-          exit(shutdown)
+    true ->
+      case catch iec60870_ft12:start_link(maps:with([port, port_options, address_size], Options)) of
+        {'EXIT',_} ->
+          Client ! {error, self(), init_serial_port_error};
+        FT12_Port ->
+          Client ! {ready, self(), self()},
+          port_loop(#port_state{ ft12_port = FT12_Port, clients = #{}, name = PortName } )
       end
   end.
 
-port_loop(#port_state{port = Port, clients = Clients} = SharedState) ->
+port_loop(#port_state{ft12_port = FT12_Port, clients = Clients, name = Name} = SharedState) ->
   receive
     {request, From, FC, Data, OnResponse} ->
       case Clients of
@@ -213,48 +223,42 @@ port_loop(#port_state{port = Port, clients = Clients} = SharedState) ->
       end;
 
     {add_client, Client, Options} ->
-      case start_client(Port, Client, Options) of
+      case start_client(FT12_Port, Options) of
         {ok, NewClientState} ->
-          link(Client),
-          Client ! {success, self()},
+          erlang:monitor(process, Client),
+          Client ! {ok, self()},
           port_loop(SharedState#port_state{
             clients = Clients#{
               Client => NewClientState
             }
           });
         {error, Error} ->
-          exit(Error)
+          Client ! {error, self(), Error},
+          port_loop( SharedState )
       end;
-
-    {'EXIT', Client, Reason} ->
-      port_loop(SharedState#port_state{clients = stop_client(Client, Clients, Reason)});
-    {'DOWN', _, process, Client, Reason}->
-      port_loop(SharedState#port_state{clients = stop_client(Client, Clients, Reason)});
-
+    {'DOWN', _, process, Client, _Reason}->
+      RestClients = maps:remove( Client, Clients ),
+      if
+        map_size( RestClients ) =:= 0 ->
+          ?LOGINFO("~p stop client shared port",[ Name ]),
+          exit( normal );
+        true ->
+          port_loop(SharedState#port_state{clients = RestClients})
+      end;
     Unexpected ->
       ?LOGWARNING("client received unexpected message: ~p", [Unexpected]),
       port_loop(SharedState)
   end.
 
-start_client(Port, Client, #{
+start_client(FT12_Port, #{
   address := Address,
   timeout := Timeout,
   attempts := Attempts
 }) ->
-  SendReceive = fun(Request) -> iec60870_101:send_receive(Port, Request, Timeout) end,
+  SendReceive = fun(Request) -> iec60870_101:send_receive(FT12_Port, Request, Timeout) end,
   case iec60870_101:connect(Address, _Direction = 0, SendReceive, Attempts) of
     {ok, State} ->
-      erlang:monitor(process, Client),
       {ok, State};
     Error ->
       Error
-  end.
-
-stop_client(Client, Clients, Reason)->
-  case maps:remove(Client, Clients) of
-    Clients1 when map_size(Clients1) > 0 ->
-      Clients1;
-    _ ->
-      ?LOGERROR("client is shut down due to a reason: ~p", [Reason]),
-      exit(shutdown)
   end.

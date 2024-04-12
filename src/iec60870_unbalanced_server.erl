@@ -24,6 +24,7 @@
 }).
 
 -record(data, {
+  name,
   root,
   address,
   switch,
@@ -56,18 +57,18 @@ stop(PID) ->
 init(Root, #{
   address := Address
 } = Options) ->
+
   Switch = iec60870_switch:start(Options),
+
+  iec60870_switch:add_server( Switch, Address ),
+
   %% TODO: We should start connection before returning ready, not vice versa.
   Root ! {ready, self()},
-  Connection =
-    case iec60870_server:start_connection(Root, {?MODULE, self()}, self()) of
-      {ok, NewConnection} ->
-        erlang:monitor(process, NewConnection),
-        NewConnection;
-      error ->
-        exit(server_stm_start_failed)
-    end,
+
+  Connection = start_connection( Root ),
+
   loop(#data{
+    name = maps:get(port, Options),
     root = Root,
     address = Address,
     switch = Switch,
@@ -75,7 +76,17 @@ init(Root, #{
     fcb = undefined
   }).
 
+start_connection( Root )->
+  case iec60870_server:start_connection(Root, {?MODULE, self()}, self()) of
+    {ok, NewConnection} ->
+      erlang:monitor(process, NewConnection),
+      NewConnection;
+    error ->
+      exit(server_stm_start_failed)
+  end.
+
 loop(#data{
+  name = Name,
   root = Root,
   switch = Switch,
   address = Address,
@@ -104,8 +115,12 @@ loop(#data{
           loop(Data)
       end;
     {'DOWN', _, process, Connection, _Error} ->
-      ?LOGWARNING("server w/ link address ~p is down", [Address]),
-      loop(Data#data{connection = undefined});
+      ?LOGWARNING("~p server w/ link address ~p is down", [Name, Address]),
+      NewConnection = start_connection( Root ),
+      loop(Data#data{connection = NewConnection});
+    {'DOWN', _, process, Switch, SwitchError} ->
+      ?LOGWARNING("~p server w/ link address ~p is down because of the switch error: ~p", [Name, Address, SwitchError]),
+      exit( SwitchError );
     {stop, Root} ->
       ?LOGWARNING("server w/ link address ~p has been terminated by the owner", [Address])
   end.
@@ -139,27 +154,15 @@ handle_request(?USER_DATA_CONFIRM, ASDU, #data{
   switch = Switch,
   address = Address
 } = Data) ->
-  if
-    is_pid(Connection) ->
-      Connection ! {asdu, self(), ASDU},
-      Data#data{
-        sent_frame = send_response(Switch, ?ACKNOWLEDGE_FRAME(Address))
-      };
-    true ->
-      ?LOGWARNING("received user data with confirm frame type on inactive server w/ link address: ~p, data: ~p", [Address, ASDU]),
-      Data
-  end;
+  Connection ! {asdu, self(), ASDU},
+  Data#data{
+    sent_frame = send_response(Switch, ?ACKNOWLEDGE_FRAME(Address))
+  };
 
 handle_request(?USER_DATA_NO_REPLY, ASDU, #data{
-  connection = Connection,
-  address = Address
+  connection = Connection
 } = Data) ->
-  if
-    is_pid(Connection) ->
-      Connection ! {asdu, self(), ASDU};
-    true ->
-      ?LOGWARNING("received user data with no reply frame type on inactive server w/ link address: ~p, data: ~p", [Address, ASDU])
-  end,
+  Connection ! {asdu, self(), ASDU},
   Data;
 
 handle_request(?ACCESS_DEMAND, _UserData, #data{
@@ -180,28 +183,19 @@ handle_request(?ACCESS_DEMAND, _UserData, #data{
 
 handle_request(?REQUEST_STATUS_LINK, _UserData, #data{
   switch = Switch,
-  address = Address,
-  connection = Connection
+  address = Address
 } = Data) ->
-  if
-    is_pid(Connection) ->
-      ?LOGINFO("server w/ link address ~p received a request for status link", [Address]),
-      Data#data{
-        connection = Connection,
-        sent_frame = send_response(Switch, #frame{
-          address = Address,
-          control_field = #control_field_response{
-            direction = 0,
-            acd = 0,
-            dfc = 0,
-            function_code = ?STATUS_LINK_ACCESS_DEMAND
-          }
-        })
-      };
-    true ->
-      ?LOGWARNING("received status link request on inactive server w/ link address: ~p", [Address]),
-      Data
-  end;
+  Data#data{
+    sent_frame = send_response(Switch, #frame{
+      address = Address,
+      control_field = #control_field_response{
+        direction = 0,
+        acd = 0,
+        dfc = 0,
+        function_code = ?STATUS_LINK_ACCESS_DEMAND
+      }
+    })
+  };
 
 handle_request(?REQUEST_DATA_CLASS_1, _UserData, #data{
   switch = Switch,
@@ -224,40 +218,34 @@ handle_request(?REQUEST_DATA_CLASS_2, _UserData, #data{
   address = Address,
   connection = Connection
 } = Data) ->
-  if
-    is_pid(Connection) ->
-      Response =
-        case check_data(Connection) of
-          {ok, ConnectionData} ->
-            #frame{
-              address = Address,
-              control_field = #control_field_response{
-                direction = 0,
-                acd = 0,
-                dfc = 0,
-                function_code = ?USER_DATA
-              },
-              data = ConnectionData
-            };
-          _ ->
-            %% Data isn't available
-            #frame{
-              address = Address,
-              control_field = #control_field_response{
-                direction = 0,
-                acd = 0,
-                dfc = 0,
-                function_code = ?NACK_DATA_NOT_AVAILABLE
-              }
-            }
-        end,
-      Data#data{
-        sent_frame = send_response(Switch, Response)
-      };
-    true ->
-      ?LOGWARNING("received data class 2 request on inactive server w/ link address: ~p", [Address]),
-      Data
-  end;
+  Response =
+    case check_data(Connection) of
+      {ok, ConnectionData} ->
+        #frame{
+          address = Address,
+          control_field = #control_field_response{
+            direction = 0,
+            acd = 0,
+            dfc = 0,
+            function_code = ?USER_DATA
+          },
+          data = ConnectionData
+        };
+      _ ->
+        %% Data isn't available
+        #frame{
+          address = Address,
+          control_field = #control_field_response{
+            direction = 0,
+            acd = 0,
+            dfc = 0,
+            function_code = ?NACK_DATA_NOT_AVAILABLE
+          }
+        }
+    end,
+  Data#data{
+    sent_frame = send_response(Switch, Response)
+  };
 
 handle_request(InvalidFC, _UserData, #data{address = Address} = Data) ->
   ?LOGERROR("server w/ link address ~p received invalid request function code: ~p", [Address, InvalidFC]),

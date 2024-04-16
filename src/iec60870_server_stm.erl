@@ -324,6 +324,7 @@ send_items(Items, Connection, COT, ASDUSettings) ->
        cot = COT,
        objects = Objects
      }, ASDUSettings),
+     ?LOGINFO("DEBUG. List ASDU size: ~p, Type: ~p", [length(ListASDU), Type]),
      [send_asdu(Connection, ASDU) || ASDU <- ListASDU]
    end || {Type, Objects} <- ByTypes].
 

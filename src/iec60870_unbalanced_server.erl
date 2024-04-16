@@ -221,11 +221,13 @@ handle_request(?REQUEST_DATA_CLASS_1, _UserData, #data{
     })
   };
 
-handle_request(?REQUEST_DATA_CLASS_2, _UserData, #data{
+handle_request(RequestData, _UserData, #data{
   switch = Switch,
   address = Address,
   connection = Connection
-} = Data) ->
+} = Data)
+  when RequestData =:= ?REQUEST_DATA_CLASS_1;
+       RequestData =:= ?REQUEST_DATA_CLASS_2 ->
   Response =
     case check_data(Connection) of
       {ok, ConnectionData} ->

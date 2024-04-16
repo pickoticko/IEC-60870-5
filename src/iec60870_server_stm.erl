@@ -63,16 +63,16 @@ handle_event(enter, _PrevState, ?RUNNING, _Data) ->
   keep_state_and_data;
 
 %% Event from esubscribe
-handle_event(info, {Name, update, {_IOA, _Value}, _, Actor}, ?RUNNING, #data{
+handle_event(info, {Name, update, {IOA, Value}, _, Actor}, ?RUNNING, #data{
   settings = #{
     name := Name,
-    asdu := _ASDUSettings
+    asdu := ASDUSettings
   },
-  connection = _Connection
+  connection = Connection
 }) when Actor =/= self() ->
   % Getting all updates
-%%  Items = [Object || {Object, _Node, A} <- esubscribe:lookup(Name, update), A =/= self()],
-%%  send_items([{IOA, Value} | Items], Connection, ?COT_SPONT, ASDUSettings),
+  Items = [Object || {Object, _Node, A} <- esubscribe:wait(Name, update, 1000), A =/= self()],
+  send_items([{IOA, Value} | Items], Connection, ?COT_SPONT, ASDUSettings),
   keep_state_and_data;
 
 %% From the connection

@@ -229,6 +229,7 @@ handle_asdu(#asdu{
   },
   connection = Connection
 }) ->
+  ?LOGINFO("DEBUG: Server group request start! GroupID: ~p", [GroupID]),
   % +-------------[ Send initialization ]-------------+
   [Confirmation] = iec60870_asdu:build(#asdu{
     type = ?C_IC_NA_1,
@@ -248,6 +249,7 @@ handle_asdu(#asdu{
     objects = [{IOA, GroupID}]
   }, ASDUSettings),
   send_asdu(Connection, Termination),
+  ?LOGINFO("DEBUG: Server group request end! GroupID: ~p", [GroupID]),
   keep_state_and_data;
 
 %% Counter Interrogation Command

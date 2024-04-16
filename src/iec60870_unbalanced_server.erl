@@ -142,6 +142,7 @@ handle_request(?RESET_REMOTE_LINK, _UserData, #data{
   switch = Switch,
   address = Address
 } = Data) ->
+  ?LOGINFO("DEBUG. Server received RESET REMOTE LINK!"),
   Data#data{
     sent_frame = send_response(Switch, ?ACKNOWLEDGE_FRAME(Address))
   };
@@ -207,6 +208,7 @@ handle_request(?REQUEST_DATA_CLASS_1, _UserData, #data{
   switch = Switch,
   address = Address
 } = Data) ->
+  ?LOGINFO("DEBUG. Server request DATA CLASS 1!"),
   Data#data{
     sent_frame = send_response(Switch, #frame{
       address = Address,
@@ -227,6 +229,7 @@ handle_request(?REQUEST_DATA_CLASS_2, _UserData, #data{
   Response =
     case check_data(Connection) of
       {ok, ConnectionData} ->
+        ?LOGINFO("DEBUG. Server request DATA CLASS 2!"),
         #frame{
           address = Address,
           control_field = #control_field_response{
@@ -238,6 +241,7 @@ handle_request(?REQUEST_DATA_CLASS_2, _UserData, #data{
           data = ConnectionData
         };
       _ ->
+        ?LOGINFO("DEBUG. Server request DATA CLASS 2, NO DATA!"),
         %% Data isn't available
         #frame{
           address = Address,

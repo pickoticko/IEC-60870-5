@@ -43,6 +43,7 @@
   connection
 }).
 
+-define(CONNECTION_TIMEOUT, 300000). % 1 min
 %% +--------------------------------------------------------------+
 %% |                       API implementation                     |
 %% +--------------------------------------------------------------+
@@ -129,6 +130,12 @@ loop(#data{
       exit( SwitchError );
     {stop, Root} ->
       ?LOGWARNING("server w/ link address ~p has been terminated by the owner", [Address])
+%%    {asdu, _Connection, _Data} when FCB =:= undefined->
+%%      loop(Data)
+  after
+    ?CONNECTION_TIMEOUT->
+      drop_queue(),
+      loop(Data)
   end.
 
 check_fcb(#control_field_request{fcv = 0, fcb = _ReqFCB}, _FCB) ->
@@ -143,6 +150,7 @@ handle_request(?RESET_REMOTE_LINK, _UserData, #data{
   address = Address
 } = Data) ->
   ?LOGINFO("DEBUG. Server received RESET REMOTE LINK!"),
+  drop_asdu(),
   Data#data{
     sent_frame = send_response(Switch, ?ACKNOWLEDGE_FRAME(Address))
   };
@@ -204,23 +212,6 @@ handle_request(?REQUEST_STATUS_LINK, _UserData, #data{
     })
   };
 
-handle_request(?REQUEST_DATA_CLASS_1, _UserData, #data{
-  switch = Switch,
-  address = Address
-} = Data) ->
-  ?LOGINFO("DEBUG. Server request DATA CLASS 1!"),
-  Data#data{
-    sent_frame = send_response(Switch, #frame{
-      address = Address,
-      control_field = #control_field_response{
-        direction = 0,
-        acd = 0,
-        dfc = 0,
-        function_code = ?NACK_DATA_NOT_AVAILABLE
-      }
-    })
-  };
-
 handle_request(RequestData, _UserData, #data{
   switch = Switch,
   address = Address,
@@ -272,4 +263,18 @@ check_data(Connection) ->
     {asdu, Connection, Data} -> {ok, Data}
   after
     0 -> undefined
+  end.
+
+drop_asdu() ->
+  receive
+    {asdu, _Connection, _Data} -> drop_asdu()
+  after
+    0 -> ok
+  end.
+
+drop_queue() ->
+  receive
+    _Any -> drop_queue()
+  after
+    0 -> ok
   end.

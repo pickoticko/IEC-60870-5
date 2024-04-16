@@ -161,13 +161,31 @@ update_value(#?MODULE{name = Name, storage = Storage}, ID, InValue) ->
       }
     end,
   Value = maps:merge(OldValue, InValue),
-  %% Value must contain 'value' parameter
-  check_value(Value),
-  ets:insert(Storage, {ID, Value}),
-  %% Any updates notification
-  esubscribe:notify(Name, update, {ID, Value}),
-  %% Only address notification
-  esubscribe:notify(Name, ID, Value).
+  case is_equal( Value, OldValue ) of
+    true ->
+      ?LOGINFO("DEBUG: ~p is equal",[ID]),
+      ok;
+    _->
+      ?LOGINFO("DEBUG: ~p sporadic update",[ID]),
+      %% Value must contain 'value' parameter
+      check_value(Value),
+      ets:insert(Storage, {ID, Value}),
+      %% Any updates notification
+      esubscribe:notify(Name, update, {ID, Value}),
+      %% Only address notification
+      esubscribe:notify(Name, ID, Value)
+  end.
+
+is_equal( Value, #{ type:=Type, value:=_Value }=PrevValue )->
+  try
+    iec60870_type:create_information_element( Type, Value )
+      =:=
+    iec60870_type:create_information_element( Type, PrevValue )
+  catch
+    _:_->false
+  end;
+is_equal( _Value, _PrevValue )->
+  false.
 
 %% +--------------------------------------------------------------+
 %% |                       Internal functions                     |

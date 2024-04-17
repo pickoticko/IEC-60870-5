@@ -130,8 +130,9 @@ loop(#data{
       exit( SwitchError );
     {stop, Root} ->
       ?LOGWARNING("server w/ link address ~p has been terminated by the owner", [Address])
-%%    {asdu, _Connection, _Data} when FCB =:= undefined->
-%%      loop(Data)
+%%  TODO: Should we ignore ASDU?
+%%  {asdu, _Connection, _Data} when FCB =:= undefined->
+%%    loop(Data)
   after
     ?CONNECTION_TIMEOUT->
       drop_queue(),

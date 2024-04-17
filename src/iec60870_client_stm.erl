@@ -1,12 +1,18 @@
+%%% +----------------------------------------------------------------+
+%%% | Copyright (c) 2024. Tokenov Alikhan, alikhantokenov@gmail.com  |
+%%% | All rights reserved.                                           |
+%%% | License can be found in the LICENSE file.                      |
+%%% +----------------------------------------------------------------+
+
 -module(iec60870_client_stm).
 -behaviour(gen_statem).
 
 -include("iec60870.hrl").
 -include("asdu.hrl").
 
-%% +--------------------------------------------------------------+
-%% |                           OTP API                            |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                            OTP API                           |
+%%% +--------------------------------------------------------------+
 
 -export([
   callback_mode/0,
@@ -16,9 +22,9 @@
   terminate/3
 ]).
 
-%% +--------------------------------------------------------------+
-%% |                           Macros                             |
-%% +--------------------------------------------------------------+
+%%% +---------------------------------------------------------------+
+%%% |                         Macros & Records                      |
+%%% +---------------------------------------------------------------+
 
 -record(data, {
   esubscribe,
@@ -30,10 +36,7 @@
   asdu
 }).
 
-%% +--------------------------------------------------------------+
-%% |                           States                             |
-%% +--------------------------------------------------------------+
-
+%% States
 -define(CONNECTING, connecting).
 -define(CONNECTED, connected).
 -define(ACTIVATION, activation).
@@ -41,9 +44,9 @@
 -define(INIT_GROUPS, init_groups).
 -define(GROUP_REQUEST, group_request).
 
-%% +--------------------------------------------------------------+
-%% |                   OTP gen_statem behaviour                   |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                  OTP behaviour implementation                |
+%%% +--------------------------------------------------------------+
 
 callback_mode() -> [
   handle_event_function,
@@ -77,9 +80,9 @@ init({Owner, #{
     groups = Groups
   }}.
 
-%% +--------------------------------------------------------------+
-%% |                      Connecting State                        |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                      Connecting State                        |
+%%% +--------------------------------------------------------------+
 
 handle_event(enter, _PrevState, {?CONNECTING, _, _}, _Data) ->
   {keep_state_and_data, [{state_timeout, 0, connect}]};
@@ -98,9 +101,9 @@ handle_event(state_timeout, connect, {?CONNECTING, Type, Settings}, #data{
       {stop, Reason, Data}
   end;
 
-%% +--------------------------------------------------------------+
-%% |                      Init Groups State                       |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                      Init Groups State                       |
+%%% +--------------------------------------------------------------+
 
 handle_event(enter, _PrevState, {?INIT_GROUPS, _}, _Data) ->
   {keep_state_and_data, [{state_timeout, 0, init}]};
@@ -112,14 +115,14 @@ handle_event(state_timeout, init, {?INIT_GROUPS, []}, #data{
   owner = Owner,
   storage = Storage
 } = Data) ->
-  %% All groups have been received, the cache is ready
-  %% and therefore we can return a reference to it
+  % All groups have been received, the cache is ready
+  % and therefore we can return a reference to it
   Owner ! {ready, self(), Storage},
   {next_state, ?CONNECTED, Data};
 
-%% +--------------------------------------------------------------+
-%% |                        Group request                         |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                        Group request                         |
+%%% +--------------------------------------------------------------+
 
 handle_event(enter, _PrevState, {?GROUP_REQUEST, init, #{id := GroupID}, _}, #data{
   connection = Connection,
@@ -151,9 +154,9 @@ handle_event(state_timeout, timeout, {?GROUP_REQUEST, update, #{id := ID}, _Next
   ?LOGWARNING("group request timeout on group: ~p", [ID]),
   {stop, {group_request_timeout, ID}};
 
-%% +--------------------------------------------------------------+
-%% |                Sending remote control command                |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                Sending remote control command                |
+%%% +--------------------------------------------------------------+
 
 handle_event(enter, _PrevState, {?WRITE, _From, IOA, #{type := Type} = Value}, #data{
   connection = Connection,
@@ -171,9 +174,9 @@ handle_event(enter, _PrevState, {?WRITE, _From, IOA, #{type := Type} = Value}, #
 handle_event(state_timeout, _PrevState, {?WRITE, From, _, _}, Data) ->
   {next_state, ?CONNECTED, Data, [{reply, From, write_timeout}]};
 
-%% +--------------------------------------------------------------+
-%% |                          Connected                           |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                          Connected                           |
+%%% +--------------------------------------------------------------+
 
 handle_event(enter, _PrevState, ?CONNECTED, _Data) ->
   keep_state_and_data;
@@ -193,17 +196,17 @@ handle_event({call, From}, {write, IOA, Value}, State, Data) ->
       {keep_state_and_data, [{reply, From, {error, {connection_not_ready, State}}}]}
   end;
 
-%% +--------------------------------------------------------------+
-%% |                        Other events                          |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                        Other events                          |
+%%% +--------------------------------------------------------------+
 
-%% Notify event from esubscriber
+%% Notify event from esubscribe
 handle_event(info, {write, IOA, Value}, _State, #data{
   name = Name,
   connection = Connection,
   asdu = ASDUSettings
 }) ->
-  %% Getting all updates
+  % Getting all updates
   NextItems = [Object || {Object, _Node, A} <- esubscribe:lookup(Name, update), A =/= self()],
   Items = [{IOA, Value} | NextItems],
   send_items([{IOA, Value} | Items], Connection, ?COT_SPONT, ASDUSettings),
@@ -250,7 +253,7 @@ handle_event(EventType, EventContent, _AnyState, #data{name = Name}) ->
 
 terminate(Reason, _, _State = #data{esubscribe = PID}) when Reason =:= normal; Reason =:= shutdown ->
   exit(PID, shutdown),
-  ?LOGDEBUG("client connection terminated with reason: ~p", [Reason]),
+  ?LOGWARNING("client connection terminated with reason: ~p", [Reason]),
   ok;
 
 terminate(Reason, _, _State) ->
@@ -282,13 +285,13 @@ handle_asdu(#asdu{
   [update_value(Name, Storage, IOA, Value#{type => Type, group => Group}) || {IOA, Value} <- Objects],
   keep_state_and_data;
 
-%% +--------------------------------------------------------------+
-%% |                     Handling write request                   |
-%% +--------------------------------------------------------------+
-%% | Note: We do not expect that there will be a strict sequence  |
-%% | of responses from the server so, if we get activation        |
-%% | termination, then we assume that the write has succeeded     |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                     Handling write request                   |
+%%% +--------------------------------------------------------------+
+%%% | Note: We do not expect that there will be a strict sequence  |
+%%% | of responses from the server so, if we get activation        |
+%%% | termination, then we assume that the write has succeeded     |
+%%% +--------------------------------------------------------------+
 
 handle_asdu(#asdu{
   type = Type,
@@ -296,23 +299,18 @@ handle_asdu(#asdu{
   pn = PN,
   objects = [{IOA, _ }]
 }, {?WRITE, From, IOA, #{type := Type} = _Value}, Data)
-  when (Type >= ?C_SC_NA_1 andalso Type =< ?C_BO_NA_1)
-    orelse (Type >= ?C_SC_TA_1 andalso Type =< ?C_BO_TA_1) ->
+  when (Type >= ?C_SC_NA_1 andalso Type =< ?C_BO_NA_1) orelse
+       (Type >= ?C_SC_TA_1 andalso Type =< ?C_BO_TA_1) ->
   case {COT, PN} of
     {?COT_ACTCON, ?POSITIVE_PN} -> keep_state_and_data;
     {?COT_ACTCON, ?NEGATIVE_PN} -> {next_state, ?CONNECTED, Data, [{reply, From, {error, negative_confirmation}}]};
     {?COT_ACTTERM, ?POSITIVE_PN} -> {next_state, ?CONNECTED, Data, [{reply, From, ok}]};
-    {?COT_ACTTERM, ?NEGATIVE_PN} -> {next_state, ?CONNECTED, Data, [{reply, From, {error, negative_termination}}]};
-    %% TODO: Temporary case clause (RAPTOR compatibility, SHOULD REMOVE IT)
-    {RaptorCOT, ?POSITIVE_PN} when (RaptorCOT =:= 1) orelse (RaptorCOT =:= 20) ->
-      {next_state, ?CONNECTED, Data, [{reply, From, ok}]};
-    {_OtherCOT, ?NEGATIVE_PN} ->
-      {next_state, ?CONNECTED, Data, [{reply, From, {error, negative_pn}}]}
+    {?COT_ACTTERM, ?NEGATIVE_PN} -> {next_state, ?CONNECTED, Data, [{reply, From, {error, negative_termination}}]}
   end;
 
-%% +--------------------------------------------------------------+
-%% |                     Handling group request                   |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                     Handling group request                   |
+%%% +--------------------------------------------------------------+
 
 %% Confirmation of the group request
 handle_asdu(#asdu{
@@ -372,6 +370,7 @@ handle_asdu(#asdu{} = Unexpected, State, #data{name = Name}) ->
   ?LOGWARNING("~p unexpected ASDU type is received: ASDU ~p, state ~p", [Name, Unexpected, State]),
   keep_state_and_data.
 
+%% Sending data objects
 send_items(Items, Connection, COT, ASDUSettings) ->
   TypedItems = group_by_types(Items),
   [begin
@@ -401,7 +400,7 @@ update_value(Name, Storage, ID, InValue) ->
     case ets:lookup(Storage, ID) of
       [{_, Map}] -> Map;
       _ -> #{
-        %% All object types have these keys
+        % All object types have these keys
         value => undefined,
         group => undefined
       }

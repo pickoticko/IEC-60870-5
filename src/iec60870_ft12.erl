@@ -1,16 +1,18 @@
-%% +--------------------------------------------------------------+
-%% | Copyright (c) 2023, Faceplate LTD. All Rights Reserved.      |
-%% | Author: Tokenov Alikhan, @alikhantokenov@gmail.com           |
-%% +--------------------------------------------------------------+
+%%% +----------------------------------------------------------------+
+%%% | Copyright (c) 2024. Tokenov Alikhan, alikhantokenov@gmail.com  |
+%%% | All rights reserved.                                           |
+%%% | License can be found in the LICENSE file.                      |
+%%% +----------------------------------------------------------------+
 
 -module(iec60870_ft12).
 
 -include("iec60870.hrl").
 -include("ft12.hrl").
 
-%% +--------------------------------------------------------------+
-%% |                           API                                |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                           API                                |
+%%% +--------------------------------------------------------------+
+
 -export([
   check_options/1,
   start_link/1,
@@ -18,9 +20,9 @@
   stop/1
 ]).
 
-%% +--------------------------------------------------------------+
-%% |                           Macros                             |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                           Macros                             |
+%%% +--------------------------------------------------------------+
 
 -record(state, {
   owner,
@@ -47,15 +49,15 @@
 -define(START_CMD_CHAR, 16#10).
 -define(END_CHAR, 16#16).
 
-%% +--------------------------------------------------------------+
-%% |                            API                               |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                      API Implementation                      |
+%%% +--------------------------------------------------------------+
 
-start_link(InOptions)->
+start_link(InOptions) ->
   Options = maps:merge(?DEFAULT_OPTIONS, InOptions),
   check_options(Options),
   Self = self(),
-  PID = spawn_link(fun()-> init(Self, Options) end),
+  PID = spawn_link(fun() -> init(Self, Options) end),
   receive
     {ready, PID} -> PID;
     {'EXIT', PID, Reason} -> throw(Reason)
@@ -65,19 +67,18 @@ send(Port, Frame) ->
   Port ! {send, self(), Frame},
   ok.
 
-check_options(#{port := Port} = _Options) when is_list(Port); is_binary(Port) ->
-  % TODO. validate other options
-  ok;
-
-check_options(_) ->
-  throw(invalid_options).
-
 stop(Port) ->
   Port ! {stop, self()}.
 
-%% +--------------------------------------------------------------+
-%% |                      Internal functions                      |
-%% +--------------------------------------------------------------+
+check_options(#{port := Port} = _Options) when is_list(Port); is_binary(Port) ->
+  % TODO. validate other options
+  ok;
+check_options(_) ->
+  throw(invalid_options).
+
+%%% +--------------------------------------------------------------+
+%%% |                      Internal functions                      |
+%%% +--------------------------------------------------------------+
 
 init(Owner, #{
   port := PortName,
@@ -114,21 +115,19 @@ loop(#state{
       end;
 
     {send, Owner, Frame} ->
-      % If the request is RESET_REMOTE_LINK then we purge all the stuff in the buffer
       State1 =
         case Frame#frame.control_field of
-          #control_field_request{ function_code = _ResetLink = 0 } ->
-            %% TODO: ClearWindow should be calculated from the baudrate
+          % If the request is reset remote link then we delete all the data from the buffer
+          #control_field_request{function_code = _ResetLink = 0} ->
+            % TODO: ClearWindow should be calculated from the baudrate
             timer:sleep(_ClearWindow = 100),
             drop_data(Port),
-            State#state{ buffer = <<>> };
-          _->
+            State#state{buffer = <<>>};
+          _ ->
             State
         end,
-
       Packet = build_frame(Frame, AddressSize),
       eserial:send(Port, Packet),
-
       loop(State1);
 
     {stop, Owner} ->
@@ -145,7 +144,7 @@ parse_frame(<<
         Checksum ->
           case parse_control_field(<<ControlField>>) of
             error ->
-              ?LOGERROR("invalid control field ~p", [ControlField]),
+              ?LOGERROR("invalid control field: ~p", [ControlField]),
               Tail;
             CFRec ->
               {#frame{
@@ -155,12 +154,13 @@ parse_frame(<<
               }, Tail}
           end;
         Sum ->
-          ?LOGERROR("invalid control sum ~p", [Sum]),
+          ?LOGERROR("invalid control sum: ~p", [Sum]),
           Tail
       end;
     _ ->
       if
-        size(Buffer) < (4 + AddressSize) -> % Frame length
+        % Frame length
+        size(Buffer) < (4 + AddressSize) ->
           Buffer;
         true ->
           <<_, TailBuffer/binary>> = Buffer,
@@ -197,7 +197,8 @@ parse_frame(<<
       end;
     _ ->
       if
-        size(Body) < (2 + LengthL) -> % Frame length
+        % Frame length
+        size(Body) < (2 + LengthL) ->
           Buffer;
         true ->
           <<_, TailBuffer/binary>> = Buffer,
@@ -205,7 +206,7 @@ parse_frame(<<
       end
   end;
 
-parse_frame(<<?START_DATA_CHAR,_/binary>> = Buffer, _AddressSize) when size( Buffer ) < 4->
+parse_frame(<<?START_DATA_CHAR, _/binary>> = Buffer, _AddressSize) when size(Buffer) < 4 ->
   Buffer;
 
 parse_frame(<<_, Tail/binary>>, AddressSize) ->
@@ -267,15 +268,16 @@ build_control_field(#control_field_response{
 }) ->
   <<DIR:1, 0:1, ACD:1, DFC:1, FunctionCode:4>>.
 
+%% Calculating control sum of the received packet to verify it
 control_sum(Data) ->
   control_sum(Data, 0).
 
-control_sum(<<Head, Rest/binary>>, Sum)->
+control_sum(<<Head, Rest/binary>>, Sum) ->
   control_sum(Rest, Sum + Head);
-
 control_sum(<<>>, Sum) ->
   Sum rem 256.
 
+%% Clear the process mailbox of these messages
 drop_data(Port) ->
   receive
     {Port, data, _Data} -> drop_data(Port)

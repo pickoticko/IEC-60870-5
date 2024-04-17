@@ -1,17 +1,27 @@
+%%% +----------------------------------------------------------------+
+%%% | Copyright (c) 2024. Tokenov Alikhan, alikhantokenov@gmail.com  |
+%%% | All rights reserved.                                           |
+%%% | License can be found in the LICENSE file.                      |
+%%% +----------------------------------------------------------------+
+
 -module(iec60870_balanced).
 
 -include("iec60870.hrl").
 -include("ft12.hrl").
 -include("balanced.hrl").
 
+%%% +--------------------------------------------------------------+
+%%% |                            API                               |
+%%% +--------------------------------------------------------------+
+
 -export([
   start/2,
   stop/1
 ]).
 
-%% +--------------------------------------------------------------+
-%% |                           Macros                             |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                       Macros & Records                       |
+%%% +--------------------------------------------------------------+
 
 -define(ACKNOWLEDGE_FRAME(Address, Direction),#frame{
   address = Address,
@@ -35,9 +45,9 @@
   connection
 }).
 
-%% +--------------------------------------------------------------+
-%% |                             API                              |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                      API implementation                      |
+%%% +--------------------------------------------------------------+
 
 start(Direction, Options) ->
   Owner = self(),
@@ -50,9 +60,9 @@ start(Direction, Options) ->
 stop(PID) ->
   PID ! {stop, self()}.
 
-%% +--------------------------------------------------------------+
-%% |                      Internal functions                      |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                      Internal functions                      |
+%%% +--------------------------------------------------------------+
 
 init(Owner, Direction, #{
   address := Address,
@@ -107,30 +117,30 @@ loop(#data{
   receive
     {data, Port, #frame{address = ReqAddress}} when ReqAddress =/= Address ->
       loop(Data);
-    {data, Port, #frame{control_field = #control_field_request{} =CF, data = UserData}} ->
-      case check_fcb( CF ) of
+    {data, Port, #frame{control_field = #control_field_request{} = CF, data = UserData}} ->
+      case check_fcb(CF) of
         ok ->
           Data1 = handle_request(CF#control_field_request.function_code, UserData, Data),
-          loop( Data1 );
+          loop(Data1);
         error ->
           ?LOGWARNING("check fcb error, cf ~p", [CF]),
           % On error we have to repeat the last sent frame
-          case get( sent_frame ) of
+          case get(sent_frame) of
             RepeatFrame = #frame{} ->
               % On error we should repeat the last sent frame
               iec60870_ft12:send(Port, RepeatFrame);
-            _->
+            _ ->
               ignore
           end,
           loop(Data)
       end;
     {asdu, Connection, ASDU} ->
       OnResponse =
-        fun( Response )->
+        fun(Response) ->
           case Response of
-            #frame{ control_field = #control_field_response{ function_code = ?ACKNOWLEDGE }}->
+            #frame{control_field = #control_field_response{function_code = ?ACKNOWLEDGE}} ->
               ok;
-            _->
+            _ ->
               error
           end
         end,
@@ -144,13 +154,13 @@ loop(#data{
     {stop, Owner} ->
       iec60870_ft12:stop(Port);
     Unexpected ->
-      ?LOGWARNING("unexpected message ~p",[ Unexpected ]),
-      loop( Data )
+      ?LOGWARNING("unexpected message ~p", [Unexpected]),
+      loop(Data)
   end.
 
-send_receive( #data{ port = Port } = Data, Request, Timeout )->
+send_receive(#data{port = Port} = Data, Request, Timeout) ->
   iec60870_ft12:send(Port, Request),
-  await_response( Timeout, Data ).
+  await_response(Timeout, Data).
 
 await_response(Timeout, #data{
   port = Port,
@@ -164,25 +174,29 @@ await_response(Timeout, #data{
     {data, Port, #frame{control_field = #control_field_response{}} = Response} ->
       {ok, Response};
 
-    {data, Port, #frame{control_field = #control_field_request{} =CF, data = UserData}} ->
+    {data, Port, #frame{control_field = #control_field_request{} = CF, data = UserData}} ->
       handle_request(CF#control_field_request.function_code, UserData, Data),
       await_response(Timeout - ?DURATION(CurrentTime), Data)
   after
-    Timeout -> {error,Data}
+    Timeout -> {error, Data}
   end;
-await_response(_Timeout, _Data)->
+await_response(_Timeout, _Data) ->
   {error, timeout}.
 
-check_fcb( #control_field_request{fcv = 0, fcb = _ReqFCB} )->
-  put(fcb, 0), %% TODO. Is it correct to treat fcv = 0 as a reset?
+%% FCB - Frame count bit
+%% Alternated between 0 to 1 for successive SEND / CONFIRM or
+%% REQUEST / RESPOND transmission procedures
+check_fcb(#control_field_request{fcv = 0, fcb = _ReqFCB}) ->
+  % TODO. Is it correct to treat fcv = 0 as a reset?
+  put(fcb, 0),
   ok;
-check_fcb( #control_field_request{fcv = 1, fcb = FCB } )->
-  case get( fcb ) of
+check_fcb(#control_field_request{fcv = 1, fcb = FCB}) ->
+  case get(fcb) of
     FCB ->
       % FCB must not be the same
       error;
-    NextFCB->
-      put( fcb, NextFCB ),
+    NextFCB ->
+      put(fcb, NextFCB),
       ok
   end.
 
@@ -198,7 +212,6 @@ handle_request(?RESET_USER_PROCESS, _UserData, #data{
   address = Address,
   direction = Direction
 }) ->
-  %% TODO: Do we need to take any action? Perhaps restart the connection?"
   send_response(Port, ?ACKNOWLEDGE_FRAME(Address, Direction));
 
 handle_request(?USER_DATA_CONFIRM, ASDU, #data{

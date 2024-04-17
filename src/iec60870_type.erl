@@ -1,27 +1,35 @@
-%% +--------------------------------------------------------------+
-%% | Copyright (c) 2023, Faceplate LTD. All Rights Reserved.      |
-%% | Author: Tokenov Alikhan, @alikhantokenov@gmail.com           |
-%% +--------------------------------------------------------------+
+%%% +----------------------------------------------------------------+
+%%% | Copyright (c) 2024. Tokenov Alikhan, alikhantokenov@gmail.com  |
+%%% | All rights reserved.                                           |
+%%% | License can be found in the LICENSE file.                      |
+%%% +----------------------------------------------------------------+
 
 -module(iec60870_type).
 
 -include("iec60870.hrl").
 -include("asdu.hrl").
 
+%%% +--------------------------------------------------------------+
+%%% |                             API                              |
+%%% +--------------------------------------------------------------+
+
 -export([
   parse_information_element/2,
   create_information_element/2
 ]).
 
+%%% +--------------------------------------------------------------+
+%%% |                       Macros & Records                       |
+%%% +--------------------------------------------------------------+
+
 -define(MILLIS_IN_MINUTE, 60000).
 -define(UNIX_EPOCH_DATE, {1970, 1, 1}).
 -define(UNIX_EPOCH_SECONDS, 62167219200).
 -define(CURRENT_MILLENNIUM, 2000).
--define(SHORT_INT_MAX_VALUE, 32767).
 
-%% +--------------------------------------------------------------+
-%% |                           Parsing                            |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                           Parsing                            |
+%%% +--------------------------------------------------------------+
 
 %% Type 1. Single point information
 parse_information_element(?M_SP_NA_1, <<SIQ>>) ->
@@ -630,8 +638,21 @@ get_cp56(PosixTimestamp) ->
 millis_to_seconds(Millis) -> Millis div 1000.
 seconds_to_millis(Seconds) -> Seconds * 1000.
 
-parse_nva(Value) -> Value / ?SHORT_INT_MAX_VALUE.
-get_nva(Value) -> Value * ?SHORT_INT_MAX_VALUE.
+-define(SHORT_INT_MIN_VALUE, -32768).
+-define(SHORT_INT_MAX_VALUE, 32767).
+
+%% NVA parsing and building
+
+%% Range = Short Int Max - Short Int Min
+-define(DELTA_X, 65535).
+
+%% Formula for normalization [-1, 1]: x' = ((2 * (x - xMin)) / (xMax - xMin)) - 1.
+parse_nva(Value) ->
+  ((2 * (Value - ?SHORT_INT_MIN_VALUE)) / ?DELTA_X) - 1.
+
+%% Inverse formula: x = ((xMax - xMin) * ((x' + 1) / 2)) + xMin.
+get_nva(Value) ->
+  ((?DELTA_X * (Value + 1)) / 2) + ?SHORT_INT_MIN_VALUE.
 
 is_type_supported(Type)
   when (Type >= ?M_SP_NA_1 andalso Type =< ?M_ME_ND_1) orelse

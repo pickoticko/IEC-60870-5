@@ -1,7 +1,17 @@
+%%% +----------------------------------------------------------------+
+%%% | Copyright (c) 2024. Tokenov Alikhan, alikhantokenov@gmail.com  |
+%%% | All rights reserved.                                           |
+%%% | License can be found in the LICENSE file.                      |
+%%% +----------------------------------------------------------------+
+
 -module(iec60870_101).
 
 -include("iec60870.hrl").
 -include("ft12.hrl").
+
+%%% +--------------------------------------------------------------+
+%%% |                       Server & Client API                    |
+%%% +--------------------------------------------------------------+
 
 -export([
   start_server/1,
@@ -9,15 +19,19 @@
   start_client/1
 ]).
 
+%%% +--------------------------------------------------------------+
+%%% |                        Shared functions                      |
+%%% +--------------------------------------------------------------+
+
 -export([
   connect/4,
   transaction/4,
   send_receive/3
 ]).
 
-%% +--------------------------------------------------------------+
-%% |                       Macros & Records                       |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                       Macros & Records                       |
+%%% +--------------------------------------------------------------+
 
 %% Master request codes
 -define(RESET_REMOTE_LINK, 0).
@@ -30,7 +44,6 @@
 -define(ACKNOWLEDGE, 0).
 -define(USER_DATA_CONFIRM, 3).
 -define(STATUS_LINK_ACCESS_DEMAND, 11).
-
 -define(NOT(X), abs(X - 1)).
 
 %% Connection settings
@@ -56,42 +69,47 @@
   attempts
 }).
 
-%% +--------------------------------------------------------------+
-%% |                             API                              |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                    Server API implementation                 |
+%%% +--------------------------------------------------------------+
 
 start_server(InSettings) ->
-  Root = self(),
   Settings = check_settings(maps:merge(?DEFAULT_SETTINGS, InSettings)),
   Module =
     case Settings of
-      #{balanced := false} -> iec60870_unbalanced_server;
-      _ -> iec60870_balanced_server
+      #{balanced := false} ->
+        iec60870_unbalanced_server;
+      _ ->
+        iec60870_balanced_server
     end,
+  Root = self(),
   Server = Module:start(Root, Settings),
   {Module, Server}.
 
 stop_server({Module, Server})->
   Module:stop(Server).
 
+%%% +--------------------------------------------------------------+
+%%% |                    Client API implementation                 |
+%%% +--------------------------------------------------------------+
+
 start_client(InSettings) ->
   Settings = check_settings(maps:merge(?DEFAULT_SETTINGS, InSettings)),
-  Owner = self(),
   Module =
     case Settings of
-      #{balanced := false} -> iec60870_unbalanced_client;
-      _ -> iec60870_balanced_client
+      #{balanced := false} ->
+        iec60870_unbalanced_client;
+      _ ->
+        iec60870_balanced_client
     end,
-  Module:start(Owner, Settings).
+  Root = self(),
+  Module:start(Root, Settings).
 
-check_settings(Settings) ->
-  % TODO: Add settings validation
-  Settings.
+%%% +--------------------------------------------------------------+
+%%% |               Shared functions implementation                |
+%%% +--------------------------------------------------------------+
 
-%% +--------------------------------------------------------------+
-%% |               101 Request-Response Transaction               |
-%% +--------------------------------------------------------------+
-
+%% Connection transmission procedure initialization
 connect(Address, Direction, SendReceive, Attempts) ->
   connect(#state{
     address = Address,
@@ -101,6 +119,10 @@ connect(Address, Direction, SendReceive, Attempts) ->
     attempts = Attempts
   }).
 
+%% Connection transmission procedure
+%% Sequence:
+%%   1. Reset of remote link
+%%   2. Request status of link
 connect(#state{attempts = Attempts} = State) ->
   connect(Attempts, State).
 connect(Attempts, #state{
@@ -132,79 +154,29 @@ connect(Attempts, #state{
 connect(_Attempts = 0, _State) ->
   {error, connect_error}.
 
-transaction(FC, Data, OnResponse, #state{attempts = Attempts} = State)->
-  transaction(Attempts, FC, Data, OnResponse, State).
-transaction(Attempts, FC, Data, OnResponse, #state{
+%% Procedure of sending message initialization
+transaction(FunctionCode, Data, OnResponseFun, #state{attempts = Attempts} = State)->
+  transaction(Attempts, FunctionCode, Data, OnResponseFun, State).
+
+%% Procedure of sending packet
+transaction(Attempts, FunctionCode, Data, OnResponseFun, #state{
   send_receive = SendReceive
 } = State) ->
-  Request = request(FC, Data, State),
+  Request = request(FunctionCode, Data, State),
   case SendReceive(Request) of
     {ok, Response} ->
-      case OnResponse(Response) of
+      case OnResponseFun(Response) of
         ok ->
           NewFCB = Request#frame.control_field#control_field_request.fcb,
           {ok, State#state{fcb = NewFCB}};
         error ->
           ?LOGWARNING("unexpected response received. Request: ~p, Response: ~p", [Request, Response]),
-          retry(Attempts - 1, FC, Data, OnResponse, State, {unexpected_response, Response})
+          retry(Attempts - 1, FunctionCode, Data, OnResponseFun, State, {unexpected_response, Response})
       end;
     {error, Error} ->
       ?LOGWARNING("send-receive error. Request: ~p, Error: ~p", [Request, Error]),
-      retry(Attempts - 1, FC, Data, OnResponse, State, Error)
+      retry(Attempts - 1, FunctionCode, Data, OnResponseFun, State, Error)
   end.
-
-retry(Attempts, FC, Data, OnResponse, State, _Error) when Attempts > 0 ->
-  case connect(State) of
-    {ok, ReconnectState} ->
-      transaction(Attempts, FC, Data, OnResponse, ReconnectState);
-    Error ->
-      Error
-  end;
-retry(0 = _Attempts, _FC, _Data, _OnResponse, _State, Error)->
-  {error, Error}.
-
-reset_link(#state{attempts = Attempts} = State)->
-  reset_link(Attempts, State).
-
-reset_link(0 = _Attempts, _State) ->
-  ?LOGERROR("reset link request failed, no attempts left..."),
-  {error, reset_link_error};
-reset_link(Attempts, #state{
-  address = Address,
-  send_receive = SendReceive
-} = State)->
-  Request = request(?RESET_REMOTE_LINK, _Data = undefined, State),
-  case SendReceive(Request) of
-    {ok, Response} ->
-      case Response of
-        #frame{address = Address, control_field = #control_field_response{
-          function_code = ?ACKNOWLEDGE
-        }} ->
-          {ok, State#state{fcb = 0}};
-        _ ->
-          ?LOGWARNING("unexpected response on reset link request. Response: ~p, Attempts left: ~p",[Response, Attempts - 1]),
-          reset_link(Attempts - 1, State)
-      end;
-    {error, Error} ->
-      ?LOGWARNING("reset link request attempt error. Error: ~p, Attempts left: ~p",[Error, Attempts - 1]),
-      reset_link(Attempts - 1, State)
-  end.
-
-request(FC, UserData, #state{
-  address = Address,
-  direction = Dir,
-  fcb = FCB
-}) ->
-  #frame{
-    address = Address,
-    control_field = #control_field_request{
-      direction = Dir,
-      fcb = handle_fcb(FC, FCB),
-      fcv = handle_fcv(FC),
-      function_code = FC
-    },
-    data = UserData
-  }.
 
 send_receive(Port, Request, Timeout) ->
   Address = Request#frame.address,
@@ -222,18 +194,84 @@ send_receive(Port, Request, Timeout) ->
     Timeout -> {error, timeout}
   end.
 
-handle_fcb(FC, FCB) ->
-  case FC of
+%%% +--------------------------------------------------------------+
+%%% |                      Internal functions                      |
+%%% +--------------------------------------------------------------+
+
+retry(Attempts, FC, Data, OnResponse, State, _Error) when Attempts > 0 ->
+  case connect(State) of
+    {ok, ReconnectState} ->
+      transaction(Attempts, FC, Data, OnResponse, ReconnectState);
+    Error ->
+      Error
+  end;
+retry(0 = _Attempts, _FC, _Data, _OnResponse, _State, Error)->
+  {error, Error}.
+
+reset_link(#state{attempts = Attempts} = State) ->
+  reset_link(Attempts, State).
+
+reset_link(0 = _Attempts, _State) ->
+  ?LOGERROR("reset link request failed, no attempts left"),
+  {error, reset_link_error};
+reset_link(Attempts, #state{
+  address = Address,
+  send_receive = SendReceive
+} = State) ->
+  Request = request(?RESET_REMOTE_LINK, _Data = undefined, State),
+  case SendReceive(Request) of
+    {ok, Response} ->
+      case Response of
+        #frame{address = Address, control_field = #control_field_response{function_code = ?ACKNOWLEDGE}} ->
+          {ok, State#state{fcb = 0}};
+        _ ->
+          ?LOGWARNING("unexpected response on reset link request. Response: ~p, Attempts left: ~p", [Response, Attempts - 1]),
+          reset_link(Attempts - 1, State)
+      end;
+    {error, Error} ->
+      ?LOGWARNING("reset link request attempt error. Error: ~p, Attempts left: ~p", [Error, Attempts - 1]),
+      reset_link(Attempts - 1, State)
+  end.
+
+%% Building a request frame (packet) to send
+request(FunctionCode, UserData, #state{
+  address = Address,
+  direction = Direction,
+  fcb = FCB
+}) ->
+  #frame{
+    address = Address,
+    control_field = #control_field_request{
+      direction = Direction,
+      fcb = handle_fcb(FunctionCode, FCB),
+      fcv = handle_fcv(FunctionCode),
+      function_code = FunctionCode
+    },
+    data = UserData
+  }.
+
+%% FCB - Frame count bit
+%% Alternated between 0 to 1 for successive SEND / CONFIRM or
+%% REQUEST / RESPOND transmission procedures
+handle_fcb(FunctionCode, FCB) ->
+  case FunctionCode of
     ?RESET_REMOTE_LINK   -> 0;
     ?REQUEST_STATUS_LINK -> 0;
     _ -> ?NOT(FCB)
   end.
 
-handle_fcv(FC) ->
-  case FC of
+%% FCV - Frame count bit valid
+%% 1 - FCB is valid
+%% 0 - FCB is invalid
+handle_fcv(FunctionCode) ->
+  case FunctionCode of
     ?REQUEST_DATA_CLASS_1 -> 1;
     ?REQUEST_DATA_CLASS_2 -> 1;
     ?USER_DATA_CONFIRM    -> 1;
     ?LINK_TEST            -> 1;
     _Other -> 0
   end.
+
+check_settings(Settings) ->
+  % TODO: Add settings validation
+  Settings.

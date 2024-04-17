@@ -1,71 +1,17 @@
-%% +--------------------------------------------------------------+
-%% | Copyright (c) 2023, Faceplate LTD. All Rights Reserved.      |
-%% | Author: Tokenov Alikhan, @alikhantokenov@gmail.com           |
-%% +--------------------------------------------------------------+
-
-%% +--------------------------------------------------------------+
-%% |                  Abbreviations cheatsheet                    |
-%% +--------------------------------------------------------------+
-%% | COA - Common Address                                         |
-%% | COT - Cause of Transmission                                  |
-%% | IOA - Information Object Address                             |
-%% | QDS - Quality Data (Status) Octet                            |
-%% | MSB - Most Significant Bit                                   |
-%% | LSB - Least Significant Bit                                  |
-%% | QOI - Request Pointer (iec60870 GOST 7.2.6.22)               |
-%% |   W - Maximum number of unacknowledged information frames    |
-%% |       that can be sent before requiring an acknowledgment    |
-%% |   K - Maximum number of frames that can be sent before       |
-%% |       a confirmation                                         |
-%% |  T1 - Response Timeout                                       |
-%% |  T2 - Acknowledgement Timeout                                |
-%% |  T2 - Heartbeat Timeout                                      |
-%% |   T - Timestamp                                              |
-%% | con - Confirmation                                           |
-%% | act - Activation                                             |
-%% | V(S) - Transmission Status Variable                          |
-%% | V(R) - Receive Status Variable                               |
-%% | N(S) - Transmitted Sequence Number                           |
-%% | N(R) - Accepted Sequence Number                              |
-%% | STARTDT - Start Sending Data                                 |
-%% | STOPDT  - Stop Sending Data                                  |
-%% | TESTFR  - Test Block (Heart Beat)                            |
-%% +--------------------------------------------------------------+
-
-%% +--------------------------------------------------------------+
-%% |                       APCI Structure                         |
-%% +--------------------------------------------------------------+
-%% | 1. Start Byte (0x68)                                         |
-%% | 2. Length of APDU                                            |
-%% | 3. Control Field 1 (CF1)                                     |
-%% | 4. Control Field 2 (CF2)                                     |
-%% | 5. Control Field 3 (CF3)                                     |
-%% | 6. Control Field 4 (CF4)                                     |
-%% | Size: 6 bytes                                                |
-%% +--------------------------------------------------------------+
-
-%% +--------------------------------------------------------------+
-%% |                       ASDU Structure                         |
-%% +--------------------------------------------------------------+
-%% | 1. TypeID (Type Identification)                              |
-%% | 2. SQ (1 bit) | Number Of Objects (7 bits, up to 127)        |
-%% | 3. Cause of Transmission (COT) (6 bits)                      |
-%% | 4. Common Address of ASDU (COA) (1 or 2 bytes)               |
-%% | 5. N Objects ...                                             |
-%% +--------------------------------------------------------------+
-
-%% +--------------------------------------------------------------+
-%% |                      Object Structure                        |
-%% +--------------------------------------------------------------+
-%% | 1. Information object address fields (IOA)                   |
-%% | 2. Information element (IE)                                  |
-%% | 3. Time Tag (Optional field)                                 |
-%% +--------------------------------------------------------------+
+%%% +----------------------------------------------------------------+
+%%% | Copyright (c) 2024. Tokenov Alikhan, alikhantokenov@gmail.com  |
+%%% | All rights reserved.                                           |
+%%% | License can be found in the LICENSE file.                      |
+%%% +----------------------------------------------------------------+
 
 -module(iec60870_104).
 
 -include("iec60870.hrl").
 -include("asdu.hrl").
+
+%%% +--------------------------------------------------------------+
+%%% |                      Server & Client API                     |
+%%% +--------------------------------------------------------------+
 
 -export([
   start_server/1,
@@ -73,17 +19,11 @@
   start_client/1
 ]).
 
-%% +--------------------------------------------------------------+
-%% |                           Macros                             |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                       Macros & Records                       |
+%%% +--------------------------------------------------------------+
 
--define(DEFAULT_PORT, 2404).
--define(MAX_PORT_VALUE, 65535).
--define(MIN_PORT_VALUE, 0).
-
--define(MAX_COUNTER, 32767).
--define(REQUIRED,{?MODULE, required}).
-
+%% Default port settings
 -define(DEFAULT_SETTINGS, #{
   port => ?DEFAULT_PORT,
   t1 => 30000,
@@ -92,6 +32,16 @@
   k => 12,
   w => 8
 }).
+
+%% Default port
+-define(DEFAULT_PORT, 2404).
+
+-define(MAX_PORT_VALUE, 65535).
+-define(MIN_PORT_VALUE, 0).
+
+%% Max K and W value
+-define(MAX_COUNTER, 32767).
+-define(REQUIRED, {?MODULE, required}).
 
 % Each packet (APDU) starts with
 -define(START_BYTE, 16#68).
@@ -127,9 +77,9 @@
   sent = []
 }).
 
-%% +--------------------------------------------------------------+
-%% |                             API                              |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                    Server API implementation                 |
+%%% +--------------------------------------------------------------+
 
 start_server(InSettings) ->
   Root = self(),
@@ -147,6 +97,10 @@ start_server(InSettings) ->
 stop_server(ServerPort) ->
   gen_tcp:close(ServerPort).
 
+%%% +--------------------------------------------------------------+
+%%% |                    Client API implementation                 |
+%%% +--------------------------------------------------------------+
+
 start_client(InSettings) ->
   Owner = self(),
   Settings = check_settings(maps:merge(?DEFAULT_SETTINGS#{
@@ -158,11 +112,12 @@ start_client(InSettings) ->
     {'EXIT', PID, Reason} -> throw(Reason)
   end.
 
-%% +--------------------------------------------------------------+
-%% |                      Init Server Socket                      |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                    Internal helper functions                 |
+%%% +--------------------------------------------------------------+
 
-wait_connection(ListenSocket, Settings, Root)->
+%% Waiting for incoming connections (clients)
+wait_connection(ListenSocket, Settings, Root) ->
   spawn(fun() ->
     process_flag(trap_exit, true),
     link(Root),
@@ -173,9 +128,9 @@ wait_connection(ListenSocket, Settings, Root)->
     case wait_activate(Socket, ?START_DT_ACTIVATE, <<>>) of
       {ok, Buffer} ->
         socket_send(Socket, create_u_packet(?START_DT_CONFIRM)),
-        case iec60870_server:start_connection(Root, ListenSocket, self() ) of
+        case iec60870_server:start_connection(Root, ListenSocket, self()) of
           {ok, Connection} ->
-            init_loop( #state{
+            init_loop(#state{
               socket = Socket,
               connection = Connection,
               settings = Settings,
@@ -203,77 +158,16 @@ accept_loop(ListenSocket, Root) ->
           ?LOGERROR("connection is down due to owner process shutdown"),
           timer:sleep(1000),
           catch gen_tcp:close(ListenSocket),
-          catch gen_tcp:shutdown(ListenSocket, read_write),
           exit(Reason)
       after
         0 -> accept_loop(ListenSocket, Root)
       end;
     {error, Error} ->
       catch gen_tcp:close(ListenSocket),
-      catch gen_tcp:shutdown(ListenSocket, read_write),
       exit(Root, Error),
       exit(Error)
   end.
 
-%% +--------------------------------------------------------------+
-%% |                      Init Client Socket                      |
-%% +--------------------------------------------------------------+
-
-init_client(Owner, #{
-  host := Host,
-  port := Port
-} = Settings) ->
-  case gen_tcp:connect(Host, Port, [binary, {active, true}, {packet, raw}], ?CONNECT_TIMEOUT) of
-    {ok, Socket} ->
-      %% Sending the activation command and waiting for its confirmation
-      socket_send(Socket, create_u_packet(?START_DT_ACTIVATE)),
-      case wait_activate(Socket, ?START_DT_CONFIRM, <<>>) of
-        {ok, Buffer} ->
-          %% The confirmation has been received and the client is ready to work
-          Owner ! {ready, self()},
-          init_loop( #state{
-            socket = Socket,
-            connection = Owner,
-            settings = Settings,
-            buffer = Buffer
-          });
-        {error, ActivateError} ->
-          ?LOGWARNING("client connection activation error: ~p", [ActivateError]),
-          gen_tcp:close(Socket),
-          exit(ActivateError)
-      end;
-    {error, ConnectError} ->
-      exit(ConnectError)
-  end.
-
-%% +--------------------------------------------------------------+
-%% |                  Connection Activation Wait                  |
-%% +--------------------------------------------------------------+
-
-wait_activate(Socket, Code, Buffer) ->
-  receive
-    {tcp, Socket, Data} ->
-      case <<Buffer/binary, Data/binary>> of
-        <<?START_BYTE, 4:8, Code:6, ?U_TYPE:2, _:3/binary, RestBuffer/binary>> ->
-          {ok, RestBuffer};
-        Head = <<?START_BYTE, _/binary>> when size(Head) < 6 ->
-          wait_activate(Socket, Code, Head);
-        Unexpected ->
-          {error, {unexpected_request, Unexpected}}
-      end;
-    {tcp_closed, Socket} ->
-      {error, closed};
-    {tcp_error, Socket, Reason} ->
-      {error, Reason};
-    {tcp_passive, Socket} ->
-      {error, tcp_passive}
-  after
-    ?WAIT_ACTIVATE -> {error, timeout}
-  end.
-
-%% +--------------------------------------------------------------+
-%% |                      Internal functions                      |
-%% +--------------------------------------------------------------+
 
 init_loop(#state{
   connection = Connection,
@@ -297,29 +191,29 @@ loop(#state{
   sent = Sent
 } = State) ->
   receive
-    %% Data is received from the transport
+  % Data is received from the transport level (TCP)
     {tcp, Socket, Data}->
       {Packets, TailBuffer} = split_into_packets(<<Buffer/binary, Data/binary>>),
       State1 = handle_packets(Packets, State),
       State2 = check_t3(State1),
       loop(State2#state{buffer = TailBuffer});
 
-    %% A packet is received from the connection
-    %% It is crucial to note that we need to compare the sent packets
-    %% with K since we are awaiting confirmation (S-packet)
-    %% Sending additional packets may lead to a disruption in the connection
-    %% as it could surpass the maximum threshold (K) of unconfirmed packets
+  % A packet is received from the connection
+  % It is crucial to note that we need to compare the sent packets
+  % with K since we are awaiting confirmation (S-packet)
+  % Sending additional packets may lead to a disruption in the connection
+  % as it could surpass the maximum threshold (K) of unconfirmed packets
     {asdu, Connection, ASDU} when length(Sent) =< K ->
       State1 = send_i_packet(ASDU, State),
       State2 = check_t1(State1),
       loop(State2);
 
-    %% Commands that were sent to self and others are ignored and unexpected
+  % Commands that were sent to self and others are ignored and unexpected
     {Self, Command} when Self =:= self() ->
       State1 = handle_command(Command, State),
       loop(State1);
 
-    %% TCP level errors
+  % Errors from TCP
     {tcp_closed, Socket} ->
       exit(closed);
     {tcp_error, Socket, Reason} ->
@@ -327,23 +221,74 @@ loop(#state{
     {tcp_passive, Socket} ->
       exit(tcp_passive);
 
-    %% Connection sent exit signal
+  % Connection exit signal
     {'EXIT', Connection, Reason} ->
       ?LOGERROR("connection is down due to a reason: ~p", [Reason]),
       gen_tcp:close(Socket),
       exit(Reason);
 
-    %% If an ASDU packet isn't accepted because we are waiting for confirmation,
-    %% we should compare the sent packets with K to avoid ignoring
-    %% other ASDUs
+  % If an ASDU packet isn't accepted because we are waiting for confirmation,
+  % we should compare the sent packets with K to avoid ignoring other ASDUs
     Unexpected when length(Sent) =< K ->
       ?LOGWARNING("unexpected message received ~p", [Unexpected]),
       loop(State)
   end.
 
+%% Client connection sequence
+init_client(Owner, #{
+  host := Host,
+  port := Port
+} = Settings) ->
+  case gen_tcp:connect(Host, Port, [binary, {active, true}, {packet, raw}], ?CONNECT_TIMEOUT) of
+    {ok, Socket} ->
+      % Sending the activation command and waiting for its confirmation
+      socket_send(Socket, create_u_packet(?START_DT_ACTIVATE)),
+      case wait_activate(Socket, ?START_DT_CONFIRM, <<>>) of
+        {ok, Buffer} ->
+          % The confirmation has been received and the client is ready to work
+          Owner ! {ready, self()},
+          init_loop( #state{
+            socket = Socket,
+            connection = Owner,
+            settings = Settings,
+            buffer = Buffer
+          });
+        {error, ActivateError} ->
+          ?LOGWARNING("client connection activation error: ~p", [ActivateError]),
+          gen_tcp:close(Socket),
+          exit(ActivateError)
+      end;
+    {error, ConnectError} ->
+      exit(ConnectError)
+  end.
+
+%% Connection activation wait
+wait_activate(Socket, Code, Buffer) ->
+  receive
+    {tcp, Socket, Data} ->
+      case <<Buffer/binary, Data/binary>> of
+        <<?START_BYTE, 4:8, Code:6, ?U_TYPE:2, _:3/binary, RestBuffer/binary>> ->
+          {ok, RestBuffer};
+        Head = <<?START_BYTE, _/binary>> when size(Head) < 6 ->
+          wait_activate(Socket, Code, Head);
+        Unexpected ->
+          {error, {unexpected_request, Unexpected}}
+      end;
+    {tcp_closed, Socket} ->
+      {error, closed};
+    {tcp_error, Socket, Reason} ->
+      {error, Reason};
+    {tcp_passive, Socket} ->
+      {error, tcp_passive}
+  after
+    ?WAIT_ACTIVATE -> {error, timeout}
+  end.
+
+%% T1 - APDU timeout
 handle_command(t1, _State) ->
   exit(confirm_timeout);
 
+%% T2 - Acknowledge timeout
 handle_command(t2, #state{
   socket = Socket,
   vr = VR,
@@ -357,6 +302,7 @@ handle_command(t2, #state{
     vw = W
   };
 
+%% T3 - Heartbeat timeout (Test frames)
 handle_command(t3, #state{
   t3 = {init, _Timer},
   socket = Socket,
@@ -379,10 +325,6 @@ create_apdu(Frame) ->
   Size = byte_size(Frame),
   <<?START_BYTE, Size:8, Frame/binary>>.
 
-%% +--------------------------------------------------------------+
-%% |                      Protocol implementation                 |
-%% +--------------------------------------------------------------+
-
 split_into_packets(Data) ->
   split_into_packets(Data, []).
 split_into_packets(<<?START_BYTE, Size:8, Rest/binary>> = Data, Packets) ->
@@ -404,9 +346,17 @@ handle_packets([Packet | Rest], State)->
 handle_packets([], State)->
   State.
 
-%% +--------------------------------------------------------------+
-%% |                       Packet parsing                         |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                       Packet parsing                         |
+%%% +--------------------------------------------------------------+
+%%% | APCI - Application protocol control information              |
+%%% | I-type: Information transfer format                          |
+%%% |           Contains ASDU                                      |
+%%% | S-type: Numbered supervisory functions                       |
+%%% |           Contains APCI only                                 |
+%%% | U-type: Unnumbered control functions                         |
+%%% |           Contains TESTFR or STOPDT or STARTDT               |
+%%% +--------------------------------------------------------------+
 
 %% U-type APCI
 parse_packet(<<
@@ -440,9 +390,9 @@ parse_packet(<<
 parse_packet(InvalidFrame)->
   throw({invalid_frame, InvalidFrame}).
 
-%% +--------------------------------------------------------------+
-%% |                      Packet creation                         |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                         Packet build                         |
+%%% +--------------------------------------------------------------+
 
 create_u_packet(Code) ->
   create_apdu(<<Code:6, 1:1, 1:1, 0:24>>).
@@ -470,9 +420,9 @@ create_i_packet(ASDU, #state{
     ASDU/binary
   >>).
 
-%% +--------------------------------------------------------------+
-%% |                        U-type packet                         |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                     U-type packet handle                     |
+%%% +--------------------------------------------------------------+
 
 handle_packet(u, ?START_DT_CONFIRM, State)->
   ?LOGWARNING("unexpected START_DT_CONFIRM packet was received!"),
@@ -494,9 +444,9 @@ handle_packet(u, _Data, State)->
   % TODO: Is it correct to ignore other types of U packets?
   State;
 
-%% +--------------------------------------------------------------+
-%% |                        S-type packet                         |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                     S-type packet handle                     |
+%%% +--------------------------------------------------------------+
 
 handle_packet(s, ReceiveCounter, #state{
   sent = Sent,
@@ -509,16 +459,16 @@ handle_packet(s, ReceiveCounter, #state{
     sent = [S || S <- Sent, (ReceiveCounter + (OverflowCount * ?MAX_COUNTER)) < S]
   };
 
-%% +--------------------------------------------------------------+
-%% |                        I-type packet                         |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                     I-type packet handle                     |
+%%% +--------------------------------------------------------------+
 
 handle_packet(i, Packet, #state{
   vw = 1
 } = State) ->
   State1 = handle_packet(i, Packet, State#state{vw = 0}),
-  %% Sending an acknowledge because the number of
-  %% unacknowledged i-packets is reached its limit.
+  % Sending an acknowledge because the number of
+  % unacknowledged i-packets is reached its limit.
   handle_command(t2, State1);
 
 handle_packet(i, {SendCounter, ReceiveCounter, ASDU}, #state{
@@ -532,8 +482,8 @@ handle_packet(i, {SendCounter, ReceiveCounter, ASDU}, #state{
   Connection ! {asdu, self(), ASDU},
   reset_timer(t1, T1),
   NewState = check_t2(State),
-  %% When control field of received packets
-  %% is overflowed we should reset its value.
+  % When control field of received packets
+  % is overflowed we should reset its value.
   NewVR =
     case VR >= ?MAX_COUNTER of
       true  -> 0;
@@ -628,7 +578,6 @@ check_setting(Key, Value)->
 %% |                       Helper functions                       |
 %% +--------------------------------------------------------------+
 
-%% Confirmation timeout check
 check_t1(#state{
   t1 = Timer,
   settings = #{t1 := T1}

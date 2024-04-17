@@ -1,3 +1,9 @@
+%%% +----------------------------------------------------------------+
+%%% | Copyright (c) 2024. Tokenov Alikhan, alikhantokenov@gmail.com  |
+%%% | All rights reserved.                                           |
+%%% | License can be found in the LICENSE file.                      |
+%%% +----------------------------------------------------------------+
+
 -module(iec60870_balanced_server).
 
 -include("iec60870.hrl").
@@ -8,9 +14,9 @@
   stop/1
 ]).
 
-%% +--------------------------------------------------------------+
-%% |                             API                              |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                             API                              |
+%%% +--------------------------------------------------------------+
 
 start(Root, Options) ->
   PID = spawn(fun() -> init(Root, Options) end),
@@ -22,9 +28,9 @@ start(Root, Options) ->
 stop(PID) ->
   exit(PID, shutdown).
 
-%% +--------------------------------------------------------------+
-%% |                     Internal  functions                      |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                      Internal functions                      |
+%%% +--------------------------------------------------------------+
 
 init(Root, Options)->
   process_flag(trap_exit, true),
@@ -48,7 +54,7 @@ wait_connection(Root, Port, Options)->
     {'EXIT', Port, Reason} ->
       case Reason of
         connect_error ->
-          ?LOGDEBUG("wait connection");
+          ?LOGWARNING("wait connection");
         _ ->
           ?LOGWARNING("port exit reason: ~p",[Reason])
       end,

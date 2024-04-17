@@ -1,0 +1,58 @@
++--------------------------------------------------------------+
+|                  Abbreviations cheatsheet                    |
++--------------------------------------------------------------+
+| COA - Common Address                                         |
+| COT - Cause of Transmission                                  |
+| IOA - Information Object Address                             |
+| QDS - Quality Data (Status) Octet                            |
+| MSB - Most Significant Bit                                   |
+| LSB - Least Significant Bit                                  |
+| QOI - Request Pointer (iec60870 GOST 7.2.6.22)               |
+|   W - Maximum number of unacknowledged information frames    |
+|       that can be sent before requiring an acknowledgment    |
+|   K - Maximum number of frames that can be sent before       |
+|       a confirmation                                         |
+|  T1 - Response Timeout                                       |
+|  T2 - Acknowledgement Timeout                                |
+|  T2 - Heartbeat Timeout                                      |
+|   T - Timestamp                                              |
+| con - Confirmation                                           |
+| act - Activation                                             |
+| V(S) - Transmission Status Variable                          |
+| V(R) - Receive Status Variable                               |
+| N(S) - Transmitted Sequence Number                           |
+| N(R) - Accepted Sequence Number                              |
+| STARTDT - Start Sending Data                                 |
+| STOPDT  - Stop Sending Data                                  |
+| TESTFR  - Test Block (Heart Beat)                            |
++--------------------------------------------------------------+
+
++--------------------------------------------------------------+
+|                       APCI Structure                         |
++--------------------------------------------------------------+
+| 1. Start Byte (0x68)                                         |
+| 2. Length of APDU                                            |
+| 3. Control Field 1 (CF1)                                     |
+| 4. Control Field 2 (CF2)                                     |
+| 5. Control Field 3 (CF3)                                     |
+| 6. Control Field 4 (CF4)                                     |
+| Size: 6 bytes                                                |
++--------------------------------------------------------------+
+
++--------------------------------------------------------------+
+|                       ASDU Structure                         |
++--------------------------------------------------------------+
+| 1. TypeID (Type Identification)                              |
+| 2. SQ (1 bit) | Number Of Objects (7 bits, up to 127)        |
+| 3. Cause of Transmission (COT) (6 bits)                      |
+| 4. Common Address of ASDU (COA) (1 or 2 bytes)               |
+| 5. N Objects ...                                             |
++--------------------------------------------------------------+
+
++--------------------------------------------------------------+
+|                      Object Structure                        |
++--------------------------------------------------------------+
+| 1. Information object address fields (IOA)                   |
+| 2. Information element (IE)                                  |
+| 3. Time Tag (Optional field)                                 |
++--------------------------------------------------------------+

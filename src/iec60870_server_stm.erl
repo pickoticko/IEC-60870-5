@@ -1,8 +1,18 @@
+%%% +----------------------------------------------------------------+
+%%% | Copyright (c) 2024. Tokenov Alikhan, alikhantokenov@gmail.com  |
+%%% | All rights reserved.                                           |
+%%% | License can be found in the LICENSE file.                      |
+%%% +----------------------------------------------------------------+
+
 -module(iec60870_server_stm).
 -behaviour(gen_statem).
 
 -include("iec60870.hrl").
 -include("asdu.hrl").
+
+%%% +--------------------------------------------------------------+
+%%% |                            OTP API                           |
+%%% +--------------------------------------------------------------+
 
 -export([
   callback_mode/0,
@@ -12,6 +22,10 @@
   terminate/3
 ]).
 
+%%% +---------------------------------------------------------------+
+%%% |                         Macros & Records                      |
+%%% +---------------------------------------------------------------+
+
 -record(data, {
   root,
   groups,
@@ -19,15 +33,14 @@
   connection
 }).
 
-%% +--------------------------------------------------------------+
-%% |                           States                             |
-%% +--------------------------------------------------------------+
-
+%% States
 -define(RUNNING, running).
 
-%% +--------------------------------------------------------------+
-%% |                   OTP gen_statem behaviour                   |
-%% +--------------------------------------------------------------+
+-define(ESUBSCRIBE_DELAY, 100).
+
+%%% +--------------------------------------------------------------+
+%%% |                  OTP behaviour implementation                |
+%%% +--------------------------------------------------------------+
 
 callback_mode() -> [
   handle_event_function,
@@ -51,7 +64,7 @@ init({Root, Connection, #{name := Name, groups := Groups} = Settings}) ->
 handle_event(enter, _PrevState, ?RUNNING, _Data) ->
   keep_state_and_data;
 
-%% Event from esubscriber notify
+%% Event from esubscribe
 handle_event(info, {Name, update, {IOA, Value}, _, Actor}, ?RUNNING, #data{
   settings = #{
     name := Name,
@@ -59,8 +72,9 @@ handle_event(info, {Name, update, {IOA, Value}, _, Actor}, ?RUNNING, #data{
   },
   connection = Connection
 }) when Actor =/= self() ->
-  %% Getting all updates
-  Items = [Object || {Object, _Node, A} <- esubscribe:lookup(Name, update), A =/= self()],
+  % Getting all updates
+  Items = [Object ||
+    {Object, _Node, A} <- esubscribe:wait(Name, update, ?ESUBSCRIBE_DELAY), A =/= self()],
   send_items([{IOA, Value} | Items], Connection, ?COT_SPONT, ASDUSettings),
   keep_state_and_data;
 
@@ -104,6 +118,7 @@ handle_event(info, {'EXIT', Connection, Reason}, _AnyState, #data{
   ?LOGWARNING("server connection terminated. Reason: ~p", [Reason] ),
   {stop, Reason};
 
+%% The root process is down
 handle_event(info, {'DOWN', _, process, Root, Reason}, _AnyState, #data{
   root = Root
 }) ->
@@ -129,9 +144,9 @@ terminate(Reason, _, _Data) ->
 code_change(_OldVsn, State, _Extra) ->
   {ok, State}.
 
-%% +--------------------------------------------------------------+
-%% |                      Internal functions                      |
-%% +--------------------------------------------------------------+
+%%% +--------------------------------------------------------------+
+%%% |                      Internal functions                      |
+%%% +--------------------------------------------------------------+
 
 %% Receiving information data objects
 handle_asdu(#asdu{
@@ -146,7 +161,7 @@ handle_asdu(#asdu{
   when (Type >= ?M_SP_NA_1 andalso Type =< ?M_ME_ND_1)
     orelse (Type >= ?M_SP_TB_1 andalso Type =< ?M_EP_TD_1)
     orelse (Type =:= ?M_EI_NA_1) ->
-  %% When a command handler is defined, any information data objects should be ignored.
+  % When a command handler is defined, any information data objects should be ignored
   case is_function(Handler) of
     true ->
       ignore;
@@ -162,6 +177,7 @@ handle_asdu(#asdu{
 %% | don't want to delay the work of the entire state machine.    |
 %% | Handler must return {error, Error} or ok                     |
 %% +--------------------------------------------------------------+
+
 handle_asdu(#asdu{
   type = Type,
   objects = Objects
@@ -216,7 +232,7 @@ handle_asdu(#asdu{
   },
   connection = Connection
 }) ->
-  %% +-------------[ Send initialization ]-------------+
+  % +-------------[ Send initialization ]-------------+
   [Confirmation] = iec60870_asdu:build(#asdu{
     type = ?C_IC_NA_1,
     pn = ?POSITIVE_PN,
@@ -224,10 +240,10 @@ handle_asdu(#asdu{
     objects = [{IOA, GroupID}]
   }, ASDUSettings),
   send_asdu(Connection, Confirmation),
-  %% +----------------[ Sending items ]----------------+
+  % +----------------[ Sending items ]----------------+
   Items = iec60870_server:find_group_items(Root, GroupID),
   send_items(Items, Connection, ?COT_GROUP(GroupID), ASDUSettings),
-  %% +---------------[ Send termination ]--------------+
+  % +---------------[ Send termination ]--------------+
   [Termination] = iec60870_asdu:build(#asdu{
     type = ?C_IC_NA_1,
     pn = ?POSITIVE_PN,
@@ -247,7 +263,7 @@ handle_asdu(#asdu{
   },
   connection = Connection
 }) ->
-  %% +-------------[ Send initialization ]-------------+
+  % +-------------[ Send initialization ]-------------+
   [Confirmation] = iec60870_asdu:build(#asdu{
     type = ?C_CI_NA_1,
     pn = ?POSITIVE_PN,
@@ -255,9 +271,9 @@ handle_asdu(#asdu{
     objects = [{IOA, GroupID}]
   }, ASDUSettings),
   send_asdu(Connection, Confirmation),
-  %% --------------------------------------------
-  %% TODO: Counter interrogation is not supported
-  %% +---------------[ Send termination ]--------------+
+  % --------------------------------------------
+  % TODO: Counter interrogation is not supported
+  % +---------------[ Send termination ]--------------+
   [Termination] = iec60870_asdu:build(#asdu{
     type = ?C_CI_NA_1,
     pn = ?POSITIVE_PN,
@@ -277,7 +293,7 @@ handle_asdu(#asdu{
   },
   connection = Connection
 }) ->
-  %% +-------------[ Send initialization ]-------------+
+  % +-------------[ Send initialization ]-------------+
   [Confirmation] = iec60870_asdu:build(#asdu{
     type = ?C_CS_NA_1,
     pn = ?POSITIVE_PN,
@@ -313,7 +329,7 @@ send_items(Items, Connection, COT, ASDUSettings) ->
 
 group_by_types(Objects) ->
   group_by_types(Objects, #{}).
-group_by_types([{IOA, #{type := Type} = Value } | Rest], Acc) ->
+group_by_types([{IOA, #{type := Type} = Value} | Rest], Acc) ->
   TypeAcc = maps:get(Type, Acc, #{}),
   Acc1 = Acc#{Type => TypeAcc#{IOA => Value}},
   group_by_types(Rest, Acc1);

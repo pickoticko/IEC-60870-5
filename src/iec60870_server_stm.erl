@@ -36,6 +36,8 @@
 %% States
 -define(RUNNING, running).
 
+-define(ESUBSCRIBE_DELAY, 100).
+
 %%% +--------------------------------------------------------------+
 %%% |                  OTP behaviour implementation                |
 %%% +--------------------------------------------------------------+
@@ -71,7 +73,8 @@ handle_event(info, {Name, update, {IOA, Value}, _, Actor}, ?RUNNING, #data{
   connection = Connection
 }) when Actor =/= self() ->
   % Getting all updates
-  Items = [Object || {Object, _Node, A} <- esubscribe:wait(Name, update, 1000), A =/= self()],
+  Items = [Object ||
+    {Object, _Node, A} <- esubscribe:wait(Name, update, ?ESUBSCRIBE_DELAY), A =/= self()],
   send_items([{IOA, Value} | Items], Connection, ?COT_SPONT, ASDUSettings),
   keep_state_and_data;
 

@@ -54,7 +54,7 @@ wait_connection(Root, Port, Options)->
     {'EXIT', Port, Reason} ->
       case Reason of
         connect_error ->
-          ?LOGDEBUG("wait connection");
+          ?LOGWARNING("wait connection");
         _ ->
           ?LOGWARNING("port exit reason: ~p",[Reason])
       end,

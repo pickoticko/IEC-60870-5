@@ -232,7 +232,6 @@ handle_asdu(#asdu{
   },
   connection = Connection
 }) ->
-  ?LOGINFO("DEBUG: Server group request start! GroupID: ~p", [GroupID]),
   % +-------------[ Send initialization ]-------------+
   [Confirmation] = iec60870_asdu:build(#asdu{
     type = ?C_IC_NA_1,
@@ -243,7 +242,6 @@ handle_asdu(#asdu{
   send_asdu(Connection, Confirmation),
   % +----------------[ Sending items ]----------------+
   Items = iec60870_server:find_group_items(Root, GroupID),
-  ?LOGINFO("DEBUG: Group request items size: ~p, group id: ~p", [length(Items), GroupID]),
   send_items(Items, Connection, ?COT_GROUP(GroupID), ASDUSettings),
   % +---------------[ Send termination ]--------------+
   [Termination] = iec60870_asdu:build(#asdu{
@@ -253,7 +251,6 @@ handle_asdu(#asdu{
     objects = [{IOA, GroupID}]
   }, ASDUSettings),
   send_asdu(Connection, Termination),
-  ?LOGINFO("DEBUG: Server group request end! GroupID: ~p", [GroupID]),
   keep_state_and_data;
 
 %% Counter Interrogation Command
@@ -327,7 +324,6 @@ send_items(Items, Connection, COT, ASDUSettings) ->
        cot = COT,
        objects = Objects
      }, ASDUSettings),
-     ?LOGINFO("DEBUG. List ASDU size: ~p, Type: ~p", [length(ListASDU), Type]),
      [send_asdu(Connection, ASDU) || ASDU <- ListASDU]
    end || {Type, Objects} <- ByTypes].
 

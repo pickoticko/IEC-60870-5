@@ -126,10 +126,9 @@ handle_event(state_timeout, init, {?INIT_GROUPS, []}, #data{
 
 handle_event(enter, _PrevState, {?GROUP_REQUEST, init, #{id := GroupID}, _}, #data{
   connection = Connection,
-  asdu = ASDUSettings,
-  name = Name
+  asdu = ASDUSettings
 }) ->
-  ?LOGINFO("DEBUG. Name: ~p. Client group request init! GroupID: ~p", [Name, GroupID]),
+  ?LOGINFO("DEBUG. Client group request init! GroupID: ~p", [GroupID]),
   % TODO. Handle group versions
   [GroupRequest] = iec60870_asdu:build(#asdu{
     type = ?C_IC_NA_1,
@@ -319,8 +318,8 @@ handle_asdu(#asdu{
   type = ?C_IC_NA_1,
   cot = ?COT_ACTCON,
   objects = [{_IOA, GroupID}]
-}, {?GROUP_REQUEST, init, #{id := GroupID} = Group, NextState}, #data{name = Name} = Data) ->
-  ?LOGINFO("DEBUG. Name: ~p. Client group request confirmation! GroupID: ~p", [Name, GroupID]),
+}, {?GROUP_REQUEST, init, #{id := GroupID} = Group, NextState}, Data) ->
+  ?LOGINFO("DEBUG. Client group request confirmation! GroupID: ~p", [GroupID]),
   Actions =
     case Group of
       #{timeout := Timeout} when is_integer(Timeout) ->
@@ -345,8 +344,8 @@ handle_asdu(#asdu{
   type = ?C_IC_NA_1,
   cot = ?COT_ACTTERM,
   objects = [{_IOA, GroupID}]
-}, {?GROUP_REQUEST, update, #{id := GroupID} = Group, NextState}, #data{name = Name} = Data) ->
-  ?LOGINFO("DEBUG. Name: ~p. Client group request termination! GroupID: ~p", [Name, GroupID]),
+}, {?GROUP_REQUEST, update, #{id := GroupID} = Group, NextState}, Data) ->
+  ?LOGINFO("DEBUG. Client group request termination! GroupID: ~p", [GroupID]),
   case Group of
     #{update := UpdateCycle} when is_integer(UpdateCycle) ->
       timer:send_after(UpdateCycle, {update_group, Group, self()});

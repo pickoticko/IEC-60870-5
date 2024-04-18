@@ -151,38 +151,28 @@ start_connection(Root, Server, Connection) ->
     {Root, error} -> error
   end.
 
-update_value(#?MODULE{name = Name, storage = Storage}, ID, InValue) ->
-  OldValue =
+update_value(#?MODULE{name = Name, storage = Storage}, ID, NewObject) ->
+  OldObject =
     case ets:lookup(Storage, ID) of
       [{_, Map}] -> Map;
       _ -> #{
-        %% All object types have this key
+        % All object types have this key
         group => undefined
       }
     end,
-  Value = maps:merge(OldValue, InValue),
-  case is_equal(Value, OldValue) of
+  MergedObject = maps:merge(OldObject, NewObject),
+  case is_equal(MergedObject, OldObject) of
     true ->
       ok;
     _ ->
-      %% Value must contain 'value' parameter
-      check_value(Value),
-      ets:insert(Storage, {ID, Value}),
-      %% Any updates notification
-      esubscribe:notify(Name, update, {ID, Value}),
-      %% Only address notification
-      esubscribe:notify(Name, ID, Value)
+      % Value must contain 'value' parameter
+      NewValue = check_value(MergedObject),
+      ets:insert(Storage, {ID, NewValue}),
+      % Any updates notification
+      esubscribe:notify(Name, update, {ID, NewValue}),
+      % Only address notification
+      esubscribe:notify(Name, ID, NewValue)
   end.
-
-is_equal(Value, #{type := Type, value := _Value} = PrevValue) ->
-  try
-    iec60870_type:create_information_element(Type, Value) =:=
-      iec60870_type:create_information_element(Type, PrevValue)
-  catch
-    _:_ -> false
-  end;
-is_equal(_Value, _PrevValue) ->
-  false.
 
 %% +--------------------------------------------------------------+
 %% |                       Internal functions                     |
@@ -308,8 +298,26 @@ check_setting(groups, undefined) ->
 check_setting(Key, _) ->
   throw({invalid_settings, Key}).
 
-check_value(Value) ->
-  case maps:is_key(value, Value) of
-    true -> ok;
-    false -> throw({error, value_parameter_missing})
-  end.
+%% Checking whether the object binaries are equal
+is_equal(NewObject, #{type := Type, value := _Value} = OldObject) ->
+  try
+    iec60870_type:create_information_element(Type, NewObject) =:=
+      iec60870_type:create_information_element(Type, OldObject)
+  catch
+    _:_ -> false
+  end;
+is_equal(_Value, _PrevValue) ->
+  false.
+
+%% The object data must contain a 'value' key
+check_value(#{value := Value} = ObjectData) when is_number(Value) ->
+  ObjectData;
+%% If an object's value is undefined, then we set its value
+%% to 0 and enable the quality bit for invalid values
+check_value(#{value := none} = ObjectData) ->
+  ObjectData#{value => 0};
+check_value(#{value := undefined} = ObjectData) ->
+  ObjectData#{value => 0};
+%% Key 'value' is missing, incorrect object passed
+check_value(_Value) ->
+  throw({error, value_parameter_missing}).

@@ -309,13 +309,13 @@ create_information_element(?M_BO_TA_1, #{value := BSI} = Object) ->
 %% Type 9. Measured value, normalized value
 create_information_element(?M_ME_NA_1, #{value := NVA} = Object) ->
   QDS = maps:get(qds, Object, 0),
-  <<(round(get_nva(NVA))):16/little-signed, QDS>>;
+  <<(get_nva(NVA)):16/little-signed, QDS>>;
 
 %% Type 10. Measured value, normalized value with time tag
 create_information_element(?M_ME_TA_1, #{value := NVA} = Object) ->
   QDS = maps:get(qds, Object, 0),
   Timestamp = maps:get(ts, Object, undefined),
-  <<(round(get_nva(NVA))):16/little-signed, QDS, (get_cp24(Timestamp))/binary>>;
+  <<(get_nva(NVA)):16/little-signed, QDS, (get_cp24(Timestamp))/binary>>;
 
 %% Type 11. Measured value, scaled value
 create_information_element(?M_ME_NB_1, #{value := SVA} = Object) ->
@@ -381,7 +381,7 @@ create_information_element(?M_PS_NA_1, #{value := SCD} = Object) ->
 
 %% Type 21. Measured value, normalized value without QDS
 create_information_element(?M_ME_ND_1, #{value := NVA}) ->
-  <<(round(get_nva(NVA))):16/little-signed>>;
+  <<(get_nva(NVA)):16/little-signed>>;
 
 %% Type 30. Single point information with time tag
 create_information_element(?M_SP_TB_1, #{value := SPI} = Object) ->
@@ -415,7 +415,7 @@ create_information_element(?M_BO_TB_1, #{value := BSI} = Object) ->
 create_information_element(?M_ME_TD_1, #{value := NVA} = Object) ->
   QDS = maps:get(qds, Object, 0),
   Timestamp = maps:get(ts, Object, undefined),
-  <<(round(get_nva(NVA))):16/little-signed, QDS, (get_cp56(Timestamp))/binary>>;
+  <<(get_nva(NVA)):16/little-signed, QDS, (get_cp56(Timestamp))/binary>>;
 
 %% Type 35. Measured value, scaled value with time tag
 create_information_element(?M_ME_TE_1, #{value := SVA} = Object) ->
@@ -465,7 +465,7 @@ create_information_element(?C_RC_NA_1, #{value := RCS} = Object) ->
 %% Type 48: Set point command, normalized value
 create_information_element(?C_SE_NA_1, #{value := NVA} = Object) ->
   QOS = maps:get(qos, Object, 0),
-  <<(round(get_nva(NVA))):16/little-signed, QOS>>;
+  <<(get_nva(NVA)):16/little-signed, QOS>>;
 
 %% Type 49: Set point command, scaled value
 create_information_element(?C_SE_NB_1, #{value := SVA} = Object) ->
@@ -506,7 +506,7 @@ create_information_element(?C_RC_TA_1, #{value := RCS} = Object) ->
 create_information_element(?C_SE_TA_1, #{value := NVA} = Object) ->
   QOS = maps:get(qos, Object, 0),
   Timestamp = maps:get(ts, Object, undefined),
-  <<(round(get_nva(NVA))):16/little-signed, QOS, (get_cp56(Timestamp))/binary>>;
+  <<(get_nva(NVA)):16/little-signed, QOS, (get_cp56(Timestamp))/binary>>;
 
 %% Type 62: Set point command, scaled value with time tag
 create_information_element(?C_SE_TB_1, #{value := SVA} = Object) ->
@@ -641,18 +641,22 @@ seconds_to_millis(Seconds) -> Seconds * 1000.
 -define(SHORT_INT_MIN_VALUE, -32768).
 -define(SHORT_INT_MAX_VALUE, 32767).
 
-%% NVA parsing and building
+%%% +--------------------------------------------------------------+
+%%% |                   NVA parsing and building                   |
+%%% +--------------------------------------------------------------+
 
 %% Range = Short Int Max - Short Int Min
 -define(DELTA_X, 65535).
 
-%% Formula for normalization [-1, 1]: x' = ((2 * (x - xMin)) / (xMax - xMin)) - 1.
+%% Formula for normalization [-1, 1]:
+%% x' = ((2 * (x - xMin)) / (xMax - xMin)) - 1.
 parse_nva(Value) ->
   ((2 * (Value - ?SHORT_INT_MIN_VALUE)) / ?DELTA_X) - 1.
 
-%% Inverse formula: x = ((xMax - xMin) * ((x' + 1) / 2)) + xMin.
+%% Inverse formula:
+%% x = ((xMax - xMin) * ((x' + 1) / 2)) + xMin.
 get_nva(Value) ->
-  ((?DELTA_X * (Value + 1)) / 2) + ?SHORT_INT_MIN_VALUE.
+  trunc(((?DELTA_X * (Value + 1)) / 2) + ?SHORT_INT_MIN_VALUE).
 
 is_type_supported(Type)
   when (Type >= ?M_SP_NA_1 andalso Type =< ?M_ME_ND_1) orelse

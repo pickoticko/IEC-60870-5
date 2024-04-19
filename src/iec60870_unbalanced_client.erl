@@ -225,7 +225,10 @@ port_loop(#port_state{port_ft12 = PortFT12, clients = Clients, name = Name} = Sh
             {error, Error} ->
               From ! {error, self(), Error},
               port_loop(SharedState)
-          end
+          end;
+        _Unexpected ->
+          ?LOGWARNING("switch ignored a request from an undefined process: ~p", [From]),
+          port_loop(SharedState)
       end;
 
     {add_client, Client, Options} ->

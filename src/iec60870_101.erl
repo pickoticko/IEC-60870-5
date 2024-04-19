@@ -130,7 +130,7 @@ connect(Attempts, #state{
 } = State) when Attempts > 0 ->
   case reset_link(State) of
     {ok, ResetState} ->
-      Request = request(?REQUEST_STATUS_LINK, _Data = undefined, ResetState),
+      Request = build_request(?REQUEST_STATUS_LINK, _Data = undefined, ResetState),
       case SendReceive(Request) of
         {ok, Response} ->
           case Response of
@@ -162,7 +162,7 @@ transaction(FunctionCode, Data, OnResponseFun, #state{attempts = Attempts} = Sta
 transaction(Attempts, FunctionCode, Data, OnResponseFun, #state{
   send_receive = SendReceive
 } = State) ->
-  Request = request(FunctionCode, Data, State),
+  Request = build_request(FunctionCode, Data, State),
   case SendReceive(Request) of
     {ok, Response} ->
       case OnResponseFun(Response) of
@@ -218,7 +218,7 @@ reset_link(Attempts, #state{
   address = Address,
   send_receive = SendReceive
 } = State) ->
-  Request = request(?RESET_REMOTE_LINK, _Data = undefined, State),
+  Request = build_request(?RESET_REMOTE_LINK, _Data = undefined, State),
   case SendReceive(Request) of
     {ok, Response} ->
       case Response of
@@ -234,7 +234,7 @@ reset_link(Attempts, #state{
   end.
 
 %% Building a request frame (packet) to send
-request(FunctionCode, UserData, #state{
+build_request(FunctionCode, UserData, #state{
   address = Address,
   direction = Direction,
   fcb = FCB

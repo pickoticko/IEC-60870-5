@@ -193,27 +193,25 @@ handle_asdu(#asdu{
   if
     is_function(Handler) ->
       Self = self(),
-      spawn(fun() ->
-        try
-          [{IOA, Value}] = Objects,
-          case Handler(Type, IOA, Value) of
-            {error, HandlerError} ->
-              ?LOGERROR("remote control handler returned error: ~p", [HandlerError]),
-              %% +-------[ Negative activation confirmation ]---------+
-              build_and_send(Self, Type, Objects, ?COT_ACTCON, ?NEGATIVE_PN, Connection, ASDUSettings);
-            ok ->
-              %% +------------[ Activation confirmation ]-------------+
-              build_and_send(Self, Type, Objects, ?COT_ACTCON, ?POSITIVE_PN, Connection, ASDUSettings),
-              %% +------------[ Activation termination ]--------------+
-              build_and_send(Self, Type, Objects, ?COT_ACTTERM, ?POSITIVE_PN, Connection, ASDUSettings)
-          end
-        catch
-          _Exception:Reason ->
-            ?LOGERROR("remote control handler failed. Reason: ~p", [Reason]),
+      try
+        [{IOA, Value}] = Objects,
+        case Handler(Type, IOA, Value) of
+          {error, HandlerError} ->
+            ?LOGERROR("remote control handler returned error: ~p", [HandlerError]),
             %% +-------[ Negative activation confirmation ]---------+
-            build_and_send(Self, Type, Objects, ?COT_ACTCON, ?NEGATIVE_PN, Connection, ASDUSettings)
+            build_and_send(Self, Type, Objects, ?COT_ACTCON, ?NEGATIVE_PN, Connection, ASDUSettings);
+          ok ->
+            %% +------------[ Activation confirmation ]-------------+
+            build_and_send(Self, Type, Objects, ?COT_ACTCON, ?POSITIVE_PN, Connection, ASDUSettings),
+            %% +------------[ Activation termination ]--------------+
+            build_and_send(Self, Type, Objects, ?COT_ACTTERM, ?POSITIVE_PN, Connection, ASDUSettings)
         end
-      end);
+      catch
+        _Exception:Reason ->
+          ?LOGERROR("remote control handler failed. Reason: ~p", [Reason]),
+          %% +-------[ Negative activation confirmation ]---------+
+          build_and_send(Self, Type, Objects, ?COT_ACTCON, ?NEGATIVE_PN, Connection, ASDUSettings)
+      end;
     true ->
       %% +-------[ Negative activation confirmation ]---------+
       ?LOGWARNING("remote control request accepted but no handler is defined"),

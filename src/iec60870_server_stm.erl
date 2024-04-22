@@ -52,9 +52,7 @@ init({Root, Connection, #{name := Name, groups := Groups} = Settings}) ->
   esubscribe:subscribe(Name, update, self()),
   process_flag(trap_exit, true),
   erlang:monitor(process, Root),
-  [begin
-     timer:send_after(0, {update_group, GroupID, Millis})
-   end || #{id := GroupID, update := Millis} <- Groups, is_integer(Millis)],
+  init_group_requests(Groups),
   {ok, ?RUNNING, #data{
     root = Root,
     settings = Settings,
@@ -147,6 +145,11 @@ code_change(_OldVsn, State, _Extra) ->
 %%% +--------------------------------------------------------------+
 %%% |                      Internal functions                      |
 %%% +--------------------------------------------------------------+
+
+init_group_requests(Groups)  ->
+  [begin
+     timer:send_after(0, {update_group, GroupID, Millis})
+   end || #{id := GroupID, update := Millis} <- Groups, is_integer(Millis)].
 
 %% Receiving information data objects
 handle_asdu(#asdu{

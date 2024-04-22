@@ -68,11 +68,14 @@
 start(InSettings) ->
   Settings = check_settings(maps:merge(?DEFAULT_SETTINGS, InSettings)),
   Self = self(),
+  OldFlag = process_flag(trap_exit, true),
   PID = spawn_link(fun() -> init_server(Self, Settings) end),
   receive
     {ready, PID, ServerRef} ->
+      process_flag(trap_exit, OldFlag),
       ServerRef;
     {'EXIT', PID, Reason} ->
+      process_flag(trap_exit, OldFlag),
       ?LOGERROR("server failed to start due to a reason: ~p", [Reason]),
       throw(Reason)
   end.

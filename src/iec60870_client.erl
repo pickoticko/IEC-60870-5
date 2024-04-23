@@ -93,14 +93,14 @@ read(#?MODULE{storage = Storage}, ID) ->
 read(_, _) ->
   throw(bad_arg).
 
-write(#?MODULE{pid = PID}, IOA, Value) when is_map(Value) ->
+write(#?MODULE{pid = PID}, IOA, InDataObject) when is_map(InDataObject) ->
   case is_process_alive(PID) of
     true ->
-      check_value(Value),
-      case is_remote_command(Value) of
+      OutDataObject = check_value(InDataObject),
+      case is_remote_command(OutDataObject) of
         true ->
           %% This call returns 'ok' either {error, Reason}.
-          case gen_statem:call(PID, {write, IOA, Value}) of
+          case gen_statem:call(PID, {write, IOA, OutDataObject}) of
             ok ->
               ok;
             {error, Reason} ->
@@ -108,7 +108,7 @@ write(#?MODULE{pid = PID}, IOA, Value) when is_map(Value) ->
               throw(Reason)
           end;
         false ->
-          PID ! {write, IOA, Value},
+          PID ! {write, IOA, OutDataObject},
           ok
       end;
     false ->
@@ -218,8 +218,15 @@ is_remote_command(#{type := Type})->
   (Type >= ?C_SC_NA_1 andalso Type =< ?C_BO_NA_1) orelse
   (Type >= ?C_SC_TA_1 andalso Type =< ?C_BO_TA_1).
 
-check_value(Value) ->
-  case maps:is_key(value, Value) of
-    true -> ok;
-    false -> throw({value_parameter_missing, Value})
-  end.
+%% The object data must contain a 'value' key
+check_value(#{value := Value} = ObjectData) when is_number(Value) ->
+  ObjectData;
+%% If an object's value is undefined, then we set its value
+%% to 0 and enable the quality bit for invalid values
+check_value(#{value := none} = ObjectData) ->
+  ObjectData#{value => 0};
+check_value(#{value := undefined} = ObjectData) ->
+  ObjectData#{value => 0};
+%% Key 'value' is missing, incorrect object passed
+check_value(_Value) ->
+  throw({error, value_parameter_missing}).

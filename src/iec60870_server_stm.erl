@@ -188,7 +188,8 @@ handle_asdu(#asdu{
   connection = Connection,
   settings = #{
     command_handler := Handler,
-    asdu := ASDUSettings
+    asdu := ASDUSettings,
+    root := ServerRef
   }
 })
   when (Type >= ?C_SC_NA_1 andalso Type =< ?C_BO_NA_1)
@@ -198,7 +199,7 @@ handle_asdu(#asdu{
       Self = self(),
       try
         [{IOA, Value}] = Objects,
-        case Handler(Type, IOA, Value) of
+        case Handler(ServerRef, Type, IOA, Value) of
           {error, HandlerError} ->
             ?LOGERROR("remote control handler returned error: ~p", [HandlerError]),
             %% +-------[ Negative activation confirmation ]---------+

@@ -15,6 +15,9 @@
 
 -define(REQUIRED, {?MODULE, required}).
 
+-define(GROUP_REQUEST_ATTEMPTS, 1).
+-define(GROUP_REQUEST_TIMEOUT, 60000).
+
 -define(DEFAULT_SETTINGS, maps:merge(#{
   name => ?REQUIRED,
   type => ?REQUIRED,
@@ -204,7 +207,10 @@ check_setting(groups, Groups) when is_list(Groups) ->
        #{
          id => Group,
          update => undefined,
-         timeout => undefined
+         timeout => ?GROUP_REQUEST_TIMEOUT,
+         count => undefined,
+         attempts => ?GROUP_REQUEST_ATTEMPTS,
+         required => false
        };
      _ ->
        throw({bad_group_settings, Group})

@@ -45,7 +45,6 @@
 -define(GROUP_REQUEST, group_request).
 
 %% Group request
--define(GROUP_REQUEST_TIMEOUT, 60000).
 -define(GROUP_REQUEST_ATTEMPTS, 1).
 
 %%% +--------------------------------------------------------------+
@@ -97,11 +96,11 @@ handle_event(state_timeout, connect, {?CONNECTING, Type, Settings}, #data{
 } = Data) ->
   Module = iec60870_lib:get_driver_module(Type),
   try
-    RequiredGroups =
-      lists:filter(fun(Element) -> maps:get(required, Element) =:= true end, Groups),
+    SortedGroups =
+      lists:sort(fun(Element) -> maps:get(required, Element) =:= true end, Groups),
     Connection =
       Module:start_client(Settings),
-    {next_state, {?INIT_GROUPS, RequiredGroups}, Data#data{
+    {next_state, {?INIT_GROUPS, SortedGroups}, Data#data{
       connection = Connection
     }}
   catch
@@ -118,8 +117,9 @@ handle_event(enter, _PrevState, {?INIT_GROUPS, _}, _Data) ->
   {keep_state_and_data, [{state_timeout, 0, init}]};
 
 handle_event(state_timeout, init, {?INIT_GROUPS, [Group | Rest]}, Data) ->
-  io:format("Debug. Init Group START~n"),
-  {next_state, {?GROUP_REQUEST, update, Group, {?INIT_GROUPS, Rest}}, Data};
+  Attempts = get_group_attempts(Group),
+  io:format("Debug. Init Group Attempts: ~p START~n", [Attempts]),
+  {next_state, {?GROUP_REQUEST, update, Attempts, Group, {?INIT_GROUPS, Rest}}, Data};
 
 handle_event(state_timeout, init, {?INIT_GROUPS, []}, #data{
   owner = Owner,
@@ -139,7 +139,7 @@ handle_event(state_timeout, init, {?INIT_GROUPS, []}, #data{
 handle_event(
   enter,
   _PrevState,
-  {?GROUP_REQUEST, update, _Group, _NextState},
+  {?GROUP_REQUEST, update, _Attempts, _Group, _NextState},
   _Data
 ) ->
   io:format("Debug. Group Request INIT~n"),
@@ -148,7 +148,7 @@ handle_event(
 handle_event(
   state_timeout,
   init,
-  {?GROUP_REQUEST, update, #{id := GroupID}, _NextState},
+  {?GROUP_REQUEST, update, _Attempts, #{id := GroupID, timeout := Timeout}, _NextState},
   #data{connection = Connection, asdu = ASDUSettings}
 ) ->
   io:format("Debug. Group Request SEND~n"),
@@ -159,22 +159,37 @@ handle_event(
     objects = [{_IOA = 0, GroupID}]
   }, ASDUSettings),
   send_asdu(Connection, GroupRequest),
-  {keep_state_and_data, [{state_timeout, ?GROUP_REQUEST_TIMEOUT, timeout}]};
+  {keep_state_and_data, [{state_timeout, Timeout, timeout}]};
 
 handle_event(
   state_timeout,
   timeout,
-  {?GROUP_REQUEST, update, #{id := ID, required := IsRequired}, NextState},
+  {?GROUP_REQUEST, update, Attempts, #{id := ID} = Group, NextState},
   Data
-) ->
+) when Attempts > 0 ->
   io:format("Debug. Group Request FAIL~n"),
   ?LOGWARNING("group request timeout: ~p", [ID]),
-  case {NextState, IsRequired} of
-    {{?INIT_GROUPS, _}, true} ->
-      {stop, {group_request_timeout, ID}};
-    {_, false} ->
-      {next_state, NextState, Data}
-  end;
+  {next_state, {?GROUP_REQUEST, update, Attempts - 1, Group, NextState}, Data};
+
+handle_event(
+    state_timeout,
+    timeout,
+    {?GROUP_REQUEST, update, _Attempts, #{id := ID, required := true}, {?INIT_GROUPS, _}},
+    _Data
+) ->
+  io:format("Debug. Group Request INIT FAIL NO ATTEMPTS~n"),
+  ?LOGWARNING("group request timeout: ~p", [ID]),
+  {stop, {group_request_timeout, ID}};
+
+handle_event(
+  state_timeout,
+  timeout,
+  {?GROUP_REQUEST, update, _Attempts, #{id := ID}, NextState},
+  Data
+) ->
+  io:format("Debug. Group Request FAIL NO ATTEMPTS~n"),
+  ?LOGWARNING("group request timeout: ~p", [ID]),
+  {next_state, NextState, Data};
 
 %%% +--------------------------------------------------------------+
 %%% |                Sending remote control command                |
@@ -206,7 +221,8 @@ handle_event(enter, _PrevState, ?CONNECTED, _Data) ->
 %% Event from timer for the group update is received
 %% Changing state to the group request
 handle_event(info, {update_group, Group, PID}, ?CONNECTED, Data) when PID =:= self() ->
-  {next_state, {?GROUP_REQUEST, update, Group, ?CONNECTED}, Data};
+  Attempts = get_group_attempts(Group),
+  {next_state, {?GROUP_REQUEST, update, Attempts, Group, ?CONNECTED}, Data};
 
 %% Handling call of remote control command
 %% Note: we can only write in the CONNECTED state
@@ -339,7 +355,7 @@ handle_asdu(#asdu{
   type = ?C_IC_NA_1,
   cot = ?COT_ACTCON,
   objects = [{_IOA, _GroupID}]
-}, {?GROUP_REQUEST, update, _Group, _NextState}, _Data) ->
+}, {?GROUP_REQUEST, update, _Attempts, _Group, _NextState}, _Data) ->
   io:format("Debug. Confirmation of the group request~n"),
   keep_state_and_data;
 
@@ -349,7 +365,7 @@ handle_asdu(#asdu{
   cot = COT,
   pn = ?NEGATIVE_PN,
   objects = [{_IOA, GroupID}]
-}, {?GROUP_REQUEST, update, #{id := GroupID}, NextState}, Data) ->
+}, {?GROUP_REQUEST, update, _Attempts, #{id := GroupID}, NextState}, Data) ->
   ?LOGWARNING("negative response on group ~p request, cot ~p", [GroupID, COT]),
   case NextState of
     {?INIT_GROUPS, _} ->
@@ -363,9 +379,8 @@ handle_asdu(#asdu{
   type = ?C_IC_NA_1,
   cot = ?COT_ACTTERM,
   objects = [{_IOA, GroupID}]
-}, {?GROUP_REQUEST, update, #{id := GroupID} = Group, NextState}, Data) ->
+}, {?GROUP_REQUEST, update, _Attempts, #{id := GroupID} = Group, NextState}, Data) ->
   io:format("Debug. Termination of the group request~n"),
-  io:format("Debug. NextState: ~p~n", [NextState]),
   case Group of
     #{update := UpdateCycle} when is_integer(UpdateCycle) ->
       timer:send_after(UpdateCycle, {update_group, Group, self()});
@@ -417,6 +432,13 @@ group_by_types([], Acc) ->
 
 send_asdu(Connection, ASDU) ->
   Connection ! {asdu, self(), ASDU}, ok.
+
+get_group_attempts(#{attempts := undefined}) ->
+  ?GROUP_REQUEST_ATTEMPTS;
+get_group_attempts(#{attempts := Value}) ->
+  Value;
+get_group_attempts(_) ->
+  ?GROUP_REQUEST_ATTEMPTS.
 
 update_value(Name, Storage, ID, InValue) ->
   OldValue =

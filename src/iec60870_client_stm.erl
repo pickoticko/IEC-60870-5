@@ -120,7 +120,7 @@ handle_event(state_timeout, async_request, {?INIT_GROUPS, Groups}, #data{
        objects = [{_IOA = 0, GroupID}]
      }, ASDUSettings),
      send_asdu(Connection, GroupRequest),
-     timer:send_after(UpdateCycle, {update_group, Group, self()})
+     timer:send_after(UpdateCycle, {async_group_update, Group, self()})
   end || #{id := GroupID, update := UpdateCycle} = Group <- Groups],
   {keep_state_and_data, [{state_timeout, 0, group_end}]};
 
@@ -163,7 +163,7 @@ handle_event(enter, _PrevState, ?CONNECTED, _Data) ->
 
 %% Event from timer for the group update is received
 %% Changing state to the group request
-handle_event(info, {update_group, #{id := GroupID, update := UpdateCycle} = Group, PID}, ?CONNECTED, #data{
+handle_event(info, {async_group_update, #{id := GroupID, update := UpdateCycle} = Group, PID}, ?CONNECTED, #data{
   connection = Connection,
   asdu = ASDUSettings
 }) when PID =:= self() ->
@@ -175,7 +175,7 @@ handle_event(info, {update_group, #{id := GroupID, update := UpdateCycle} = Grou
     objects = [{_IOA = 0, GroupID}]
   }, ASDUSettings),
   send_asdu(Connection, GroupRequest),
-  timer:send_after(UpdateCycle, {update_group, Group, self()}),
+  timer:send_after(UpdateCycle, {async_group_update, Group, self()}),
   keep_state_and_data;
 
 %% Handling call of remote control command
@@ -235,7 +235,7 @@ handle_event(info, {send_error, Connection, Error}, _AnyState, #data{
 %% If we receive updates on the group while in a state
 %% other than the connected state, we will defer
 %% processing them until the current event is completed
-handle_event(info, {update_group, _, PID}, _AnyState, _Data) when PID =:= self() ->
+handle_event(info, {async_group_update, _, PID}, _AnyState, _Data) when PID =:= self() ->
   {keep_state_and_data, [postpone]};
 
 handle_event(EventType, EventContent, _AnyState, #data{name = Name}) ->

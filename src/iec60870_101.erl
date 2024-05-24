@@ -130,6 +130,7 @@ connect(Attempts, #state{
 } = State) when Attempts > 0 ->
   case reset_link(State) of
     {ok, ResetState} ->
+      ?LOGINFO("Debug. Reset link: OK!"),
       Request = build_request(?REQUEST_STATUS_LINK, _Data = undefined, ResetState),
       case SendReceive(Request) of
         {ok, Response} ->
@@ -139,6 +140,7 @@ connect(Attempts, #state{
                 function_code = ?STATUS_LINK_ACCESS_DEMAND
               }
             } ->
+              ?LOGINFO("Debug. Request status link: OK!"),
               {ok, ResetState#state{fcb = 0}};
             _ ->
               ?LOGWARNING("unexpected response on reset link. Response: ~p. Attempts: ~p", [Response, Attempts - 1]),

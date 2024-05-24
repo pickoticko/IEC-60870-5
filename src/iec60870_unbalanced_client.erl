@@ -131,6 +131,7 @@ get_data(#data{
   Self = self(),
   OnResponse =
     fun(Response) ->
+      ?LOGINFO("Debug. Transaction Data Class Response: ~p!", [Response]),
       case Response of
         #frame{control_field = #control_field_response{function_code = ?USER_DATA}, data = ASDUClass1} ->
           Owner ! {asdu, Self, ASDUClass1},
@@ -142,11 +143,13 @@ get_data(#data{
       end
     end,
   %% +-----------[ Class 1 data request ]-----------+
+  ?LOGINFO("Debug. Transaction Request Data Class 1 Init!"),
   case transaction(?REQUEST_DATA_CLASS_1, _Data1 = undefined, Port, OnResponse) of
     ok -> ok;
     {error, ErrorClass1} -> exit(ErrorClass1)
   end,
   %% +-----------[ Class 2 data request ]-----------+
+  ?LOGINFO("Debug. Transaction Request Data Class 2 Init!"),
   case transaction(?REQUEST_DATA_CLASS_2, _Data2 = undefined, Port, OnResponse) of
     ok -> ok;
     {error, ErrorClass2} -> exit(ErrorClass2)
@@ -155,6 +158,7 @@ get_data(#data{
 send_asdu(ASDU, Port) ->
   OnResponse =
     fun(Response) ->
+      ?LOGINFO("Debug. Transaction Send ASDU Response: ~p!", [Response]),
       case Response of
         #frame{control_field = #control_field_response{function_code = ?ACKNOWLEDGE}} ->
           ok;
@@ -163,7 +167,9 @@ send_asdu(ASDU, Port) ->
       end
     end,
   case transaction(?USER_DATA_CONFIRM, ASDU, Port, OnResponse) of
-    ok -> ok;
+    ok ->
+      ?LOGINFO("Debug. Transaction Send ASDU: OK!"),
+      ok;
     {error, Error} -> {error, Error}
   end.
 

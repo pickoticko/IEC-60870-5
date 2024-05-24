@@ -174,7 +174,7 @@ handle_event(
   {?GROUP_REQUEST, update, _Attempts, #{id := ID, count := Count, required := true} = Group, {?INIT_GROUPS, _} = NextState},
   #data{objects_map = Objects} = Data
 ) ->
-  ?LOGWARNING("group request timeout: ~p", [ID]),
+  ?LOGWARNING("required group request timeout: ~p", [ID]),
   case check_counter(Objects, Count) of
     true ->
       check_group_request_timer(Group),

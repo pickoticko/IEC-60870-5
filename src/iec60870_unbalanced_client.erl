@@ -131,7 +131,6 @@ get_data(#data{
   Self = self(),
   OnResponse =
     fun(Response) ->
-      ?LOGINFO("Debug. Data Class Response: ~p", [Response]),
       case Response of
         #frame{control_field = #control_field_response{function_code = ?USER_DATA}, data = ASDUClass1} ->
           Owner ! {asdu, Self, ASDUClass1},
@@ -142,13 +141,11 @@ get_data(#data{
           error
       end
     end,
-  ?LOGINFO("Debug. Data Class 1 Request Init"),
   %% +-----------[ Class 1 data request ]-----------+
   case transaction(?REQUEST_DATA_CLASS_1, _Data1 = undefined, Port, OnResponse) of
     ok -> ok;
     {error, ErrorClass1} -> exit(ErrorClass1)
   end,
-  ?LOGINFO("Debug. Data Class 2 Request Init"),
   %% +-----------[ Class 2 data request ]-----------+
   case transaction(?REQUEST_DATA_CLASS_2, _Data2 = undefined, Port, OnResponse) of
     ok -> ok;

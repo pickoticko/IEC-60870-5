@@ -33,7 +33,8 @@
   storage,
   groups,
   connection,
-  asdu
+  asdu,
+  objects_map
 }).
 
 %% States
@@ -76,6 +77,7 @@ init({Owner, #{
     end,
   % Required groups goes first
   {ok, {?CONNECTING, Type, ConnectionSettings}, #data{
+    objects_map = #{},
     esubscribe = EsubscribePID,
     owner = Owner,
     name = Name,
@@ -97,7 +99,7 @@ handle_event(state_timeout, connect, {?CONNECTING, Type, Settings}, #data{
   Module = iec60870_lib:get_driver_module(Type),
   try
     SortedGroups =
-      lists:sort(fun(Element) -> maps:get(required, Element) =:= true end, Groups),
+      lists:sort(fun(A, _B) -> maps:get(required, A) =:= true end, Groups),
     Connection =
       Module:start_client(Settings),
     {next_state, {?INIT_GROUPS, SortedGroups}, Data#data{
@@ -149,7 +151,7 @@ handle_event(
   state_timeout,
   init,
   {?GROUP_REQUEST, update, _Attempts, #{id := GroupID, timeout := Timeout}, _NextState},
-  #data{connection = Connection, asdu = ASDUSettings}
+  #data{connection = Connection, asdu = ASDUSettings} = Data
 ) ->
   io:format("Debug. Group Request SEND~n"),
   [GroupRequest] = iec60870_asdu:build(#asdu{
@@ -159,7 +161,7 @@ handle_event(
     objects = [{_IOA = 0, GroupID}]
   }, ASDUSettings),
   send_asdu(Connection, GroupRequest),
-  {keep_state_and_data, [{state_timeout, Timeout, timeout}]};
+  {keep_state, Data#data{objects_map = #{}}, [{state_timeout, Timeout, timeout}]};
 
 handle_event(
   state_timeout,
@@ -172,14 +174,17 @@ handle_event(
   {next_state, {?GROUP_REQUEST, update, Attempts - 1, Group, NextState}, Data};
 
 handle_event(
-    state_timeout,
-    timeout,
-    {?GROUP_REQUEST, update, _Attempts, #{id := ID, required := true}, {?INIT_GROUPS, _}},
-    _Data
+  state_timeout,
+  timeout,
+  {?GROUP_REQUEST, update, _Attempts, #{id := ID, count := Count, required := true}, {?INIT_GROUPS, _} = NextState},
+  #data{objects_map = Objects} = Data
 ) ->
   io:format("Debug. Group Request INIT FAIL NO ATTEMPTS~n"),
   ?LOGWARNING("group request timeout: ~p", [ID]),
-  {stop, {group_request_timeout, ID}};
+  case check_counter(Objects, Count) of
+    true -> {next_state, NextState, Data};
+    false -> {stop, {group_request_timeout, ID}}
+  end;
 
 handle_event(
   state_timeout,
@@ -308,8 +313,9 @@ handle_asdu(#asdu{
   cot = COT
 }, _State, #data{
   name = Name,
-  storage = Storage
-})
+  storage = Storage,
+  objects_map = ObjectsMap
+} = Data)
   when (Type >= ?M_SP_NA_1 andalso Type =< ?M_ME_ND_1)
     orelse (Type >= ?M_SP_TB_1 andalso Type =< ?M_EP_TD_1)
     orelse (Type =:= ?M_EI_NA_1) ->
@@ -320,8 +326,14 @@ handle_asdu(#asdu{
       true ->
         undefined
     end,
-  [update_value(Name, Storage, IOA, Value#{type => Type, group => Group}) || {IOA, Value} <- Objects],
-  keep_state_and_data;
+  % Saving received objects into temporary buffer
+  UpdatedObjectsMap =
+    lists:foldl(
+      fun({IOA, Value}, AccIn) ->
+        update_value(Name, Storage, IOA, Value#{type => Type, group => Group}),
+        AccIn#{IOA => Value}
+      end, ObjectsMap, Objects),
+  {keep_state, Data#data{objects_map = UpdatedObjectsMap}};
 
 %%% +--------------------------------------------------------------+
 %%% |                     Handling write request                   |
@@ -439,6 +451,11 @@ get_group_attempts(#{attempts := Value}) ->
   Value;
 get_group_attempts(_) ->
   ?GROUP_REQUEST_ATTEMPTS.
+
+check_counter(Objects, MinCount) when is_integer(MinCount) ->
+  maps:size(Objects) >= MinCount;
+check_counter(_Objects, _MinCount) ->
+  false.
 
 update_value(Name, Storage, ID, InValue) ->
   OldValue =

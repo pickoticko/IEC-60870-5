@@ -202,15 +202,21 @@ check_setting(connection, Settings)
 check_setting(groups, Groups) when is_list(Groups) ->
   [case Group of
      #{id := _ID} ->
-       Group;
+       maps:merge(#{
+         timeout => ?GROUP_REQUEST_TIMEOUT,
+         attempts => ?GROUP_REQUEST_ATTEMPTS,
+         required => false,
+         count => undefined,
+         update => undefined
+       }, Group);
      Group when is_integer(Group) ->
        #{
          id => Group,
-         update => undefined,
          timeout => ?GROUP_REQUEST_TIMEOUT,
-         count => undefined,
          attempts => ?GROUP_REQUEST_ATTEMPTS,
-         required => false
+         required => false,
+         count => undefined,
+         update => undefined
        };
      _ ->
        throw({bad_group_settings, Group})

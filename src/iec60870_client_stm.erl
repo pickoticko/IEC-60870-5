@@ -115,19 +115,16 @@ handle_event(state_timeout, connect, {?CONNECTING, Type, Settings}, #data{
 %%% +--------------------------------------------------------------+
 
 handle_event(enter, _PrevState, {?INIT_GROUPS, _}, _Data) ->
-  io:format("Debug. INIT Groups~n"),
   {keep_state_and_data, [{state_timeout, 0, init}]};
 
 handle_event(state_timeout, init, {?INIT_GROUPS, [Group | Rest]}, Data) ->
   Attempts = get_group_attempts(Group),
-  io:format("Debug. Init Group Attempts: ~p START~n", [Attempts]),
   {next_state, {?GROUP_REQUEST, update, Attempts, Group, {?INIT_GROUPS, Rest}}, Data};
 
 handle_event(state_timeout, init, {?INIT_GROUPS, []}, #data{
   owner = Owner,
   storage = Storage
 } = Data) ->
-  io:format("Debug. Init Groups END~n"),
   % All groups have been received, the cache is ready
   % and therefore we can return a reference to it
   Owner ! {ready, self(), Storage},
@@ -144,7 +141,6 @@ handle_event(
   {?GROUP_REQUEST, update, _Attempts, _Group, _NextState},
   _Data
 ) ->
-  io:format("Debug. Group Request INIT~n"),
   {keep_state_and_data, [{state_timeout, 0, init}]};
 
 handle_event(
@@ -153,7 +149,6 @@ handle_event(
   {?GROUP_REQUEST, update, _Attempts, #{id := GroupID, timeout := Timeout}, _NextState},
   #data{connection = Connection, asdu = ASDUSettings} = Data
 ) ->
-  io:format("Debug. Group Request SEND~n"),
   [GroupRequest] = iec60870_asdu:build(#asdu{
     type = ?C_IC_NA_1,
     pn = ?POSITIVE_PN,
@@ -161,6 +156,7 @@ handle_event(
     objects = [{_IOA = 0, GroupID}]
   }, ASDUSettings),
   send_asdu(Connection, GroupRequest),
+  ?LOGINFO("Debug. Group Request Start!"),
   {keep_state, Data#data{objects_map = #{}}, [{state_timeout, Timeout, timeout}]};
 
 handle_event(
@@ -169,31 +165,32 @@ handle_event(
   {?GROUP_REQUEST, update, Attempts, #{id := ID} = Group, NextState},
   Data
 ) when Attempts > 0 ->
-  io:format("Debug. Group Request FAIL~n"),
   ?LOGWARNING("group request timeout: ~p", [ID]),
   {next_state, {?GROUP_REQUEST, update, Attempts - 1, Group, NextState}, Data};
 
 handle_event(
   state_timeout,
   timeout,
-  {?GROUP_REQUEST, update, _Attempts, #{id := ID, count := Count, required := true}, {?INIT_GROUPS, _} = NextState},
+  {?GROUP_REQUEST, update, _Attempts, #{id := ID, count := Count, required := true} = Group, {?INIT_GROUPS, _} = NextState},
   #data{objects_map = Objects} = Data
 ) ->
-  io:format("Debug. Group Request INIT FAIL NO ATTEMPTS~n"),
   ?LOGWARNING("group request timeout: ~p", [ID]),
   case check_counter(Objects, Count) of
-    true -> {next_state, NextState, Data};
-    false -> {stop, {group_request_timeout, ID}}
+    true ->
+      check_group_request_timer(Group),
+      {next_state, NextState, Data};
+    false ->
+      {stop, {group_request_timeout, ID}}
   end;
 
 handle_event(
   state_timeout,
   timeout,
-  {?GROUP_REQUEST, update, _Attempts, #{id := ID}, NextState},
+  {?GROUP_REQUEST, update, _Attempts, #{id := ID} = Group, NextState},
   Data
 ) ->
-  io:format("Debug. Group Request FAIL NO ATTEMPTS~n"),
   ?LOGWARNING("group request timeout: ~p", [ID]),
+  check_group_request_timer(Group),
   {next_state, NextState, Data};
 
 %%% +--------------------------------------------------------------+
@@ -368,7 +365,7 @@ handle_asdu(#asdu{
   cot = ?COT_ACTCON,
   objects = [{_IOA, _GroupID}]
 }, {?GROUP_REQUEST, update, _Attempts, _Group, _NextState}, _Data) ->
-  io:format("Debug. Confirmation of the group request~n"),
+  ?LOGINFO("Debug. Confirmation of the group request"),
   keep_state_and_data;
 
 %% Rejection of the group request
@@ -392,13 +389,8 @@ handle_asdu(#asdu{
   cot = ?COT_ACTTERM,
   objects = [{_IOA, GroupID}]
 }, {?GROUP_REQUEST, update, _Attempts, #{id := GroupID} = Group, NextState}, Data) ->
-  io:format("Debug. Termination of the group request~n"),
-  case Group of
-    #{update := UpdateCycle} when is_integer(UpdateCycle) ->
-      timer:send_after(UpdateCycle, {update_group, Group, self()});
-    _ ->
-      ignore
-  end,
+  ?LOGINFO("Debug. Termination of the group request"),
+  check_group_request_timer(Group),
   {next_state, NextState, Data};
 
 %% Time synchronization request
@@ -456,6 +448,14 @@ check_counter(Objects, MinCount) when is_integer(MinCount) ->
   maps:size(Objects) >= MinCount;
 check_counter(_Objects, _MinCount) ->
   false.
+
+check_group_request_timer(Group) ->
+  case Group of
+    #{update := UpdateCycle} when is_integer(UpdateCycle) ->
+      timer:send_after(UpdateCycle, {update_group, Group, self()});
+    _ ->
+      ignore
+  end.
 
 update_value(Name, Storage, ID, InValue) ->
   OldValue =

@@ -107,29 +107,24 @@ handle_event(state_timeout, connect, {?CONNECTING, Type, Settings}, #data{
 handle_event(enter, _PrevState, {?INIT_GROUPS, _Groups}, _Data) ->
   {keep_state_and_data, [{state_timeout, 0, group_start}]};
 
-handle_event(state_timeout, group_start, {?INIT_GROUPS, Groups}, #data{
+handle_event(state_timeout, async_request, {?INIT_GROUPS, Groups}, #data{
   connection = Connection,
   asdu = ASDUSettings
 }) ->
   [begin
-     case Timeout of
-       ignore ->
-         ?LOGINFO("Debug. Init groups. Group request send. GroupID: ~p", [GroupID]),
-         [GroupRequest] = iec60870_asdu:build(#asdu{
-           type = ?C_IC_NA_1,
-           pn = ?POSITIVE_PN,
-           cot = ?COT_ACT,
-           objects = [{_IOA = 0, GroupID}]
-         }, ASDUSettings),
-         send_asdu(Connection, GroupRequest);
-       _ ->
-         ok
-     end,
+     ?LOGINFO("Debug. Init groups. Group request send. GroupID: ~p", [GroupID]),
+     [GroupRequest] = iec60870_asdu:build(#asdu{
+       type = ?C_IC_NA_1,
+       pn = ?POSITIVE_PN,
+       cot = ?COT_ACT,
+       objects = [{_IOA = 0, GroupID}]
+     }, ASDUSettings),
+     send_asdu(Connection, GroupRequest),
      timer:send_after(UpdateCycle, {update_group, Group, self()})
-  end || #{id := GroupID, update := UpdateCycle, timeout := Timeout} = Group <- Groups],
+  end || #{id := GroupID, update := UpdateCycle} = Group <- Groups],
   {keep_state_and_data, [{state_timeout, 0, group_end}]};
 
-handle_event(state_timeout, group_end, {?INIT_GROUPS, _Groups}, #data{
+handle_event(state_timeout, async_request, {?INIT_GROUPS, _Groups}, #data{
   owner = Owner,
   storage = Storage
 } = Data) ->

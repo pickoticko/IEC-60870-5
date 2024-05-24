@@ -42,7 +42,6 @@
 -define(ACTIVATION, activation).
 -define(WRITE, write).
 -define(INIT_GROUPS, init_groups).
--define(GROUP_REQUEST, group_request).
 
 %%% +--------------------------------------------------------------+
 %%% |                  OTP behaviour implementation                |
@@ -105,54 +104,40 @@ handle_event(state_timeout, connect, {?CONNECTING, Type, Settings}, #data{
 %%% |                      Init Groups State                       |
 %%% +--------------------------------------------------------------+
 
-handle_event(enter, _PrevState, {?INIT_GROUPS, _}, _Data) ->
-  {keep_state_and_data, [{state_timeout, 0, init}]};
+handle_event(enter, _PrevState, {?INIT_GROUPS, _Groups}, _Data) ->
+  {keep_state_and_data, [{state_timeout, 0, group_start}]};
 
-handle_event(state_timeout, init, {?INIT_GROUPS, [Group | Rest]}, Data) ->
-  {next_state, {?GROUP_REQUEST, init, Group, {?INIT_GROUPS, Rest}}, Data};
+handle_event(state_timeout, group_start, {?INIT_GROUPS, Groups}, #data{
+  connection = Connection,
+  asdu = ASDUSettings
+}) ->
+  [begin
+     case Timeout of
+       ignore ->
+         ?LOGINFO("Debug. Init groups. Group request send. GroupID: ~p", [GroupID]),
+         [GroupRequest] = iec60870_asdu:build(#asdu{
+           type = ?C_IC_NA_1,
+           pn = ?POSITIVE_PN,
+           cot = ?COT_ACT,
+           objects = [{_IOA = 0, GroupID}]
+         }, ASDUSettings),
+         send_asdu(Connection, GroupRequest);
+       _ ->
+         ok
+     end,
+     timer:send_after(UpdateCycle, {update_group, Group, self()})
+  end || #{id := GroupID, update := UpdateCycle, timeout := Timeout} = Group <- Groups],
+  {keep_state_and_data, [{state_timeout, 0, group_end}]};
 
-handle_event(state_timeout, init, {?INIT_GROUPS, []}, #data{
+handle_event(state_timeout, group_end, {?INIT_GROUPS, _Groups}, #data{
   owner = Owner,
   storage = Storage
 } = Data) ->
+  ?LOGINFO("Debug. Init groups. State timeout. Group end!"),
   % All groups have been received, the cache is ready
   % and therefore we can return a reference to it
   Owner ! {ready, self(), Storage},
   {next_state, ?CONNECTED, Data};
-
-%%% +--------------------------------------------------------------+
-%%% |                        Group request                         |
-%%% +--------------------------------------------------------------+
-
-handle_event(enter, _PrevState, {?GROUP_REQUEST, init, #{id := GroupID}, _}, #data{
-  connection = Connection,
-  asdu = ASDUSettings
-}) ->
-  % TODO. Handle group versions
-  [GroupRequest] = iec60870_asdu:build(#asdu{
-    type = ?C_IC_NA_1,
-    pn = ?POSITIVE_PN,
-    cot = ?COT_ACT,
-    objects = [{_IOA = 0, GroupID}]
-  }, ASDUSettings),
-  send_asdu(Connection, GroupRequest),
-  keep_state_and_data;
-
-handle_event(enter, _PrevState, {?GROUP_REQUEST, update, #{id := GroupID}, _}, #data{
-  groups = Groups
-}) ->
-  Actions =
-    case Groups of
-      #{GroupID := #{timeout := Timeout }} when is_integer(Timeout)->
-        [{state_timeout, Timeout, timeout}];
-      _ ->
-        []
-    end,
-  {keep_state_and_data, Actions};
-
-handle_event(state_timeout, timeout, {?GROUP_REQUEST, update, #{id := ID}, _NextState}, _Data) ->
-  ?LOGWARNING("group request timeout on group: ~p", [ID]),
-  {stop, {group_request_timeout, ID}};
 
 %%% +--------------------------------------------------------------+
 %%% |                Sending remote control command                |
@@ -183,8 +168,20 @@ handle_event(enter, _PrevState, ?CONNECTED, _Data) ->
 
 %% Event from timer for the group update is received
 %% Changing state to the group request
-handle_event(info, {update_group, Group, PID}, ?CONNECTED, Data) when PID =:= self() ->
-  {next_state, {?GROUP_REQUEST, init, Group, ?CONNECTED}, Data};
+handle_event(info, {update_group, #{id := GroupID, update := UpdateCycle} = Group, PID}, ?CONNECTED, #data{
+  connection = Connection,
+  asdu = ASDUSettings
+}) when PID =:= self() ->
+  ?LOGINFO("Debug. Sending group request by update, GroupID: ~p", [GroupID]),
+  [GroupRequest] = iec60870_asdu:build(#asdu{
+    type = ?C_IC_NA_1,
+    pn = ?POSITIVE_PN,
+    cot = ?COT_ACT,
+    objects = [{_IOA = 0, GroupID}]
+  }, ASDUSettings),
+  send_asdu(Connection, GroupRequest),
+  timer:send_after(UpdateCycle, {update_group, Group, self()}),
+  keep_state_and_data;
 
 %% Handling call of remote control command
 %% Note: we can only write in the CONNECTED state
@@ -225,6 +222,7 @@ handle_event(info, {asdu, Connection, ASDU}, State, #data{
     _Exception:Reason ->
       case Reason of
         {invalid_object, _Value} ->
+          ?LOGINFO("Debug. Invalid Object received, stopping connection!"),
           {stop, Reason, Data};
         _Other ->
           ?LOGERROR("~p invalid ASDU received: ~p, reason: ~p", [Name, ASDU, Reason]),
@@ -317,39 +315,29 @@ handle_asdu(#asdu{
   type = ?C_IC_NA_1,
   cot = ?COT_ACTCON,
   objects = [{_IOA, GroupID}]
-}, {?GROUP_REQUEST, init, #{id := GroupID} = Group, NextState}, Data) ->
-  Actions =
-    case Group of
-      #{timeout := Timeout} when is_integer(Timeout) ->
-        [{state_timeout, Timeout, timeout}];
-      _ ->
-        []
-    end,
-  {next_state, {?GROUP_REQUEST, update, Group, NextState}, Data, Actions};
+}, ?CONNECTED, _Data) ->
+  ?LOGINFO("Debug. Confirmation of the group request! GroupID: ~p", [GroupID]),
+  keep_state_and_data;
 
 %% Rejection of the group request
 handle_asdu(#asdu{
   type = ?C_IC_NA_1,
-  cot = COT,
+  cot = _COT,
   pn = ?NEGATIVE_PN,
   objects = [{_IOA, GroupID}]
-}, {?GROUP_REQUEST, init, #{id := GroupID}, NextState}, Data) ->
-  ?LOGWARNING("negative responce on group ~p request, cot ~p", [GroupID, COT]),
-  {next_state, NextState, Data};
+}, ?CONNECTED, _Data) ->
+  ?LOGINFO("Debug. Rejection of the group request! ~p", [GroupID]),
+  % ?LOGWARNING("negative responce on group ~p request, cot ~p", [GroupID]),
+  keep_state_and_data;
 
 %% Termination of the group request
 handle_asdu(#asdu{
   type = ?C_IC_NA_1,
   cot = ?COT_ACTTERM,
   objects = [{_IOA, GroupID}]
-}, {?GROUP_REQUEST, update, #{id := GroupID} = Group, NextState}, Data) ->
-  case Group of
-    #{update := UpdateCycle} when is_integer(UpdateCycle) ->
-      timer:send_after(UpdateCycle, {update_group, Group, self()});
-    _ ->
-      ignore
-  end,
-  {next_state, NextState, Data};
+}, ?CONNECTED, _Data) ->
+  ?LOGINFO("Debug. Termination of the group request! GroupID: ~p", [GroupID]),
+  keep_state_and_data;
 
 %% Time synchronization request
 handle_asdu(#asdu{type = ?C_CS_NA_1, objects = Objects}, _State, #data{

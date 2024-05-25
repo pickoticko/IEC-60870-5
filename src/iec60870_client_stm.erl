@@ -50,6 +50,7 @@
 
 -record(rc,{
   state,
+  type,
   from,
   ioa,
   value
@@ -68,6 +69,9 @@
 %% Group request
 -define(GI_DEFAULT_TIMEOUT, 60000).
 -define(GI_DEFAULT_ATTEMPTS, 1).
+
+%% Remote control
+-define(RC_TIMEOUT, 10000).
 
 -define(GI_STATE(G),#gi{
   state = confirm,
@@ -219,7 +223,7 @@ handle_event(internal, #asdu{
   name = Name
 } =Data) ->
 
-  ?LOGINFO("~p, group ~p confirmed",[Name, ID]),
+  ?LOGINFO("DEBUG: ~p, group ~p confirmed",[Name, ID]),
 
   {next_state, State#gi{ state = run }, Data};
 
@@ -256,6 +260,28 @@ handle_event(enter, _PrevState, #gi{
   timeout = Timeout
 }, Data) ->
   {keep_state, Data#data{ state_acc = #{} } , [{state_timeout, Timeout, timeout}]};
+
+% Update received
+handle_event(internal, #asdu{
+  type = Type,
+  objects = Objects,
+  cot = COT
+}, #gi{
+  state = run,
+  id = ID
+}, #data{
+  name = Name,
+  storage = Storage,
+  state_acc = GroupItems0
+}= Data) when (COT - ?COT_GROUP_MIN) =:= ID  ->
+
+  GroupItems =
+    lists:foldl(fun({IOA, Value}, AccIn) ->
+      update_value(Name, Storage, IOA, Value#{type => Type, group => ID}),
+      AccIn#{IOA => Value}
+    end, GroupItems0, Objects),
+
+  {keep_state, Data#data{ state_acc = GroupItems }};
 
 % Completed
 handle_event(internal, #asdu{
@@ -400,6 +426,7 @@ handle_event({call, From}, {write, IOA, Value}, ?CONNECTED, Data)->
   % Start write request
   RC = #rc{
     state = confirm,
+    type = maps:get(type, Value),
     from = From,
     ioa = IOA,
     value = Value
@@ -419,8 +446,9 @@ handle_event(info, #gi{} = GI, ?CONNECTED, Data)->
 %%------------------------CONFIRM-----------------------------------
 handle_event(enter, _PrevState, #rc{
   state = confirm,
+  type = Type,
   ioa = IOA,
-  value = #{ type := Type } = Value
+  value = Value
 }, #data{
   connection = Connection,
   asdu = ASDUSettings
@@ -439,19 +467,40 @@ handle_event(enter, _PrevState, #rc{
 
 % Confirm
 handle_event(internal, #asdu{
-  type = ?C_IC_NA_1,
+  type = Type,
   cot = ?COT_ACTCON,
-  objects = [{_IOA, ID}]
-}, #gi{
+  pn = ?POSITIVE_PN,
+  objects = [{IOA, _ }]
+}, #rc{
   state = confirm,
-  id = ID
+  ioa = IOA,
+  type = Type
 }=State, #data{
   name = Name
 } =Data) ->
 
-  ?LOGINFO("~p, group ~p confirmed",[Name, ID]),
+  ?LOGINFO("DEBUG: ~p, ioa ~p write confirmed",[Name, IOA]),
 
-  {next_state, State#gi{ state = run }, Data};
+  {next_state, State#rc{ state = run }, Data};
+
+% Reject
+handle_event(internal, #asdu{
+  type = Type,
+  cot = ?COT_ACTCON,
+  pn = ?NEGATIVE_PN,
+  objects = [{IOA, _ }]
+}, #rc{
+  state = confirm,
+  ioa = IOA,
+  type = Type,
+  from = From
+}, #data{
+  name = Name
+} =Data) ->
+
+  ?LOGWARNING("DEBUG: ~p, ioa ~p write rejected",[Name, IOA]),
+
+  {next_state, ?CONNECTED, Data, [{reply, From, {error, reject}}]};
 
 handle_event(state_timeout, timeout, #rc{
   state = confirm,
@@ -459,17 +508,125 @@ handle_event(state_timeout, timeout, #rc{
 }, Data) ->
   {next_state, ?CONNECTED, Data, [{reply, From, {error, confirm_timeout}}]};
 
+%%------------------------RUN-----------------------------------
+handle_event(enter, _PrevState, #rc{ state = run }, _Data) ->
+  {keep_state_and_data, [{state_timeout, ?RC_TIMEOUT, timeout}]};
+
+% Completed successfully
+handle_event(internal, #asdu{
+  type = Type,
+  cot = ?COT_ACTTERM,
+  pn = ?POSITIVE_PN,
+  objects = [{IOA, _ }]
+}, #rc{
+  state = run,
+  ioa = IOA,
+  type = Type,
+  from = From
+}, #data{
+  name = Name
+} =Data) ->
+
+  ?LOGINFO("DEBUG: ~p, ioa ~p write completed",[Name, IOA]),
+
+  {next_state, ?CONNECTED, Data, [{reply, From, ok}]};
+
+% Not executed
+handle_event(internal, #asdu{
+  type = Type,
+  cot = ?COT_ACTTERM,
+  pn = ?NEGATIVE_PN,
+  objects = [{IOA, _ }]
+}, #rc{
+  state = run,
+  ioa = IOA,
+  type = Type,
+  from = From
+}, #data{
+  name = Name
+} =Data) ->
+
+  ?LOGINFO("DEBUG: ~p, ioa ~p write not executed",[Name, IOA]),
+
+  {next_state, ?CONNECTED, Data, [{reply, From, {error, not_executed}}]};
+
+handle_event(state_timeout, timeout, #rc{
+  state = run,
+  from = From
+}, Data) ->
+  {next_state, ?CONNECTED, Data, [{reply, From, {error, execute_timeout}}]};
+
+%%% +--------------------------------------------------------------+
+%%% |                       Handling normal updates                |
+%%% +--------------------------------------------------------------+
+handle_event(internal, #asdu{
+  type = Type,
+  objects = Objects,
+  cot = COT
+}, _AnyState, #data{
+  name = Name,
+  storage = Storage
+})
+  when
+    (Type >= ?M_SP_NA_1 andalso Type =< ?M_ME_ND_1)
+    orelse (Type >= ?M_SP_TB_1 andalso Type =< ?M_EP_TD_1)
+    orelse (Type =:= ?M_EI_NA_1) ->
+
+  Group =
+    if
+      COT >= ?COT_GROUP_MIN, COT =< ?COT_GROUP_MAX ->
+        COT - ?COT_GROUP_MIN;
+      true ->
+        undefined
+    end,
+
+  [update_value(Name, Storage, IOA, Value#{type => Type, group => Group}) || {IOA, Value} <- Objects],
+
+  keep_state_and_data;
+
+%%% +--------------------------------------------------------------+
+%%% |                  Time synchronization request                |
+%%% +--------------------------------------------------------------+
+handle_event(internal, #asdu{
+  type = ?C_CS_NA_1,
+  objects = Objects
+}, _AnyState, #data{
+  asdu = ASDUSettings,
+  connection = Connection
+}) ->
+
+  [Confirmation] = iec60870_asdu:build(#asdu{
+    type = ?C_CS_NA_1,
+    pn = ?POSITIVE_PN,
+    cot = ?COT_SPONT,
+    objects = Objects
+  }, ASDUSettings),
+  send_asdu(Connection, Confirmation),
+
+  keep_state_and_data;
+
+%%% +--------------------------------------------------------------+
+%%% |                  Unexpected ASDU                             |
+%%% +--------------------------------------------------------------+
+handle_event(internal, #asdu{} = Unexpected, State, #data{
+  name = Name
+}) ->
+  ?LOGWARNING("~p unexpected ASDU type is received: ASDU ~p, state ~p", [
+    Name,
+    Unexpected,
+    State
+  ]),
+  keep_state_and_data;
+
 %%% +--------------------------------------------------------------+
 %%% |                        Other events                          |
 %%% +--------------------------------------------------------------+
 %% Notify event from esubscribe, postpone until CONNECTED
 handle_event(info, {write, _IOA, _Value}, _State, _Data) ->
-
   %% TODO. Can we send information packets during group interrogation?
   { keep_state_and_data, [postpone]};
 
 handle_event({call, _From}, {write, _IOA, _Value}, _State, _Data) ->
-  %% TODO. Can we init control commands during group interrogation?
   { keep_state_and_data, [postpone]};
 
 % Group interrogation request, postpone until CONNECTED
@@ -502,77 +659,6 @@ terminate(Reason, _, _State) ->
 code_change(_OldVsn, State, _Extra) ->
   {ok, State}.
 
-%% Receiving information data objects
-handle_asdu(#asdu{
-  type = Type,
-  objects = Objects,
-  cot = COT
-}, _State, #data{
-  name = Name,
-  storage = Storage,
-  objects_map = ObjectsMap
-} = Data)
-  when (Type >= ?M_SP_NA_1 andalso Type =< ?M_ME_ND_1)
-    orelse (Type >= ?M_SP_TB_1 andalso Type =< ?M_EP_TD_1)
-    orelse (Type =:= ?M_EI_NA_1) ->
-  Group =
-    if
-      COT >= ?COT_GROUP_MIN, COT =< ?COT_GROUP_MAX ->
-        COT - ?COT_GROUP_MIN;
-      true ->
-        undefined
-    end,
-  % Saving received objects into temporary buffer
-  UpdatedObjectsMap =
-    lists:foldl(
-      fun({IOA, Value}, AccIn) ->
-        update_value(Name, Storage, IOA, Value#{type => Type, group => Group}),
-        AccIn#{IOA => Value}
-      end, ObjectsMap, Objects),
-  {keep_state, Data#data{objects_map = UpdatedObjectsMap}};
-
-%%% +--------------------------------------------------------------+
-%%% |                     Handling write request                   |
-%%% +--------------------------------------------------------------+
-%%% | Note: We do not expect that there will be a strict sequence  |
-%%% | of responses from the server so, if we get activation        |
-%%% | termination, then we assume that the write has succeeded     |
-%%% +--------------------------------------------------------------+
-
-handle_asdu(#asdu{
-  type = Type,
-  cot = COT,
-  pn = PN,
-  objects = [{IOA, _ }]
-}, {?WRITE, From, IOA, #{type := Type} = _Value}, Data)
-  when (Type >= ?C_SC_NA_1 andalso Type =< ?C_BO_NA_1) orelse
-       (Type >= ?C_SC_TA_1 andalso Type =< ?C_BO_TA_1) ->
-  case {COT, PN} of
-    {?COT_ACTCON, ?POSITIVE_PN} -> keep_state_and_data;
-    {?COT_ACTCON, ?NEGATIVE_PN} -> {next_state, ?CONNECTED, Data, [{reply, From, {error, negative_confirmation}}]};
-    {?COT_ACTTERM, ?POSITIVE_PN} -> {next_state, ?CONNECTED, Data, [{reply, From, ok}]};
-    {?COT_ACTTERM, ?NEGATIVE_PN} -> {next_state, ?CONNECTED, Data, [{reply, From, {error, negative_termination}}]}
-  end;
-
-
-%% Time synchronization request
-handle_asdu(#asdu{type = ?C_CS_NA_1, objects = Objects}, _State, #data{
-  asdu = ASDUSettings,
-  connection = Connection
-}) ->
-  [Confirmation] = iec60870_asdu:build(#asdu{
-    type = ?C_CS_NA_1,
-    pn = ?POSITIVE_PN,
-    cot = ?COT_SPONT,
-    objects = Objects
-  }, ASDUSettings),
-  send_asdu(Connection, Confirmation),
-  keep_state_and_data;
-
-%% All other unexpected asdu types
-handle_asdu(#asdu{} = Unexpected, State, #data{name = Name}) ->
-  ?LOGWARNING("~p unexpected ASDU type is received: ASDU ~p, state ~p", [Name, Unexpected, State]),
-  keep_state_and_data.
 
 %% Sending data objects
 send_items(Items, Connection, COT, ASDUSettings) ->

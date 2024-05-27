@@ -267,10 +267,11 @@ handle_event(
 %% Update received
 handle_event(
   internal,
-  #asdu{type = Type, objects = Objects, cot = COT},
+  #asdu{type = Type, objects = Objects, cot = COT} = ASDU,
   #gi{state = run, id = ID},
   #data{name = Name, storage = Storage, state_acc = GroupItems0} = Data
 ) when (COT - ?COT_GROUP_MIN) =:= ID ->
+  ?LOGINFO("DEBUG: GI update of ID: ~p. Received COT: ~p, ASDU: ~p", [ID, COT, ASDU]),
   GroupItems =
     lists:foldl(
       fun({IOA, Value}, AccIn) ->
@@ -542,7 +543,7 @@ handle_event(
       true ->
         undefined
     end,
-  ?LOGINFO("DEBUG: Received data object. Group: ~p, ASDU: ~p", [Group, ASDU]),
+  ?LOGINFO("DEBUG: Normal Update. Group: ~p, ASDU: ~p", [Group, ASDU]),
   [begin
      update_value(Name, Storage, IOA, Value#{type => Type, group => Group})
    end || {IOA, Value} <- Objects],

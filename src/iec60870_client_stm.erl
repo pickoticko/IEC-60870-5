@@ -364,9 +364,15 @@ handle_event(
   state_timeout,
   timeout,
   #gi{state = finish, update = Update, rest = RestGI, required = IsRequired} = State,
-  Data
+  #data{owner = Owner, storage = Storage} = Data
 ) ->
-  ?LOGINFO("DEBUG: GI Finish, Update: ~p, IsRequired: ~p, RestGI: ~p", [Update, IsRequired, RestGI]),
+  case {IsRequired, RestGI} of
+    {true, []} ->
+      ?LOGINFO("DEBUG: Sending READY message to Owner: ~p", [Owner]),
+      Owner ! {ready, self(), Storage};
+    _ ->
+      ignore
+  end,
   % If the group must be cyclically updated queue the event
   if
     is_integer(Update) ->
@@ -389,10 +395,8 @@ handle_event(
   enter,
   _PrevState,
   ?CONNECTED,
-  #data{owner = Owner, storage = Storage}
+  #data{}
 ) ->
-  ?LOGINFO("DEBUG: Sending READY message to Owner: ~p", [Owner]),
-  Owner ! {ready, self(), Storage},
   keep_state_and_data;
 
 handle_event(

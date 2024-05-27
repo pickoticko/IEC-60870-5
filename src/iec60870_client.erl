@@ -60,6 +60,7 @@
 start(InSettings) ->
   #{name := Name} = Settings = check_settings(InSettings),
   OldFlag = process_flag(trap_exit, true),
+  ?LOGINFO("DEBUG: Client Owner: ~p", [self()]),
   PID =
     case gen_statem:start_link(iec60870_client_stm, {_OwnerPID = self(), Settings}, []) of
       {ok, _PID} -> _PID;

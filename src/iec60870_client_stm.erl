@@ -284,7 +284,7 @@ handle_event(
   internal,
   #asdu{type = ?C_IC_NA_1, cot = ?COT_ACTTERM, pn = ?POSITIVE_PN, objects = [{_IOA, ID}]},
   #gi{state = run, id = ID, count = Count} = State,
-  #data{name = Name, state_acc = GroupItems} = Data
+  #data{name = Name, state_acc = GroupItems, storage = Storage} = Data
 ) ->
   IsSuccessful =
     if
@@ -296,6 +296,7 @@ handle_event(
       ?LOGINFO("DEBUG: ~p, group ~p interrogation complete", [Name, ID]),
       {next_state, State#gi{state = finish}, Data};
     true ->
+      ?LOGINFO("DEBUG: Amount of data objects in storage: ~p", [length(ets:tab2list(Storage))]),
       ?LOGINFO("DEBUG: ~p, group ~p interrogation validate error", [Name, ID]),
       {next_state, State#gi{state = error}, Data}
   end;
@@ -528,7 +529,7 @@ handle_event(
 
 handle_event(
   internal,
-  #asdu{type = Type, objects = Objects, cot = COT},
+  #asdu{type = Type, objects = Objects, cot = COT} = ASDU,
   _AnyState,
   #data{name = Name, storage = Storage}
 ) when (Type >= ?M_SP_NA_1 andalso Type =< ?M_ME_ND_1)
@@ -541,6 +542,7 @@ handle_event(
       true ->
         undefined
     end,
+  ?LOGINFO("DEBUG: Received data object. Group: ~p, ASDU: ~p", [Group, ASDU]),
   [begin
      update_value(Name, Storage, IOA, Value#{type => Type, group => Group})
    end || {IOA, Value} <- Objects],

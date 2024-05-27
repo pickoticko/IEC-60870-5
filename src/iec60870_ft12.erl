@@ -17,6 +17,7 @@
   check_options/1,
   start_link/1,
   send/2,
+  purge/1,
   stop/1
 ]).
 
@@ -65,6 +66,10 @@ start_link(InOptions) ->
 
 send(Port, Frame) ->
   Port ! {send, self(), Frame},
+  ok.
+
+purge( Port ) ->
+  Port ! {purge, self()},
   ok.
 
 stop(Port) ->
@@ -130,6 +135,9 @@ loop(#state{
       eserial:send(Port, Packet),
       loop(State1);
 
+    {purge, Owner} ->
+      drop_data(Port),
+      loop( State#state{buffer = <<>>} );
     {stop, Owner} ->
       eserial:close(Port)
   end.

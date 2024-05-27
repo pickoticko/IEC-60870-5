@@ -179,6 +179,8 @@ transaction(Attempts, FunctionCode, Data, OnResponseFun, #state{
   end.
 
 send_receive(Port, Request, Timeout) ->
+  send_receive(Port, Request, Timeout, _Attempts = 3).
+send_receive(Port, Request, Timeout, Attempts) when Attempts > 0->
   Address = Request#frame.address,
   ok = iec60870_ft12:send(Port, Request),
   receive
@@ -191,8 +193,13 @@ send_receive(Port, Request, Timeout) ->
           {error, invalid_response}
       end
   after
-    Timeout -> {error, timeout}
-  end.
+    Timeout ->
+      iec60870_ft12:purge(Port),
+      send_receive( Port, Request, Timeout, Attempts -1 )
+  end;
+send_receive(_Port, _Request, _Timeout, _Attempts)->
+  {error, timeout}.
+
 
 %%% +--------------------------------------------------------------+
 %%% |                      Internal functions                      |

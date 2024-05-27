@@ -215,6 +215,7 @@ handle_event(enter, _PrevState, #gi{
 handle_event(internal, #asdu{
   type = ?C_IC_NA_1,
   cot = ?COT_ACTCON,
+  pn = ?POSITIVE_PN,
   objects = [{_IOA, ID}]
 }, #gi{
   state = confirm,
@@ -230,7 +231,7 @@ handle_event(internal, #asdu{
 % Reject
 handle_event(internal, #asdu{
   type = ?C_IC_NA_1,
-  cot = COT,
+  cot = ?COT_ACTCON,
   pn = ?NEGATIVE_PN,
   objects = [{_IOA, ID}]
 }, #gi{

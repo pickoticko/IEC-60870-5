@@ -189,7 +189,7 @@ handle_event(
   state_timeout,
   init,
   ?INIT_GROUPS,
-  #data{groups = Groups} = Data
+  #data{owner = Owner, storage = Storage, groups = Groups} = Data
 ) ->
   GIs = [?GI_STATE(G) || G <- Groups],
   % Init update events for not required groups. They are handled in the normal mode
@@ -197,8 +197,11 @@ handle_event(
   % Get required groups
   Required = [GI || GI = #gi{required = true} <- GIs],
   case Required of
-    [G | Rest] -> {next_state, G#gi{rest = Rest}, Data};
-    _ -> {next_state, ?CONNECTED, Data}
+    [G | Rest] ->
+      {next_state, G#gi{rest = Rest}, Data};
+    _ ->
+      Owner ! {ready, self(), Storage},
+      {next_state, ?CONNECTED, Data}
   end;
 
 %%% +--------------------------------------------------------------+

@@ -365,7 +365,7 @@ handle_event(
 handle_event(
   state_timeout,
   timeout,
-  #gi{state = finish, update = Update, rest = RestGI, required = IsRequired} = State,
+  #gi{state = finish, id = ID, update = Update, rest = RestGI, required = IsRequired} = State,
   #data{owner = Owner, storage = Storage} = Data
 ) ->
   case {IsRequired, RestGI} of
@@ -378,6 +378,7 @@ handle_event(
   % If the group must be cyclically updated queue the event
   if
     is_integer(Update) ->
+      ?LOGINFO("DEBUG: Starting GI timer for group ID: ~p", [ID]),
       timer:send_after(Update, State#gi{required = false, rest = []});
     true ->
       ignore

@@ -24,7 +24,7 @@
 %%% +--------------------------------------------------------------+
 
 -define(START_TIMEOUT, 1000).
--define(CYCLE, 100).
+-define(DEFAULT_CYCLE, 10).
 
 -define(NOT(X), abs(X - 1)).
 
@@ -48,7 +48,8 @@
 -record(data, {
   name,
   owner,
-  port
+  port,
+  cycle
 }).
 
 %%% +--------------------------------------------------------------+
@@ -79,9 +80,11 @@ init_client(Owner, Options) ->
   Port = start_port(Options),
   connect(Port, Options),
   Owner ! {connected, self()},
-  timer:send_after(?CYCLE, {update, self()}),
+  Cycle = maps:get(cycle, Options, ?DEFAULT_CYCLE),
+  timer:send_after(Cycle, {update, self()}),
   loop(#data{
     name = maps:get(port, Options),
+    cycle = Cycle,
     owner = Owner,
     port = Port
   }).
@@ -100,11 +103,12 @@ connect(Port, Options) ->
 loop(#data{
   name = Name,
   owner = Owner,
-  port = Port
+  port = Port,
+  cycle = Cycle
 } = Data) ->
   receive
     {update, Self} when Self =:= self() ->
-      timer:send_after(?CYCLE, {update, Self}),
+      timer:send_after(Cycle, {update, Self}),
       get_data(Data),
       loop(Data);
     {asdu, Owner, ASDU} ->
@@ -155,7 +159,6 @@ get_data(#data{
 send_asdu(ASDU, Port) ->
   OnResponse =
     fun(Response) ->
-      ?LOGINFO("Debug. User Data Confirm Response: ~p", [Response]),
       case Response of
         #frame{control_field = #control_field_response{function_code = ?ACKNOWLEDGE}} ->
           ok;
@@ -163,7 +166,6 @@ send_asdu(ASDU, Port) ->
           error
       end
     end,
-  ?LOGINFO("Debug. User Data Confirm Send Init"),
   case transaction(?USER_DATA_CONFIRM, ASDU, Port, OnResponse) of
     ok -> ok;
     {error, Error} -> {error, Error}

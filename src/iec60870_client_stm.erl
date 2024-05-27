@@ -197,12 +197,8 @@ handle_event(
   % Get required groups
   Required = [GI || GI = #gi{required = true} <- GIs],
   case Required of
-    [G | Rest] ->
-      ?LOGINFO("DEBUG: Required current: ~p, Required rest: ~p", [G, Rest]),
-      {next_state, G#gi{rest = Rest}, Data};
-    _ ->
-      ?LOGINFO("DEBUG: No required GIs. Next state: CONNECTED"),
-      {next_state, ?CONNECTED, Data}
+    [G | Rest] -> {next_state, G#gi{rest = Rest}, Data};
+    _ -> {next_state, ?CONNECTED, Data}
   end;
 
 %%% +--------------------------------------------------------------+
@@ -214,7 +210,7 @@ handle_event(
   enter,
   _PrevState,
   #gi{state = confirm, id = ID},
-  #data{name = Name, asdu = ASDUSettings, connection = Connection}
+  #data{asdu = ASDUSettings, connection = Connection}
 ) ->
   [GroupRequest] = iec60870_asdu:build(#asdu{
     type = ?C_IC_NA_1,
@@ -223,7 +219,6 @@ handle_event(
     objects = [{_IOA = 0, ID}]
   }, ASDUSettings),
   send_asdu(Connection, GroupRequest),
-  ?LOGINFO("DEBUG: ~p Group Request Start!", [Name]),
   {keep_state_and_data, [{state_timeout, ?CONFIRM_TIMEOUT, timeout}]};
 
 %% GI Confirm
@@ -231,9 +226,8 @@ handle_event(
   internal,
   #asdu{type = ?C_IC_NA_1, cot = ?COT_ACTCON, pn = ?POSITIVE_PN, objects = [{_IOA, ID}]},
   #gi{state = confirm, id = ID} = State,
-  #data{name = Name} = Data
+  Data
 ) ->
-  ?LOGINFO("DEBUG: ~p, group ~p confirmed", [Name, ID]),
   {next_state, State#gi{state = run}, Data};
 
 %% GI Reject
@@ -267,11 +261,10 @@ handle_event(
 %% Update received
 handle_event(
   internal,
-  #asdu{type = Type, objects = Objects, cot = COT} = ASDU,
+  #asdu{type = Type, objects = Objects, cot = COT},
   #gi{state = run, id = ID},
   #data{name = Name, storage = Storage, state_acc = GroupItems0} = Data
 ) when (COT - ?COT_GROUP_MIN) =:= ID ->
-  ?LOGINFO("DEBUG: GI update of ID: ~p. Received COT: ~p, ASDU: ~p", [ID, COT, ASDU]),
   GroupItems =
     lists:foldl(
       fun({IOA, Value}, AccIn) ->
@@ -285,7 +278,7 @@ handle_event(
   internal,
   #asdu{type = ?C_IC_NA_1, cot = ?COT_ACTTERM, pn = ?POSITIVE_PN, objects = [{_IOA, ID}]},
   #gi{state = run, id = ID, count = Count} = State,
-  #data{name = Name, state_acc = GroupItems, storage = Storage} = Data
+  #data{state_acc = GroupItems} = Data
 ) ->
   IsSuccessful =
     if
@@ -294,11 +287,8 @@ handle_event(
     end,
   if
     IsSuccessful ->
-      ?LOGINFO("DEBUG: ~p, group ~p interrogation complete", [Name, ID]),
       {next_state, State#gi{state = finish}, Data};
     true ->
-      ?LOGINFO("DEBUG: Amount of data objects in storage: ~p", [length(ets:tab2list(Storage))]),
-      ?LOGINFO("DEBUG: ~p, group ~p interrogation validate error", [Name, ID]),
       {next_state, State#gi{state = error}, Data}
   end;
 
@@ -307,24 +297,21 @@ handle_event(
   internal,
   #asdu{type = ?C_IC_NA_1, cot = ?COT_ACTTERM, pn = ?NEGATIVE_PN, objects = [{_IOA, ID}]},
   #gi{state = run, id = ID} = State,
-  #data{name = Name} = Data
+  Data
 ) ->
-  ?LOGINFO("DEBUG: ~p, group ~p interrogation interrupted", [Name, ID]),
   {next_state, State#gi{state = error}, Data};
 
 handle_event(
   state_timeout,
   timeout,
-  #gi{state = run, id = ID, count = Count} = State,
-  #data{name = Name, state_acc = GroupItems} = Data
+  #gi{state = run, count = Count} = State,
+  #data{state_acc = GroupItems} = Data
 ) ->
   IsSuccessful = is_number(Count) andalso (map_size(GroupItems) >= Count),
   if
     IsSuccessful ->
-      ?LOGINFO("DEBUG: ~p, group ~p interrogation complete by timeout", [Name, ID]),
       {next_state, State#gi{state = finish}, Data};
     true ->
-      ?LOGINFO("DEBUG: ~p, group ~p interrogation timeout error", [Name, ID]),
       {next_state, State#gi{state = error}, Data}
   end;
 
@@ -370,7 +357,6 @@ handle_event(
 ) ->
   case {IsRequired, RestGI} of
     {true, []} ->
-      ?LOGINFO("DEBUG: Sending READY message to Owner: ~p", [Owner]),
       Owner ! {ready, self(), Storage};
     _ ->
       ignore
@@ -397,7 +383,7 @@ handle_event(
   enter,
   _PrevState,
   ?CONNECTED,
-  #data{}
+  _Data
 ) ->
   keep_state_and_data;
 
@@ -465,9 +451,8 @@ handle_event(
   internal,
   #asdu{type = Type, cot = ?COT_ACTCON, pn = ?POSITIVE_PN, objects = [{IOA, _}]},
   #rc{state = confirm, ioa = IOA, type = Type} = State,
-  #data{name = Name} = Data
+  Data
 ) ->
-  ?LOGINFO("DEBUG: ~p, ioa ~p write confirmed", [Name, IOA]),
   {next_state, State#rc{state = run}, Data};
 
 %% Remote control command rejected
@@ -475,9 +460,8 @@ handle_event(
   internal,
   #asdu{type = Type, cot = ?COT_ACTCON, pn = ?NEGATIVE_PN, objects = [{IOA, _}]},
   #rc{state = confirm, ioa = IOA, type = Type, from = From},
-  #data{name = Name} = Data
+  Data
 ) ->
-  ?LOGWARNING("DEBUG: ~p, ioa ~p write rejected", [Name, IOA]),
   {next_state, ?CONNECTED, Data, [{reply, From, {error, reject}}]};
 
 handle_event(
@@ -502,9 +486,8 @@ handle_event(
   internal,
   #asdu{type = Type, cot = ?COT_ACTTERM, pn = ?POSITIVE_PN, objects = [{IOA, _}]},
   #rc{state = run, ioa = IOA, type = Type, from = From},
-  #data{name = Name} = Data
+  Data
 ) ->
-  ?LOGINFO("DEBUG: ~p, ioa ~p write completed", [Name, IOA]),
   {next_state, ?CONNECTED, Data, [{reply, From, ok}]};
 
 % Not executed
@@ -512,9 +495,8 @@ handle_event(
   internal,
   #asdu{type = Type, cot = ?COT_ACTTERM, pn = ?NEGATIVE_PN, objects = [{IOA, _}]},
   #rc{state = run, ioa = IOA, type = Type, from = From},
-  #data{name = Name} = Data
+  Data
 ) ->
-  ?LOGINFO("DEBUG: ~p, ioa ~p write not executed", [Name, IOA]),
   {next_state, ?CONNECTED, Data, [{reply, From, {error, not_executed}}]};
 
 handle_event(
@@ -530,7 +512,7 @@ handle_event(
 
 handle_event(
   internal,
-  #asdu{type = Type, objects = Objects, cot = COT} = ASDU,
+  #asdu{type = Type, objects = Objects, cot = COT},
   _AnyState,
   #data{name = Name, storage = Storage}
 ) when (Type >= ?M_SP_NA_1 andalso Type =< ?M_ME_ND_1)
@@ -543,7 +525,6 @@ handle_event(
       true ->
         undefined
     end,
-  ?LOGINFO("DEBUG: Normal Update. Group: ~p, ASDU: ~p", [Group, ASDU]),
   [begin
      update_value(Name, Storage, IOA, Value#{type => Type, group => Group})
    end || {IOA, Value} <- Objects],

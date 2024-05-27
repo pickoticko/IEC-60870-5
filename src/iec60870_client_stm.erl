@@ -344,7 +344,7 @@ handle_event(
   RestAttempts = Attempts - 1,
   if
     RestAttempts > 0 ->
-      {next_state, State#gi{attempts = RestAttempts}, Data};
+      {next_state, State#gi{state = confirm, attempts = RestAttempts}, Data};
     Required =:= true ->
       {stop, {group_interrogation_error, ID}};
     true ->

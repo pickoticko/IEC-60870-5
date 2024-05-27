@@ -26,16 +26,6 @@
 %%% |                         Macros & Records                      |
 %%% +---------------------------------------------------------------+
 
-%% All client states
--define(CONNECTING, connecting).
--define(CONNECTED, connected).
--define(ACTIVATION, activation).
--define(WRITE, write).
--define(INIT_GROUPS, init_groups).
--define(GROUP_REQUEST, group_request).
-
--define(GROUP_REQUEST_ATTEMPTS, 1).
-
 -record(data, {
   esubscribe,
   owner,
@@ -44,7 +34,54 @@
   groups,
   connection,
   asdu,
-  objects_counter
+  state_acc
+}).
+
+-record(gi,{
+  state,
+  id,
+  timeout,
+  update,
+  count,
+  required,
+  attempts,
+  rest
+}).
+
+-record(rc,{
+  state,
+  type,
+  from,
+  ioa,
+  value
+}).
+
+%% States
+-define(CONNECTING, connecting).
+-define(CONNECTED, connected).
+-define(ACTIVATION, activation).
+-define(INIT_GROUPS, init_groups).
+-define(GROUP_REQUEST, group_request).
+
+%% Common constants
+-define(CONFIRM_TIMEOUT, 10000).
+
+%% Group request
+-define(GI_DEFAULT_TIMEOUT, 60000).
+-define(GI_DEFAULT_ATTEMPTS, 1).
+
+%% Remote control
+-define(RC_TIMEOUT, 10000).
+
+-define(GI_STATE(G),#gi{
+  state = confirm,
+  id = maps:get(id, G),
+  timeout = maps:get(timeout, G, ?GI_DEFAULT_TIMEOUT),
+  update = maps:get(update, G, undefined),
+  attempts = maps:get(attempts, G, ?GI_DEFAULT_ATTEMPTS),
+  count = maps:get(count, G, undefined),
+  required = maps:get(required, G, false),
+  rest = []
 }).
 
 %%% +--------------------------------------------------------------+
@@ -62,22 +99,20 @@ init({Owner, #{
   connection := ConnectionSettings,
   groups := Groups
 } = Settings}) ->
-  Storage =
-    ets:new(data_objects, [
-      set,
-      public,
-      {read_concurrency, true},
-      {write_concurrency, auto}
-    ]),
-  ASDU =
-    iec60870_asdu:get_settings(maps:with(maps:keys(?DEFAULT_ASDU_SETTINGS), Settings)),
+  Storage = ets:new(data_objects, [
+    set,
+    public,
+    {read_concurrency, true},
+    {write_concurrency, auto}
+  ]),
+  ASDU = iec60870_asdu:get_settings(maps:with(maps:keys(?DEFAULT_ASDU_SETTINGS), Settings)),
   EsubscribePID =
     case esubscribe:start_link(Name) of
       {ok, PID} -> PID;
       {error, Reason} -> exit(Reason)
     end,
+  % Required groups goes first
   {ok, {?CONNECTING, Type, ConnectionSettings}, #data{
-    objects_counter = #{},
     esubscribe = EsubscribePID,
     owner = Owner,
     name = Name,
@@ -87,30 +122,37 @@ init({Owner, #{
   }}.
 
 %%% +--------------------------------------------------------------+
+%%% |           Handling incoming ASDU packets                     |
+%%% +--------------------------------------------------------------+
+handle_event(info, {asdu, Connection, ASDU}, _State, #data{
+  name = Name,
+  connection = Connection,
+  asdu = ASDUSettings
+} = Data) ->
+  try
+    ParsedASDU = iec60870_asdu:parse(ASDU, ASDUSettings),
+    { keep_state_and_data, [{next_event, internal, ParsedASDU}] }
+  catch
+    _:{invalid_object, _Value} = Error->
+      {stop, Error, Data};
+    _:Error ->
+      ?LOGERROR("~p invalid ASDU received: ~p, error: ~p", [Name, ASDU, Error]),
+      keep_state_and_data
+  end;
+
+%%% +--------------------------------------------------------------+
 %%% |                      Connecting State                        |
 %%% +--------------------------------------------------------------+
 
-handle_event(
-  enter,
-  _PrevState,
-  {?CONNECTING, _, _},
-  _Data
-) ->
+handle_event(enter, _PrevState, {?CONNECTING, _, _}, _Data) ->
   {keep_state_and_data, [{state_timeout, 0, connect}]};
 
-handle_event(
-  state_timeout,
-  connect,
-  {?CONNECTING, Type, Settings},
-  #data{groups = Groups} = Data
-) ->
+handle_event(state_timeout, connect, {?CONNECTING, Type, Settings}, Data) ->
   Module = iec60870_lib:get_driver_module(Type),
   try
-    % Required groups goes first in the list
-    SortedGroups =
-      lists:sort(fun(A, _B) -> maps:get(required, A) =:= true end, Groups),
-    Connection = Module:start_client(Settings),
-    {next_state, {?INIT_GROUPS, SortedGroups}, Data#data{
+    Connection =
+      Module:start_client(Settings),
+    {next_state, ?INIT_GROUPS, Data#data{
       connection = Connection
     }}
   catch
@@ -121,355 +163,438 @@ handle_event(
 %%% +--------------------------------------------------------------+
 %%% |                      Init Groups State                       |
 %%% +--------------------------------------------------------------+
-
-handle_event(
-  enter,
-  _PrevState,
-  {?INIT_GROUPS, _},
-  _Data
-) ->
+handle_event(enter, _PrevState, ?INIT_GROUPS, _Data) ->
   {keep_state_and_data, [{state_timeout, 0, init}]};
 
-handle_event(
-  state_timeout,
-  init,
-  {?INIT_GROUPS, [Group | Rest]},
-  Data
-) ->
-  Attempts = get_group_attempts(Group),
-  {next_state, {?GROUP_REQUEST, update, Attempts, Group, {?INIT_GROUPS, Rest}}, Data};
+handle_event(state_timeout, init, ?INIT_GROUPS, #data{
+  groups = Groups
+} = Data) ->
 
-handle_event(
-  state_timeout,
-  init,
-  {?INIT_GROUPS, []},
-  #data{
-    owner = Owner,
-    storage = Storage
-  } = Data
-) ->
-  % All groups have been received, the cache is ready
-  % and therefore we can return a reference to it
-  Owner ! {ready, self(), Storage},
-  {next_state, ?CONNECTED, Data};
+  GIs = [ ?GI_STATE( G ) || G <- Groups ],
+
+  % Init update events for not required groups. They are handled in the normal mode
+  [ self() ! GI || GI = #gi{ required = false } <- GIs ],
+
+  % Get required groups
+  Required =
+    [ GI || GI = #gi{ required = true } <- GIs ],
+
+  case Required of
+    [G | Rest]-> {next_state, G#gi{ rest = Rest }, Data};
+    _-> {next_state, ?CONNECTED, Data}
+  end;
 
 %%% +--------------------------------------------------------------+
-%%% |                        Group request                         |
+%%% |                        Group Interrogation                   |
 %%% +--------------------------------------------------------------+
+%%------------------------CONFIRM-----------------------------------
+%% Sending group request and starting timer for confirmation
+handle_event(enter, _PrevState, #gi{
+  state = confirm,
+  id = ID
+}, #data{
+  name = Name,
+  asdu = ASDUSettings,
+  connection = Connection
+}) ->
 
-%% Starting group request
-handle_event(
-  enter,
-  _PrevState,
-  {?GROUP_REQUEST, update, _Attempts, _Group, _NextState},
-  _Data
-) ->
-  {keep_state_and_data, [{state_timeout, 0, init}]};
-
-%% Sending group request and starting timer for timeout
-handle_event(
-  state_timeout,
-  init,
-  {?GROUP_REQUEST, update, _Attempts, #{id := GroupID, timeout := Timeout}, _NextState},
-  #data{connection = Connection, asdu = ASDUSettings} = Data
-) ->
   [GroupRequest] = iec60870_asdu:build(#asdu{
     type = ?C_IC_NA_1,
     pn = ?POSITIVE_PN,
     cot = ?COT_ACT,
-    objects = [{_IOA = 0, GroupID}]
+    objects = [{_IOA = 0, ID}]
   }, ASDUSettings),
+
   send_asdu(Connection, GroupRequest),
-  {keep_state, Data#data{objects_counter = #{}}, [{state_timeout, Timeout, timeout}]};
 
-%% Retrying to send the group request
-handle_event(
-  state_timeout,
-  timeout,
-  {?GROUP_REQUEST, update, Attempts, #{id := ID} = Group, NextState},
-  Data
-) when Attempts > 0 ->
-  ?LOGWARNING("timeout of the group request, retrying by group ID: ~p", [ID]),
-  {next_state, {?GROUP_REQUEST, update, Attempts - 1, Group, NextState}, Data};
+  ?LOGINFO("DEBUG: ~p Group Request Start!",[Name]),
 
-%% No attempts left for the group request
-handle_event(
-  state_timeout,
-  timeout,
-  {?GROUP_REQUEST, update, _Attempts, #{id := ID, count := Count, required := true} = Group,
-    {?INIT_GROUPS, _} = NextState},
-  #data{objects_counter = Objects} = Data
-) ->
-  ?LOGWARNING("timeout of the required group request: ~p", [ID]),
-  case check_received_objects(Objects, Count) of
+  {keep_state_and_data, [{state_timeout, ?CONFIRM_TIMEOUT, timeout}]};
+
+% Confirm
+handle_event(internal, #asdu{
+  type = ?C_IC_NA_1,
+  cot = ?COT_ACTCON,
+  objects = [{_IOA, ID}]
+}, #gi{
+  state = confirm,
+  id = ID
+}=State, #data{
+  name = Name
+} =Data) ->
+
+  ?LOGINFO("DEBUG: ~p, group ~p confirmed",[Name, ID]),
+
+  {next_state, State#gi{ state = run }, Data};
+
+% Reject
+handle_event(internal, #asdu{
+  type = ?C_IC_NA_1,
+  cot = COT,
+  pn = ?NEGATIVE_PN,
+  objects = [{_IOA, ID}]
+}, #gi{
+  state = confirm,
+  id = ID
+}=State, #data{
+  name = Name
+} =Data) ->
+
+  ?LOGWARNING("~p, group interrogation ~p rejected, cot ~p",[Name, ID, COT]),
+
+  {next_state, State#gi{ state = error }, Data};
+
+handle_event(state_timeout, timeout, #gi{
+  state = confirm,
+  id = ID
+}=State, #data{
+  name = Name
+} =Data) ->
+
+  ?LOGWARNING("~p, group ~p interrogation confirmation timeout",[Name, ID]),
+  {next_state, State#gi{ state = error }, Data};
+
+%%------------------------RUN-----------------------------------
+handle_event(enter, _PrevState, #gi{
+  state = run,
+  timeout = Timeout
+}, Data) ->
+  {keep_state, Data#data{ state_acc = #{} } , [{state_timeout, Timeout, timeout}]};
+
+% Update received
+handle_event(internal, #asdu{
+  type = Type,
+  objects = Objects,
+  cot = COT
+}, #gi{
+  state = run,
+  id = ID
+}, #data{
+  name = Name,
+  storage = Storage,
+  state_acc = GroupItems0
+}= Data) when (COT - ?COT_GROUP_MIN) =:= ID  ->
+
+  GroupItems =
+    lists:foldl(fun({IOA, Value}, AccIn) ->
+      update_value(Name, Storage, IOA, Value#{type => Type, group => ID}),
+      AccIn#{IOA => Value}
+    end, GroupItems0, Objects),
+
+  {keep_state, Data#data{ state_acc = GroupItems }};
+
+% Completed
+handle_event(internal, #asdu{
+  type = ?C_IC_NA_1,
+  cot = ?COT_ACTTERM,
+  pn = ?POSITIVE_PN,
+  objects = [{_IOA, ID}]
+}, #gi{
+  state = run,
+  id = ID,
+  count = Count
+}=State, #data{
+  name = Name,
+  state_acc = GroupItems
+} =Data) ->
+
+  IsSuccessful =
+    if
+      is_number( Count ) -> map_size( GroupItems ) >= Count;
+      true -> true
+    end,
+
+  if
+    IsSuccessful->
+      ?LOGINFO("DEBUG: ~p, group ~p interrogation complete",[ Name, ID ]),
+      {next_state, State#gi{ state = finish }, Data};
     true ->
-      start_group_request_timer(Group),
-      {next_state, NextState, Data};
-    false ->
-      {stop, {group_request_timeout, ID}}
+      ?LOGINFO("DEBUG: ~p, group ~p interrogation validate error",[ Name, ID ]),
+      {next_state, State#gi{ state = error }, Data}
   end;
 
-%% Except in the state INIT_GROUPS, all groups will be handled without crashing
-handle_event(
-  state_timeout,
-  timeout,
-  {?GROUP_REQUEST, update, _Attempts, #{id := ID} = Group, NextState},
-  Data
-) ->
-  ?LOGWARNING("group request timeout: ~p, continuing without crash...", [ID]),
-  start_group_request_timer(Group),
-  {next_state, NextState, Data};
+% Interrupted
+handle_event(internal, #asdu{
+  type = ?C_IC_NA_1,
+  cot = ?COT_ACTTERM,
+  pn = ?NEGATIVE_PN,
+  objects = [{_IOA, ID}]
+}, #gi{
+  state = run,
+  id = ID
+}=State, #data{
+  name = Name
+} =Data) ->
+
+  ?LOGINFO("DEBUG: ~p, group ~p interrogation interrupted",[ Name, ID ]),
+  {next_state, State#gi{ state = error }, Data};
+
+
+handle_event(state_timeout, timeout, #gi{
+  state = run,
+  id = ID,
+  count = Count
+}=State, #data{
+  name = Name,
+  state_acc = GroupItems
+} =Data) ->
+
+  IsSuccessful = is_number( Count ) andalso (map_size( GroupItems ) >= Count),
+
+  if
+    IsSuccessful->
+      ?LOGINFO("DEBUG: ~p, group ~p interrogation complete by timeout",[ Name, ID ]),
+      {next_state, State#gi{ state = finish }, Data};
+    true ->
+      ?LOGINFO("DEBUG: ~p, group ~p interrogation timeout error",[ Name, ID ]),
+      {next_state, State#gi{ state = error }, Data}
+  end;
+
+%%------------------------ERROR-----------------------------------
+handle_event(enter, _PrevState, #gi{ state = error }, _Data) ->
+  {keep_state_and_data , [{state_timeout, 0, timeout}]};
+handle_event(state_timeout, timeout, #gi{
+  state = error,
+  id = ID,
+  required = Required,
+  attempts = Attempts
+}=State, Data) ->
+
+  RestAttempts = Attempts - 1,
+  if
+    RestAttempts > 0 ->
+      {next_state, State#gi{ attempts = RestAttempts }, Data};
+    Required =:= true ->
+      {stop, {group_interrogation_error, ID}};
+    true ->
+      {next_state, State#gi{ state = finish }, Data}
+  end;
+
+%%------------------------FINISH-----------------------------------
+handle_event(enter, _PrevState, #gi{ state = finish }, _Data) ->
+  {keep_state_and_data , [{state_timeout, 0, timeout}]};
+handle_event(state_timeout, timeout, #gi{
+  state = finish,
+  update = Update,
+  rest = RestGI
+} = State, Data) ->
+
+  % If the group must be cyclically updated queue the event
+  if
+    is_integer( Update ) ->
+      timer:send_after( Update, State#gi{ required = false, rest = [] } );
+    true ->
+      ignore
+  end,
+
+  case RestGI of
+    [ NextGI | Rest ]->
+      {next_state, NextGI#gi{ rest = Rest }, Data};
+    _->
+      {next_state, ?CONNECTED, Data#data{ state_acc = undefined }}
+  end;
 
 %%% +--------------------------------------------------------------+
-%%% |                    Remote control command                    |
+%%% |                          Connected                           |
 %%% +--------------------------------------------------------------+
 
-%% Sending remote control request
-handle_event(
-  enter,
-  _PrevState,
-  {?WRITE, _From, IOA, #{type := Type} = Value},
-  #data{connection = Connection, asdu = ASDUSettings}
-) ->
+handle_event(enter, _PrevState, ?CONNECTED, #data{
+  owner = Owner,
+  storage = Storage
+}) ->
+
+  Owner ! {ready, self(), Storage},
+
+  keep_state_and_data;
+
+handle_event(info, {write, IOA, Value}, ?CONNECTED, #data{
+  name = Name,
+  connection = Connection,
+  asdu = ASDUSettings
+}) ->
+
+  % Getting all updates
+  NextItems = [Object || {Object, _Node, A} <- esubscribe:lookup(Name, update), A =/= self()],
+  Items = [{IOA, Value} | NextItems],
+  send_items([{IOA, Value} | Items], Connection, ?COT_SPONT, ASDUSettings),
+
+  keep_state_and_data;
+
+%% Handling call of remote control command
+handle_event({call, From}, {write, IOA, Value}, ?CONNECTED, Data)->
+
+  % Start write request
+  RC = #rc{
+    state = confirm,
+    type = maps:get(type, Value),
+    from = From,
+    ioa = IOA,
+    value = Value
+  },
+
+  {next_state, RC, Data};
+
+
+%% Event for the group update is received
+%% Changing state to the group interrogation
+handle_event(info, #gi{} = GI, ?CONNECTED, Data)->
+  {next_state, GI, Data};
+
+%%% +--------------------------------------------------------------+
+%%% |                Sending remote control command                |
+%%% +--------------------------------------------------------------+
+%%------------------------CONFIRM-----------------------------------
+handle_event(enter, _PrevState, #rc{
+  state = confirm,
+  type = Type,
+  ioa = IOA,
+  value = Value
+}, #data{
+  connection = Connection,
+  asdu = ASDUSettings
+}) ->
+
   [ASDU] = iec60870_asdu:build(#asdu{
     type = Type,
     pn = ?POSITIVE_PN,
     cot = ?COT_ACT,
     objects = [{IOA, Value}]
   }, ASDUSettings),
+
   send_asdu(Connection, ASDU),
-  keep_state_and_data;
 
-%% Timeout of the remote control
-handle_event(
-  state_timeout,
-  _PrevState,
-  {?WRITE, From, _, _},
-  Data
-) ->
-  {next_state, ?CONNECTED, Data, [{reply, From, write_timeout}]};
+  {keep_state_and_data, [{state_timeout, ?CONFIRM_TIMEOUT, timeout}]};
 
-%%% +--------------------------------------------------------------+
-%%% |                          Connected                           |
-%%% +--------------------------------------------------------------+
+% Confirm
+handle_event(internal, #asdu{
+  type = Type,
+  cot = ?COT_ACTCON,
+  pn = ?POSITIVE_PN,
+  objects = [{IOA, _ }]
+}, #rc{
+  state = confirm,
+  ioa = IOA,
+  type = Type
+}=State, #data{
+  name = Name
+} =Data) ->
 
-handle_event(
-  enter,
-  _PrevState,
-  ?CONNECTED,
-  _Data
-) ->
-  keep_state_and_data;
+  ?LOGINFO("DEBUG: ~p, ioa ~p write confirmed",[Name, IOA]),
 
-%% Event from timer for the group update is received
-%% Changing state to the group request
-handle_event(
-  info,
-  {update_group, Group, PID},
-  ?CONNECTED,
-  Data
-) when PID =:= self() ->
-  Attempts = get_group_attempts(Group),
-  {next_state, {?GROUP_REQUEST, update, Attempts, Group, ?CONNECTED}, Data};
+  {next_state, State#rc{ state = run }, Data};
 
-%% Handling call of remote control command
-%% Note: we can only write in the CONNECTED state
-handle_event(
-  {call, From},
-  {write, IOA, DataObject},
-  State,
-  Data
-) ->
-  case State =:= ?CONNECTED of
-    true ->
-      ?LOGWARNING("remote control request timeout, address: ~p, object: ~p", [IOA, DataObject]),
-      {next_state, {?WRITE, From, IOA, DataObject}, Data, [{state_timeout, ?DEFAULT_WRITE_TIMEOUT, ?CONNECTED}]};
-    false ->
-      {keep_state_and_data, [{reply, From, {error, {connection_not_ready, State}}}]}
-  end;
+% Reject
+handle_event(internal, #asdu{
+  type = Type,
+  cot = ?COT_ACTCON,
+  pn = ?NEGATIVE_PN,
+  objects = [{IOA, _ }]
+}, #rc{
+  state = confirm,
+  ioa = IOA,
+  type = Type,
+  from = From
+}, #data{
+  name = Name
+} =Data) ->
 
-%%% +--------------------------------------------------------------+
-%%% |                        Other events                          |
-%%% +--------------------------------------------------------------+
+  ?LOGWARNING("DEBUG: ~p, ioa ~p write rejected",[Name, IOA]),
 
-%% Notify event from esubscribe
-handle_event(
-  info,
-  {write, IOA, Value},
-  _State,
-  #data{
-    name = Name,
-    connection = Connection,
-    asdu = ASDUSettings
-  }
-) ->
-  % Getting all object updates
-  NextItems = [Object || {Object, _Node, A} <- esubscribe:lookup(Name, update), A =/= self()],
-  Items = [{IOA, Value} | NextItems],
-  send_data_objects([{IOA, Value} | Items], Connection, ?COT_SPONT, ASDUSettings),
-  keep_state_and_data;
+  {next_state, ?CONNECTED, Data, [{reply, From, {error, reject}}]};
 
-%% Parsing incoming data objects
-handle_event(
-  info,
-  {asdu, Connection, ASDU},
-  State,
-  #data{
-    name = Name,
-    connection = Connection,
-    asdu = ASDUSettings
-  } = Data
-) ->
-  try
-    ParsedASDU = iec60870_asdu:parse(ASDU, ASDUSettings),
-    handle_asdu(ParsedASDU, State, Data)
-  catch
-    _Exception:Reason ->
-      case Reason of
-        {invalid_object, _Value} ->
-          {stop, Reason, Data};
-        _Other ->
-          ?LOGERROR("~p invalid data object (ASDU) received: ~p, reason: ~p", [Name, ASDU, Reason]),
-          keep_state_and_data
-      end
-  end;
+handle_event(state_timeout, timeout, #rc{
+  state = confirm,
+  from = From
+}, Data) ->
+  {next_state, ?CONNECTED, Data, [{reply, From, {error, confirm_timeout}}]};
 
-%% Failed send error received from the client connection
-handle_event(
-  info,
-  {send_error, Connection, Error},
-  _AnyState,
-  #data{connection = Connection} = _Data
-) ->
-  ?LOGWARNING("client failed to send packet due to a reason: ~p", [Error]),
-  keep_state_and_data;
+%%------------------------RUN-----------------------------------
+handle_event(enter, _PrevState, #rc{ state = run }, _Data) ->
+  {keep_state_and_data, [{state_timeout, ?RC_TIMEOUT, timeout}]};
 
-%% If we receive updates on the group while in a state
-%% other than the connected state, we will defer
-%% processing them until the current event is completed
-handle_event(
-  info,
-  {update_group, _, PID},
-  _AnyState,
-  _Data
-) when PID =:= self() ->
-  {keep_state_and_data, [postpone]};
+% Completed successfully
+handle_event(internal, #asdu{
+  type = Type,
+  cot = ?COT_ACTTERM,
+  pn = ?POSITIVE_PN,
+  objects = [{IOA, _ }]
+}, #rc{
+  state = run,
+  ioa = IOA,
+  type = Type,
+  from = From
+}, #data{
+  name = Name
+} =Data) ->
 
-handle_event(
-  EventType,
-  EventContent,
-  _AnyState,
-  _Data
-) ->
-  ?LOGWARNING("client connection received unexpected event type ~p, content ~p", [
-    EventType,
-    EventContent
-  ]),
-  keep_state_and_data.
+  ?LOGINFO("DEBUG: ~p, ioa ~p write completed",[Name, IOA]),
 
-terminate(Reason, _, _State = #data{esubscribe = PID}) when Reason =:= normal; Reason =:= shutdown ->
-  exit(PID, shutdown),
-  ?LOGWARNING("client connection terminated normally with a reason: ~p", [Reason]),
-  ok;
+  {next_state, ?CONNECTED, Data, [{reply, From, ok}]};
 
-terminate(Reason, _, _State) ->
-  ?LOGWARNING("client connection terminated abnormally with a reason: ~p", [Reason]),
-  ok.
+% Not executed
+handle_event(internal, #asdu{
+  type = Type,
+  cot = ?COT_ACTTERM,
+  pn = ?NEGATIVE_PN,
+  objects = [{IOA, _ }]
+}, #rc{
+  state = run,
+  ioa = IOA,
+  type = Type,
+  from = From
+}, #data{
+  name = Name
+} =Data) ->
 
-code_change(_OldVsn, State, _Extra) ->
-  {ok, State}.
+  ?LOGINFO("DEBUG: ~p, ioa ~p write not executed",[Name, IOA]),
+
+  {next_state, ?CONNECTED, Data, [{reply, From, {error, not_executed}}]};
+
+handle_event(state_timeout, timeout, #rc{
+  state = run,
+  from = From
+}, Data) ->
+  {next_state, ?CONNECTED, Data, [{reply, From, {error, execute_timeout}}]};
 
 %%% +--------------------------------------------------------------+
-%%% |                     Data object handlers                     |
+%%% |                       Handling normal updates                |
 %%% +--------------------------------------------------------------+
-
-%% Receiving information data objects
-handle_asdu(#asdu{
+handle_event(internal, #asdu{
   type = Type,
   objects = Objects,
   cot = COT
-}, _State, #data{
+}, _AnyState, #data{
   name = Name,
-  storage = Storage,
-  objects_counter = ObjectsCounter
-} = Data)
-  when (Type >= ?M_SP_NA_1 andalso Type =< ?M_ME_ND_1)
+  storage = Storage
+})
+  when
+    (Type >= ?M_SP_NA_1 andalso Type =< ?M_ME_ND_1)
     orelse (Type >= ?M_SP_TB_1 andalso Type =< ?M_EP_TD_1)
     orelse (Type =:= ?M_EI_NA_1) ->
-  Group = parse_group_cot(COT),
-  % Saving received objects into counter map
-  UpdatedObjectsCounter =
-    lists:foldl(
-      fun({IOA, Value}, AccIn) ->
-        update_data_object(Name, Storage, IOA, Value#{type => Type, group => Group}),
-        AccIn#{IOA => Value}
-      end, ObjectsCounter, Objects),
-  {keep_state, Data#data{objects_counter = UpdatedObjectsCounter}};
 
-%%% +--------------------------------------------------------------+
-%%% |                     Handling write request                   |
-%%% +--------------------------------------------------------------+
-%%% | Note: We do not expect that there will be a strict sequence  |
-%%% | of responses from the server so, if we get activation        |
-%%% | termination, then we assume that the write has succeeded     |
-%%% +--------------------------------------------------------------+
+  Group =
+    if
+      COT >= ?COT_GROUP_MIN, COT =< ?COT_GROUP_MAX ->
+        COT - ?COT_GROUP_MIN;
+      true ->
+        undefined
+    end,
 
-handle_asdu(#asdu{
-  type = Type,
-  cot = COT,
-  pn = PN,
-  objects = [{IOA, _ }]
-}, {?WRITE, From, IOA, #{type := Type} = _Value}, Data)
-  when (Type >= ?C_SC_NA_1 andalso Type =< ?C_BO_NA_1) orelse
-       (Type >= ?C_SC_TA_1 andalso Type =< ?C_BO_TA_1) ->
-  case {COT, PN} of
-    {?COT_ACTCON, ?POSITIVE_PN} -> keep_state_and_data;
-    {?COT_ACTCON, ?NEGATIVE_PN} -> {next_state, ?CONNECTED, Data, [{reply, From, {error, negative_confirmation}}]};
-    {?COT_ACTTERM, ?POSITIVE_PN} -> {next_state, ?CONNECTED, Data, [{reply, From, ok}]};
-    {?COT_ACTTERM, ?NEGATIVE_PN} -> {next_state, ?CONNECTED, Data, [{reply, From, {error, negative_termination}}]}
-  end;
+  [update_value(Name, Storage, IOA, Value#{type => Type, group => Group}) || {IOA, Value} <- Objects],
 
-%%% +--------------------------------------------------------------+
-%%% |                     Handling group request                   |
-%%% +--------------------------------------------------------------+
-
-%% Confirmation of the group request
-handle_asdu(#asdu{
-  type = ?C_IC_NA_1,
-  cot = ?COT_ACTCON,
-  objects = [{_IOA, _GroupID}]
-}, {?GROUP_REQUEST, update, _Attempts, _Group, _NextState}, _Data) ->
   keep_state_and_data;
 
-%% Rejection of the group request
-handle_asdu(#asdu{
-  type = ?C_IC_NA_1,
-  cot = COT,
-  pn = ?NEGATIVE_PN,
-  objects = [{_IOA, GroupID}]
-}, {?GROUP_REQUEST, update, _Attempts, #{id := GroupID}, NextState}, Data) ->
-  ?LOGWARNING("negative response on the group request, GroupID: ~p, COT ~p", [GroupID, COT]),
-  case NextState of
-    {?INIT_GROUPS, _} ->
-      {stop, negative_pn_group_request, Data};
-    _Other ->
-      {next_state, NextState, Data}
-  end;
-
-%% Termination of the group request
-handle_asdu(#asdu{
-  type = ?C_IC_NA_1,
-  cot = ?COT_ACTTERM,
-  objects = [{_IOA, GroupID}]
-}, {?GROUP_REQUEST, update, _Attempts, #{id := GroupID} = Group, NextState}, Data) ->
-  start_group_request_timer(Group),
-  {next_state, NextState, Data};
-
-%% Time synchronization request
-handle_asdu(#asdu{type = ?C_CS_NA_1, objects = Objects}, _State, #data{
+%%% +--------------------------------------------------------------+
+%%% |                  Time synchronization request                |
+%%% +--------------------------------------------------------------+
+handle_event(internal, #asdu{
+  type = ?C_CS_NA_1,
+  objects = Objects
+}, _AnyState, #data{
   asdu = ASDUSettings,
   connection = Connection
 }) ->
+
   [Confirmation] = iec60870_asdu:build(#asdu{
     type = ?C_CS_NA_1,
     pn = ?POSITIVE_PN,
@@ -477,19 +602,67 @@ handle_asdu(#asdu{type = ?C_CS_NA_1, objects = Objects}, _State, #data{
     objects = Objects
   }, ASDUSettings),
   send_asdu(Connection, Confirmation),
+
   keep_state_and_data;
 
-%% All other unexpected asdu types
-handle_asdu(#asdu{} = Unexpected, State, _Data) ->
-  ?LOGWARNING("unexpected data object was received: ASDU: ~p, state: ~p", [Unexpected, State]),
+%%% +--------------------------------------------------------------+
+%%% |                  Unexpected ASDU                             |
+%%% +--------------------------------------------------------------+
+handle_event(internal, #asdu{} = Unexpected, State, #data{
+  name = Name
+}) ->
+  ?LOGWARNING("~p unexpected ASDU type is received: ASDU ~p, state ~p", [
+    Name,
+    Unexpected,
+    State
+  ]),
+  keep_state_and_data;
+
+%%% +--------------------------------------------------------------+
+%%% |                        Other events                          |
+%%% +--------------------------------------------------------------+
+%% Notify event from esubscribe, postpone until CONNECTED
+handle_event(info, {write, _IOA, _Value}, _State, _Data) ->
+  %% TODO. Can we send information packets during group interrogation?
+  { keep_state_and_data, [postpone]};
+
+handle_event({call, _From}, {write, _IOA, _Value}, _State, _Data) ->
+  { keep_state_and_data, [postpone]};
+
+% Group interrogation request, postpone until CONNECTED
+handle_event(info, #gi{}, _AnyState, _Data) ->
+  {keep_state_and_data, [postpone]};
+
+
+%% Failed send errors received from client connection
+handle_event(info, {send_error, Connection, Error}, _AnyState, #data{
+  connection = Connection
+} = _Data) ->
+  ?LOGWARNING("client connection failed to send packet, error: ~p", [Error]),
+  keep_state_and_data;
+
+handle_event(EventType, EventContent, _AnyState, #data{name = Name}) ->
+  ?LOGWARNING("client connection ~p received unexpected event type ~p, content ~p", [
+    Name, EventType, EventContent
+  ]),
   keep_state_and_data.
 
-%%% +--------------------------------------------------------------+
-%%% |                      Internal functions                      |
-%%% +--------------------------------------------------------------+
+terminate(Reason, _, _State = #data{esubscribe = PID}) when Reason =:= normal; Reason =:= shutdown ->
+  exit(PID, shutdown),
+  ?LOGWARNING("client connection terminated with reason: ~p", [Reason]),
+  ok;
 
-send_data_objects(Items, Connection, COT, ASDUSettings) ->
-  TypedItems = group_objects_by_type(Items),
+terminate(Reason, _, _State) ->
+  ?LOGWARNING("client connection terminated with reason: ~p", [Reason]),
+  ok.
+
+code_change(_OldVsn, State, _Extra) ->
+  {ok, State}.
+
+
+%% Sending data objects
+send_items(Items, Connection, COT, ASDUSettings) ->
+  TypedItems = group_by_types(Items),
   [begin
      ASDUList = iec60870_asdu:build(#asdu{
        type = Type,
@@ -500,56 +673,33 @@ send_data_objects(Items, Connection, COT, ASDUSettings) ->
      [send_asdu(Connection, ASDU) || ASDU <- ASDUList]
    end || {Type, Objects} <- TypedItems].
 
-group_objects_by_type(Objects) ->
-  group_objects_by_type(Objects, #{}).
-group_objects_by_type([{IOA, #{type := Type} = Value} | Rest], Acc) ->
+group_by_types(Objects) ->
+  group_by_types(Objects, #{}).
+group_by_types([{IOA, #{type := Type} = Value} | Rest], Acc) ->
   TypeAcc = maps:get(Type,Acc,#{}),
   Acc1 = Acc#{Type => TypeAcc#{IOA => Value}},
-  group_objects_by_type(Rest, Acc1);
-group_objects_by_type([], Acc) ->
+  group_by_types(Rest, Acc1);
+group_by_types([], Acc) ->
   [{Type, lists:sort(maps:to_list(Objects))} || {Type, Objects} <- maps:to_list(Acc)].
 
 send_asdu(Connection, ASDU) ->
   Connection ! {asdu, self(), ASDU}, ok.
 
-get_group_attempts(#{attempts := undefined}) ->
-  ?GROUP_REQUEST_ATTEMPTS;
-get_group_attempts(#{attempts := Value}) ->
-  Value.
-
-check_received_objects(Objects, MinCount) when is_integer(MinCount) ->
-  maps:size(Objects) >= MinCount;
-check_received_objects(_Objects, _MinCount) ->
-  false.
-
-parse_group_cot(COT)
-  when COT >= ?COT_GROUP_MIN andalso COT =< ?COT_GROUP_MAX ->
-    COT - ?COT_GROUP_MIN;
-parse_group_cot(_COT) ->
-  undefined.
-
-start_group_request_timer(Group) ->
-  case Group of
-    #{update := UpdateCycle} when is_integer(UpdateCycle) ->
-      timer:send_after(UpdateCycle, {update_group, Group, self()});
-    _ ->
-      ignore
-  end.
-
-update_data_object(Name, Storage, ID, InObject) ->
-  OldObject =
+update_value(Name, Storage, ID, InValue) ->
+  OldValue =
     case ets:lookup(Storage, ID) of
       [{_, Map}] -> Map;
       _ -> #{
+        % All object types have these keys
         value => undefined,
         group => undefined
       }
     end,
-  NewObject = maps:merge(OldObject, InObject#{
+  NewValue = maps:merge(OldValue, InValue#{
     accept_ts => erlang:system_time(millisecond)
   }),
-  ets:insert(Storage, {ID, NewObject}),
+  ets:insert(Storage, {ID, NewValue}),
   % Any updates notification
-  esubscribe:notify(Name, update, {ID, NewObject}),
+  esubscribe:notify(Name, update, {ID, NewValue}),
   % Only address notification
-  esubscribe:notify(Name, ID, NewObject).
+  esubscribe:notify(Name, ID, NewValue).

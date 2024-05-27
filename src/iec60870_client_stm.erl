@@ -197,8 +197,12 @@ handle_event(
   % Get required groups
   Required = [GI || GI = #gi{required = true} <- GIs],
   case Required of
-    [G | Rest] -> {next_state, G#gi{rest = Rest}, Data};
-    _ -> {next_state, ?CONNECTED, Data}
+    [G | Rest] ->
+      ?LOGINFO("DEBUG: Required current: ~p, Required rest: ~p", [G, Rest]),
+      {next_state, G#gi{rest = Rest}, Data};
+    _ ->
+      ?LOGINFO("DEBUG: No required GIs. Next state: CONNECTED"),
+      {next_state, ?CONNECTED, Data}
   end;
 
 %%% +--------------------------------------------------------------+
@@ -359,9 +363,10 @@ handle_event(
 handle_event(
   state_timeout,
   timeout,
-  #gi{state = finish, update = Update, rest = RestGI} = State,
+  #gi{state = finish, update = Update, rest = RestGI, required = IsRequired} = State,
   Data
 ) ->
+  ?LOGINFO("DEBUG: GI Finish, Update: ~p, IsRequired: ~p, RestGI: ~p", [Update, IsRequired, RestGI]),
   % If the group must be cyclically updated queue the event
   if
     is_integer(Update) ->
@@ -386,6 +391,7 @@ handle_event(
   ?CONNECTED,
   #data{owner = Owner, storage = Storage}
 ) ->
+  ?LOGINFO("DEBUG: Sending READY message to Owner: ~p", [Owner]),
   Owner ! {ready, self(), Storage},
   keep_state_and_data;
 

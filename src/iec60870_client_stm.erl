@@ -229,7 +229,7 @@ handle_event(
 %% GI Confirm
 handle_event(
   internal,
-  #asdu{type = ?C_IC_NA_1, cot = ?COT_ACTCON, objects = [{_IOA, ID}]},
+  #asdu{type = ?C_IC_NA_1, cot = ?COT_ACTCON, pn = ?POSITIVE_PN, objects = [{_IOA, ID}]},
   #gi{state = confirm, id = ID} = State,
   #data{name = Name} = Data
 ) ->
@@ -239,11 +239,11 @@ handle_event(
 %% GI Reject
 handle_event(
   internal,
-  #asdu{type = ?C_IC_NA_1, cot = COT, pn = ?NEGATIVE_PN, objects = [{_IOA, ID}]},
+  #asdu{type = ?C_IC_NA_1, cot = ?COT_ACTCON, pn = ?NEGATIVE_PN, objects = [{_IOA, ID}]},
   #gi{state = confirm, id = ID} = State,
   #data{name = Name} = Data
 ) ->
-  ?LOGWARNING("~p, group interrogation ~p rejected, cot ~p", [Name, ID, COT]),
+  ?LOGWARNING("~p, group interrogation ~p rejected", [Name, ID]),
   {next_state, State#gi{state = error}, Data};
 
 handle_event(

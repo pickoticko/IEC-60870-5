@@ -126,7 +126,8 @@ connect(Address, Direction, SendReceive, Attempts) ->
 connect(#state{attempts = Attempts} = State) ->
   connect(Attempts, State).
 connect(Attempts, #state{
-  send_receive = SendReceive
+  send_receive = SendReceive,
+  address = Address
 } = State) when Attempts > 0 ->
   case reset_link(State) of
     {ok, ResetState} ->
@@ -141,11 +142,19 @@ connect(Attempts, #state{
             } ->
               {ok, ResetState#state{fcb = 0}};
             _ ->
-              ?LOGWARNING("unexpected response on reset link. Response: ~p. Attempts: ~p", [Response, Attempts - 1]),
+              ?LOGWARNING("unexpected response to reset link. Address: ~p Response: ~p Attempts: ~p", [
+                Address,
+                Response,
+                Attempts - 1
+              ]),
               connect(Attempts - 1, State)
           end;
-        {error, Error}->
-          ?LOGWARNING("reset link attempt error. Error: ~p, Attempts: ~p", [Error, Attempts - 1]),
+        {error, Error} ->
+          ?LOGWARNING("error while attempting to reset link. Address: ~p Error: ~p Attempts: ~p", [
+            Address,
+            Error,
+            Attempts - 1
+          ]),
           connect(Attempts - 1, State)
       end;
     Error ->
@@ -170,11 +179,11 @@ transaction(Attempts, FunctionCode, Data, OnResponseFun, #state{
           NewFCB = Request#frame.control_field#control_field_request.fcb,
           {ok, State#state{fcb = NewFCB}};
         error ->
-          ?LOGWARNING("unexpected response received. Request: ~p, Response: ~p", [Request, Response]),
+          ?LOGWARNING("unexpected response to transaction. Request: ~p Response: ~p", [Request, Response]),
           retry(Attempts - 1, FunctionCode, Data, OnResponseFun, State, {unexpected_response, Response})
       end;
     {error, Error} ->
-      ?LOGWARNING("send-receive error. Request: ~p, Error: ~p", [Request, Error]),
+      ?LOGWARNING("transaction error. Request: ~p Error: ~p", [Request, Error]),
       retry(Attempts - 1, FunctionCode, Data, OnResponseFun, State, Error)
   end.
 
@@ -212,7 +221,7 @@ reset_link(#state{attempts = Attempts} = State) ->
   reset_link(Attempts, State).
 
 reset_link(0 = _Attempts, _State) ->
-  ?LOGERROR("reset link request failed, no attempts left"),
+  ?LOGERROR("reset link failed, no attempts left..."),
   {error, reset_link_error};
 reset_link(Attempts, #state{
   address = Address,
@@ -225,11 +234,19 @@ reset_link(Attempts, #state{
         #frame{address = Address, control_field = #control_field_response{function_code = ?ACKNOWLEDGE}} ->
           {ok, State#state{fcb = 0}};
         _ ->
-          ?LOGWARNING("unexpected response on reset link request. Response: ~p, Attempts left: ~p", [Response, Attempts - 1]),
+          ?LOGWARNING("unexpected response to reset link. Address: ~p Response: ~p Attempts: ~p", [
+            Address,
+            Response,
+            Attempts - 1
+          ]),
           reset_link(Attempts - 1, State)
       end;
     {error, Error} ->
-      ?LOGWARNING("reset link request attempt error. Error: ~p, Attempts left: ~p", [Error, Attempts - 1]),
+      ?LOGWARNING("error while attempting to reset link. Address: ~p Error: ~p Attempts: ~p", [
+        Address,
+        Error,
+        Attempts - 1
+      ]),
       reset_link(Attempts - 1, State)
   end.
 

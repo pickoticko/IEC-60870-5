@@ -558,11 +558,11 @@ handle_event(
 
 handle_event(
   internal,
-  #asdu{type = ?C_IC_NA_1, cot = COT, pn = PN, objects = [{_IOA, ID}]},
+  #asdu{type = ?C_IC_NA_1, cot = ?COT_ACTTERM, pn = PN, objects = [{_IOA, ID}]},
   _AnyState,
   #data{name = Name}
 ) ->
-  ?LOGINFO("~p received termination of the group interrogation by ID: ~p, PN: ~p, COT: ~p", [Name, ID, PN, COT]),
+  ?LOGINFO("~p received termination of the group interrogation by ID: ~p, PN: ~p", [Name, ID, PN]),
   keep_state_and_data;
 
 handle_event(

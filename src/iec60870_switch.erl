@@ -98,7 +98,7 @@ switch_loop(#switch_state{
       % Checking if the link address is served by a switch
       case maps:get(LinkAddress, Servers, none) of
         none ->
-          ?LOGWARNING("switch received unexpected link address: ~p", [LinkAddress]);
+          ?LOGWARNING("switch received an unexpected link address for sending data: ~p", [LinkAddress]);
         ServerPID ->
           iec60870_ft12:send(PortFT12, Frame);
         _Other ->

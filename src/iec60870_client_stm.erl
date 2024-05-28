@@ -230,7 +230,7 @@ handle_event(
   internal,
   #asdu{type = ?C_IC_NA_1, cot = ?COT_ACTCON, pn = ?POSITIVE_PN, objects = [{_IOA, ID}]},
   #gi{state = confirm, id = ID} = State,
-  Data
+  #data{name = Name} = Data
 ) ->
   ?LOGINFO("DEBUG. ~p GI confirm! ID: ~p", [Name, ID]),
   {next_state, State#gi{state = run}, Data};
@@ -266,7 +266,7 @@ handle_event(
 %% Update received
 handle_event(
   internal,
-  #asdu{type = Type, objects = Objects, cot = COT} = ASDU,
+  #asdu{type = Type, objects = Objects, cot = COT},
   #gi{state = run, id = ID},
   #data{name = Name, storage = Storage, state_acc = GroupItems0} = Data
 ) when (COT - ?COT_GROUP_MIN) =:= ID ->

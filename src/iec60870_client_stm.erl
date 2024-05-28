@@ -213,9 +213,8 @@ handle_event(
   enter,
   _PrevState,
   #gi{state = confirm, id = ID},
-  #data{asdu = ASDUSettings, name = Name, connection = Connection}
+  #data{asdu = ASDUSettings, connection = Connection}
 ) ->
-  ?LOGINFO("DEBUG. ~p GI send! ID: ~p", [Name, ID]),
   [GroupRequest] = iec60870_asdu:build(#asdu{
     type = ?C_IC_NA_1,
     pn = ?POSITIVE_PN,
@@ -230,9 +229,8 @@ handle_event(
   internal,
   #asdu{type = ?C_IC_NA_1, cot = ?COT_ACTCON, pn = ?POSITIVE_PN, objects = [{_IOA, ID}]},
   #gi{state = confirm, id = ID} = State,
-  #data{name = Name} = Data
+  Data
 ) ->
-  ?LOGINFO("DEBUG. ~p GI confirm! ID: ~p", [Name, ID]),
   {next_state, State#gi{state = run}, Data};
 
 %% GI Reject
@@ -283,9 +281,8 @@ handle_event(
   internal,
   #asdu{type = ?C_IC_NA_1, cot = ?COT_ACTTERM, pn = ?POSITIVE_PN, objects = [{_IOA, ID}]},
   #gi{state = run, id = ID, count = Count} = State,
-  #data{name = Name, state_acc = GroupItems} = Data
+  #data{state_acc = GroupItems} = Data
 ) ->
-  ?LOGINFO("DEBUG. ~p GI termination! ID: ~p", [Name, ID]),
   IsSuccessful =
     if
       is_number(Count) -> map_size(GroupItems) >= Count;
@@ -358,10 +355,9 @@ handle_event(
 handle_event(
   state_timeout,
   timeout,
-  #gi{state = finish, id = ID, update = Update, rest = RestGI, required = IsRequired} = State,
-  #data{owner = Owner, storage = Storage, name = Name} = Data
+  #gi{state = finish, update = Update, rest = RestGI, required = IsRequired} = State,
+  #data{owner = Owner, storage = Storage} = Data
 ) ->
-  ?LOGINFO("DEBUG. ~p GI finish! ID: ~p", [Name, ID]),
   case {IsRequired, RestGI} of
     {true, []} ->
       Owner ! {ready, self(), Storage};
@@ -559,6 +555,15 @@ handle_event(
 %%% +--------------------------------------------------------------+
 %%% |                        Unexpected ASDU                       |
 %%% +--------------------------------------------------------------+
+
+handle_event(
+  internal,
+  #asdu{type = ?C_IC_NA_1, cot = COT, pn = PN, objects = [{_IOA, ID}]},
+  _AnyState,
+  #data{name = Name}
+) ->
+  ?LOGINFO("~p received termination of the group interrogation by ID: ~p, PN: ~p, COT: ~p", [Name, ID, PN, COT]),
+  keep_state_and_data;
 
 handle_event(
   internal,

@@ -215,6 +215,7 @@ handle_event(
   #gi{state = confirm, id = ID},
   #data{asdu = ASDUSettings, connection = Connection}
 ) ->
+  ?LOGINFO("DEBUG. GI send! ID: ~p", [ID]),
   [GroupRequest] = iec60870_asdu:build(#asdu{
     type = ?C_IC_NA_1,
     pn = ?POSITIVE_PN,
@@ -231,6 +232,7 @@ handle_event(
   #gi{state = confirm, id = ID} = State,
   Data
 ) ->
+  ?LOGINFO("DEBUG. GI confirm! ID: ~p", [ID]),
   {next_state, State#gi{state = run}, Data};
 
 %% GI Reject
@@ -264,7 +266,7 @@ handle_event(
 %% Update received
 handle_event(
   internal,
-  #asdu{type = Type, objects = Objects, cot = COT},
+  #asdu{type = Type, objects = Objects, cot = COT} = ASDU,
   #gi{state = run, id = ID},
   #data{name = Name, storage = Storage, state_acc = GroupItems0} = Data
 ) when (COT - ?COT_GROUP_MIN) =:= ID ->
@@ -283,6 +285,7 @@ handle_event(
   #gi{state = run, id = ID, count = Count} = State,
   #data{state_acc = GroupItems} = Data
 ) ->
+  ?LOGINFO("DEBUG. GI termination! ID: ~p", [ID]),
   IsSuccessful =
     if
       is_number(Count) -> map_size(GroupItems) >= Count;
@@ -355,9 +358,10 @@ handle_event(
 handle_event(
   state_timeout,
   timeout,
-  #gi{state = finish, update = Update, rest = RestGI, required = IsRequired} = State,
+  #gi{state = finish, id = ID, update = Update, rest = RestGI, required = IsRequired} = State,
   #data{owner = Owner, storage = Storage} = Data
 ) ->
+  ?LOGINFO("DEBUG. GI finish! ID: ~p", [ID]),
   case {IsRequired, RestGI} of
     {true, []} ->
       Owner ! {ready, self(), Storage};

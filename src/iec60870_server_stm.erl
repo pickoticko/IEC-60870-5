@@ -229,11 +229,13 @@ handle_asdu(#asdu{
   objects = [{IOA, GroupID}]
 }, #data{
   settings = #{
+    name := Name,
     asdu := ASDUSettings,
     root := Root
   },
   connection = Connection
 }) ->
+  ?LOGINFO("DEBUG. Server ~p received GI by group: ~p", [Name, GroupID]),
   % +-------------[ Send initialization ]-------------+
   [Confirmation] = iec60870_asdu:build(#asdu{
     type = ?C_IC_NA_1,

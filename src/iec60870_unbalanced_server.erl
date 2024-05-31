@@ -133,6 +133,7 @@ loop(#data{
       ?LOGWARNING("server w/ link address ~p has been terminated by the owner", [Address])
   after
     ?CONNECTION_TIMEOUT->
+      ?LOGINFO("Debug. Server ~p CONNECTION TIMEOUT!", [Name]),
       drop_queue(),
       loop(Data)
   end.
@@ -255,7 +256,7 @@ handle_request(RequestData, _UserData, #data{
           }
         }
     end,
-  ?LOGINFO("DEBUG. Server ~p received REQUEST DATA CLASS, response: ~p", [Name, Response]),
+  ?LOGINFO("DEBUG. Server ~p received DATA CLASS REQUEST, response: ~p", [Name, Response]),
   Data#data{
     sent_frame = send_response(Switch, Response)
   };

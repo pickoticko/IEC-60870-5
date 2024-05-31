@@ -230,7 +230,6 @@ handle_request(RequestData, _UserData, #data{
 } = Data)
   when RequestData =:= ?REQUEST_DATA_CLASS_1;
        RequestData =:= ?REQUEST_DATA_CLASS_2 ->
-  ?LOGINFO("DEBUG. Server ~p received REQUEST DATA CLASS", [Name]),
   Response =
     case check_data(Connection) of
       {ok, ConnectionData} ->
@@ -256,6 +255,7 @@ handle_request(RequestData, _UserData, #data{
           }
         }
     end,
+  ?LOGINFO("DEBUG. Server ~p received REQUEST DATA CLASS, response: ~p", [Name, Response]),
   Data#data{
     sent_frame = send_response(Switch, Response)
   };

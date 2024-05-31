@@ -112,7 +112,7 @@ loop(#data{
       get_data(Data),
       loop(Data);
     {asdu, Owner, ASDU} ->
-      case send_asdu(ASDU, Port) of
+      case send_asdu(ASDU, Port, Name) of
         ok ->
           success;
         {error, Error} ->
@@ -135,12 +135,7 @@ get_data(#data{
   Self = self(),
   OnResponse =
     fun(Response) ->
-      case Response of
-        #frame{control_field = #control_field_response{function_code = TestFC, dfc = 1}} ->
-          ?LOGINFO("DEBUG: Client received DFC enabled (OVERFLOW) with FC: ~p", [TestFC]);
-        _ ->
-          ignore
-      end,
+      ?LOGINFO("DEBUG. Client received RESPONSE to DATA CLASS REQUEST: ~p", [Response]),
       case Response of
         #frame{control_field = #control_field_response{function_code = ?USER_DATA}, data = ASDUClass1} ->
           Owner ! {asdu, Self, ASDUClass1},
@@ -162,9 +157,10 @@ get_data(#data{
     {error, ErrorClass2} -> exit(ErrorClass2)
   end.
 
-send_asdu(ASDU, Port) ->
+send_asdu(ASDU, Port, Name) ->
   OnResponse =
     fun(Response) ->
+      ?LOGINFO("DEBUG. Client ~p received response to REQUEST: ~p, RESPONSE: ~p", [Name, ASDU, Response]),
       case Response of
         #frame{control_field = #control_field_response{function_code = ?ACKNOWLEDGE}} ->
           ok;

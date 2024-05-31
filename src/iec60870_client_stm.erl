@@ -213,8 +213,9 @@ handle_event(
   enter,
   _PrevState,
   #gi{state = confirm, id = ID},
-  #data{asdu = ASDUSettings, connection = Connection}
+  #data{asdu = ASDUSettings, connection = Connection, name = Name}
 ) ->
+  ?LOGINFO("DEBUG. Client ~p sending GI, group: ~p", [Name, ID]),
   [GroupRequest] = iec60870_asdu:build(#asdu{
     type = ?C_IC_NA_1,
     pn = ?POSITIVE_PN,
@@ -229,8 +230,9 @@ handle_event(
   internal,
   #asdu{type = ?C_IC_NA_1, cot = ?COT_ACTCON, pn = ?POSITIVE_PN, objects = [{_IOA, ID}]},
   #gi{state = confirm, id = ID} = State,
-  Data
+  #data{name = Name} = Data
 ) ->
+  ?LOGINFO("DEBUG. Client ~p received positive GI CONFIRMATION, group: ~p", [Name, ID]),
   {next_state, State#gi{state = run}, Data};
 
 %% GI Reject
@@ -264,10 +266,11 @@ handle_event(
 %% Update received
 handle_event(
   internal,
-  #asdu{type = Type, objects = Objects, cot = COT},
+  #asdu{type = Type, objects = Objects, cot = COT} = ASDU,
   #gi{state = run, id = ID},
   #data{name = Name, storage = Storage, state_acc = GroupItems0} = Data
 ) when (COT - ?COT_GROUP_MIN) =:= ID ->
+  ?LOGINFO("DEBUG. Client ~p received GI data, group: ~p, asdu: ~p", [Name, ID, ASDU]),
   GroupItems =
     lists:foldl(
       fun({IOA, Value}, AccIn) ->
@@ -281,8 +284,9 @@ handle_event(
   internal,
   #asdu{type = ?C_IC_NA_1, cot = ?COT_ACTTERM, pn = ?POSITIVE_PN, objects = [{_IOA, ID}]},
   #gi{state = run, id = ID, count = Count} = State,
-  #data{state_acc = GroupItems} = Data
+  #data{state_acc = GroupItems, name = Name} = Data
 ) ->
+  ?LOGINFO("DEBUG. Client ~p received GI TERMINATION, group: ~p", [Name, ID]),
   IsSuccessful =
     if
       is_number(Count) -> map_size(GroupItems) >= Count;
@@ -300,8 +304,9 @@ handle_event(
   internal,
   #asdu{type = ?C_IC_NA_1, cot = ?COT_ACTTERM, pn = ?NEGATIVE_PN, objects = [{_IOA, ID}]},
   #gi{state = run, id = ID} = State,
-  Data
+  #data{name = Name} = Data
 ) ->
+  ?LOGINFO("DEBUG. Client ~p received GI NEGATIVE TERMINATION, group: ~p", [Name, ID]),
   {next_state, State#gi{state = error}, Data};
 
 handle_event(

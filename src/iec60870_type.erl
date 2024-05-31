@@ -33,6 +33,7 @@
 
 %% Type 1. Single point information
 parse_information_element(?M_SP_NA_1, <<SIQ>>) ->
+  debug_print_qds(?M_SP_NA_1, SIQ),
   <<_Ignore:7, SPI:1>> = <<SIQ>>,
   #{value => SPI, siq => SIQ};
 
@@ -43,6 +44,7 @@ parse_information_element(?M_SP_TA_1, <<SIQ, Timestamp/binary>>) ->
 
 %% Type 3. Double point information
 parse_information_element(?M_DP_NA_1, <<DIQ>>) ->
+  debug_print_qds(?M_DP_NA_1, DIQ),
   <<_Ignore:6, DPI:2>> = <<DIQ>>,
   #{value => DPI, diq => DIQ};
 
@@ -71,6 +73,7 @@ parse_information_element(?M_BO_TA_1, <<BSI:32/little-unsigned, QDS, Timestamp/b
 
 %% Type 9. Measured value, normalized value
 parse_information_element(?M_ME_NA_1, <<NVA:16/little-signed, QDS>>) ->
+  debug_print_qds(?M_ME_NA_1, QDS),
   #{value => parse_nva(NVA), qds => QDS};
 
 %% Type 10. Measured value, normalized value with time tag
@@ -87,6 +90,7 @@ parse_information_element(?M_ME_TB_1, <<SVA:16/little-signed, QDS, Timestamp/bin
 
 %% Type 13. Measured value, short floating point
 parse_information_element(?M_ME_NC_1, <<Value:32/little-signed-float, QDS>>) ->
+  debug_print_qds(?M_ME_NC_1, QDS),
   #{value => Value, qds => QDS};
 
 %% Type 14. Measured value, short floating point with time tag
@@ -145,6 +149,7 @@ parse_information_element(?M_BO_TB_1, <<BSI:32/little-unsigned, QDS, Timestamp/b
 
 %% Type 34. Measured value, normalized value with time tag
 parse_information_element(?M_ME_TD_1, <<NVA:16/little-signed, QDS, Timestamp/binary>>) ->
+  debug_print_qds(?M_ME_NA_1, QDS),
   #{value => parse_nva(NVA), qds => QDS, ts => parse_cp56(Timestamp)};
 
 %% Type 35. Measured value, scaled value with time tag
@@ -665,3 +670,21 @@ is_type_supported(Type)
        (Type >= ?C_SC_TA_1 andalso Type =< ?C_BO_TA_1) orelse
        (Type >= ?C_IC_NA_1 andalso Type =< ?C_CS_NA_1) -> true;
 is_type_supported(_Type) -> false.
+
+debug_print_qds(Type, QDS) ->
+  case (QDS band 16) > 0 of
+    true -> ?LOGINFO("DEBUG. Received TYPE ~p with BL (BLOCK) bit enabled!", [Type]);
+    false -> ok
+  end,
+  case (QDS band 32) > 0 of
+    true -> ?LOGINFO("DEBUG. Received TYPE ~p with SB (SUBSTITUTION) bit enabled!", [Type]);
+    false -> ok
+  end,
+  case (QDS band 64) > 0 of
+    true -> ?LOGINFO("DEBUG. Received TYPE ~p with NT (NOT TOPICAL) bit enabled!", [Type]);
+    false -> ok
+  end,
+  case (QDS band 128) > 0 of
+    true -> ?LOGINFO("DEBUG. Received TYPE ~p with IV (INVALID) bit enabled!", [Type]);
+    false -> ok
+  end.

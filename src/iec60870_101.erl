@@ -140,6 +140,7 @@ connect(Attempts, #state{
                 function_code = ?STATUS_LINK_ACCESS_DEMAND
               }
             } ->
+              ?LOGINFO("DEBUG. REQUEST STATUS LINK to address ~p is OK!", [Address]),
               {ok, ResetState#state{fcb = 0}};
             _ ->
               ?LOGWARNING("unexpected response to reset link. Address: ~p Response: ~p Attempts: ~p", [
@@ -232,6 +233,7 @@ reset_link(Attempts, #state{
     {ok, Response} ->
       case Response of
         #frame{address = Address, control_field = #control_field_response{function_code = ?ACKNOWLEDGE}} ->
+          ?LOGINFO("DEBUG. RESET LINK to address ~p is OK!", [Address]),
           {ok, State#state{fcb = 0}};
         _ ->
           ?LOGWARNING("unexpected response to reset link. Address: ~p Response: ~p Attempts: ~p", [

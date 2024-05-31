@@ -136,6 +136,12 @@ get_data(#data{
   OnResponse =
     fun(Response) ->
       case Response of
+        #frame{control_field = #control_field_response{function_code = TestFC, dfc = 1}} ->
+          ?LOGINFO("DEBUG: Client received DFC enabled (OVERFLOW) with FC: ~p", [TestFC]);
+        _ ->
+          ignore
+      end,
+      case Response of
         #frame{control_field = #control_field_response{function_code = ?USER_DATA}, data = ASDUClass1} ->
           Owner ! {asdu, Self, ASDUClass1},
           ok;

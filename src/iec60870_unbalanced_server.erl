@@ -146,8 +146,10 @@ check_fcb(#control_field_request{fcv = 1, fcb = RecFCB}, _FCB) ->
 
 handle_request(?RESET_REMOTE_LINK, _UserData, #data{
   switch = Switch,
-  address = Address
+  address = Address,
+  name = Name
 } = Data) ->
+  ?LOGINFO("DEBUG. Server ~p received RESET LINK", [Name]),
   drop_asdu(),
   Data#data{
     sent_frame = send_response(Switch, ?ACKNOWLEDGE_FRAME(Address))
@@ -155,8 +157,10 @@ handle_request(?RESET_REMOTE_LINK, _UserData, #data{
 
 handle_request(?RESET_USER_PROCESS, _UserData, #data{
   switch = Switch,
-  address = Address
+  address = Address,
+  name = Name
 } = Data) ->
+  ?LOGINFO("DEBUG. Server ~p received RESET USER PROCESS", [Name]),
   % TODO. Do we need to do anything? May be restart connection?
   Data#data{
     sent_frame = send_response(Switch, ?ACKNOWLEDGE_FRAME(Address))
@@ -165,23 +169,29 @@ handle_request(?RESET_USER_PROCESS, _UserData, #data{
 handle_request(?USER_DATA_CONFIRM, ASDU, #data{
   connection = Connection,
   switch = Switch,
-  address = Address
+  address = Address,
+  name = Name
 } = Data) ->
+  ?LOGINFO("DEBUG. Server ~p received USER DATA CONFIRM", [Name]),
   Connection ! {asdu, self(), ASDU},
   Data#data{
     sent_frame = send_response(Switch, ?ACKNOWLEDGE_FRAME(Address))
   };
 
 handle_request(?USER_DATA_NO_REPLY, ASDU, #data{
-  connection = Connection
+  connection = Connection,
+  name = Name
 } = Data) ->
+  ?LOGINFO("DEBUG. Server ~p received USER DATA NO REPLY", [Name]),
   Connection ! {asdu, self(), ASDU},
   Data;
 
 handle_request(?ACCESS_DEMAND, _UserData, #data{
   switch = Switch,
-  address = Address
+  address = Address,
+  name = Name
 } = Data) ->
+  ?LOGINFO("DEBUG. Server ~p received ACCESS DEMAND", [Name]),
   Data#data{
     sent_frame = send_response(Switch, #frame{
       address = Address,
@@ -196,8 +206,10 @@ handle_request(?ACCESS_DEMAND, _UserData, #data{
 
 handle_request(?REQUEST_STATUS_LINK, _UserData, #data{
   switch = Switch,
-  address = Address
+  address = Address,
+  name = Name
 } = Data) ->
+  ?LOGINFO("DEBUG. Server ~p received REQUEST STATUS LINK", [Name]),
   Data#data{
     sent_frame = send_response(Switch, #frame{
       address = Address,
@@ -213,10 +225,12 @@ handle_request(?REQUEST_STATUS_LINK, _UserData, #data{
 handle_request(RequestData, _UserData, #data{
   switch = Switch,
   address = Address,
-  connection = Connection
+  connection = Connection,
+  name = Name
 } = Data)
   when RequestData =:= ?REQUEST_DATA_CLASS_1;
        RequestData =:= ?REQUEST_DATA_CLASS_2 ->
+  ?LOGINFO("DEBUG. Server ~p received REQUEST DATA CLASS", [Name]),
   Response =
     case check_data(Connection) of
       {ok, ConnectionData} ->

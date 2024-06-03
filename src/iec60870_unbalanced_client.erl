@@ -6,7 +6,6 @@
 
 -module(iec60870_unbalanced_client).
 
--include_lib("kernel/include/logger.hrl").
 -include("iec60870.hrl").
 -include("ft12.hrl").
 -include("unbalanced.hrl").
@@ -63,10 +62,10 @@ start(Owner, Options) ->
     {connected, PID} ->
       PID;
     {'EXIT', PID, Reason} ->
-      ?LOG_ERROR("client is down due to a reason: ~p", [Reason]),
+      ?LOGERROR("client is down due to a reason: ~p", [Reason]),
       throw(Reason);
     {'EXIT', Owner, Reason} ->
-      ?LOG_ERROR("client is down due to owner process shutdown, reason: ~p", [Reason]),
+      ?LOGERROR("client is down due to owner process shutdown, reason: ~p", [Reason]),
       exit(PID, Reason)
   end.
 
@@ -122,10 +121,10 @@ loop(#data{
       end,
       loop(Data);
     {'DOWN', _, process, Port, Reason} ->
-      ?LOG_WARNING("~p client down because of the port error: ~p", [Name, Reason]),
+      ?LOGWARNING("~p client down because of the port error: ~p", [Name, Reason]),
       exit({down_port, Reason});
     Unexpected ->
-      ?LOG_WARNING("~p client received unexpected message: ~p", [Name, Unexpected]),
+      ?LOGWARNING("~p client received unexpected message: ~p", [Name, Unexpected]),
       loop(Data)
   end.
 
@@ -232,7 +231,7 @@ port_loop(#port_state{port_ft12 = PortFT12, clients = Clients, name = Name} = Sh
               port_loop(SharedState)
           end;
         _Unexpected ->
-          ?LOG_WARNING("switch ignored a request from an undefined process: ~p", [From]),
+          ?LOGWARNING("switch ignored a request from an undefined process: ~p", [From]),
           port_loop(SharedState)
       end;
 
@@ -257,14 +256,14 @@ port_loop(#port_state{port_ft12 = PortFT12, clients = Clients, name = Name} = Sh
       if
         % No clients left, we should stop the shared port
         map_size(RestClients) =:= 0 ->
-          ?LOG_INFO("shared port ~p has been shutdown due to no clients remaining", [Name]),
+          ?LOGINFO("shared port ~p has been shutdown due to no clients remaining", [Name]),
           exit(normal);
         true ->
           port_loop(SharedState#port_state{clients = RestClients})
       end;
 
     Unexpected ->
-      ?LOG_WARNING("shared port received unexpected message: ~p", [Unexpected]),
+      ?LOGWARNING("shared port received unexpected message: ~p", [Unexpected]),
       port_loop(SharedState)
   end.
 

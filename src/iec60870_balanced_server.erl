@@ -6,7 +6,6 @@
 
 -module(iec60870_balanced_server).
 
--include_lib("kernel/include/logger.hrl").
 -include("iec60870.hrl").
 -include("ft12.hrl").
 
@@ -55,9 +54,9 @@ wait_connection(Root, Port, Options)->
     {'EXIT', Port, Reason} ->
       case Reason of
         connect_error ->
-          ?LOG_WARNING("wait connection");
+          ?LOGWARNING("wait connection");
         _ ->
-          ?LOG_WARNING("port exit reason: ~p",[Reason])
+          ?LOGWARNING("port exit reason: ~p",[Reason])
       end,
       NewPort = iec60870_balanced:start(_Direction = ?FROM_B_TO_A, Options),
       wait_connection(Root, NewPort, Options);

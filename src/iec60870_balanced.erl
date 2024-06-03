@@ -6,7 +6,6 @@
 
 -module(iec60870_balanced).
 
--include_lib("kernel/include/logger.hrl").
 -include("iec60870.hrl").
 -include("ft12.hrl").
 -include("balanced.hrl").
@@ -124,7 +123,7 @@ loop(#data{
           Data1 = handle_request(CF#control_field_request.function_code, UserData, Data),
           loop(Data1);
         error ->
-          ?LOG_WARNING("check fcb error, cf ~p", [CF]),
+          ?LOGWARNING("check fcb error, cf ~p", [CF]),
           % On error we have to repeat the last sent frame
           case get(sent_frame) of
             RepeatFrame = #frame{} ->
@@ -155,7 +154,7 @@ loop(#data{
     {stop, Owner} ->
       iec60870_ft12:stop(Port);
     Unexpected ->
-      ?LOG_WARNING("unexpected message ~p", [Unexpected]),
+      ?LOGWARNING("unexpected message ~p", [Unexpected]),
       loop(Data)
   end.
 
@@ -170,7 +169,7 @@ await_response(Timeout, #data{
   CurrentTime = ?TIMESTAMP,
   receive
     {data, Port, #frame{address = ReqAddress} = Unexpected} when ReqAddress =/= Address ->
-      ?LOG_WARNING("unexpected address frame received ~p", [Unexpected]),
+      ?LOGWARNING("unexpected address frame received ~p", [Unexpected]),
       await_response(Timeout - ?DURATION(CurrentTime), Data);
     {data, Port, #frame{control_field = #control_field_response{}} = Response} ->
       {ok, Response};
@@ -271,7 +270,7 @@ handle_request(?REQUEST_STATUS_LINK, _UserData, #data{
   });
 
 handle_request(InvalidFC, _UserData, _Data) ->
-  ?LOG_ERROR("invalid request function code received ~p", [InvalidFC]),
+  ?LOGERROR("invalid request function code received ~p", [InvalidFC]),
   ok.
 
 send_response(Port, Frame) ->

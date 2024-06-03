@@ -6,7 +6,6 @@
 
 -module(iec60870_101).
 
--include_lib("kernel/include/logger.hrl").
 -include("iec60870.hrl").
 -include("ft12.hrl").
 
@@ -143,7 +142,7 @@ connect(Attempts, #state{
             } ->
               {ok, ResetState#state{fcb = 0}};
             _ ->
-              ?LOG_WARNING("unexpected response to reset link. Address: ~p Response: ~p Attempts: ~p", [
+              ?LOGWARNING("unexpected response to reset link. Address: ~p Response: ~p Attempts: ~p", [
                 Address,
                 Response,
                 Attempts - 1
@@ -151,7 +150,7 @@ connect(Attempts, #state{
               connect(Attempts - 1, State)
           end;
         {error, Error} ->
-          ?LOG_WARNING("error while attempting to reset link. Address: ~p Error: ~p Attempts: ~p", [
+          ?LOGWARNING("error while attempting to reset link. Address: ~p Error: ~p Attempts: ~p", [
             Address,
             Error,
             Attempts - 1
@@ -180,11 +179,11 @@ transaction(Attempts, FunctionCode, Data, OnResponseFun, #state{
           NewFCB = Request#frame.control_field#control_field_request.fcb,
           {ok, State#state{fcb = NewFCB}};
         error ->
-          ?LOG_WARNING("unexpected response to transaction. Request: ~p Response: ~p", [Request, Response]),
+          ?LOGWARNING("unexpected response to transaction. Request: ~p Response: ~p", [Request, Response]),
           retry(Attempts - 1, FunctionCode, Data, OnResponseFun, State, {unexpected_response, Response})
       end;
     {error, Error} ->
-      ?LOG_WARNING("transaction error. Request: ~p Error: ~p", [Request, Error]),
+      ?LOGWARNING("transaction error. Request: ~p Error: ~p", [Request, Error]),
       retry(Attempts - 1, FunctionCode, Data, OnResponseFun, State, Error)
   end.
 
@@ -197,7 +196,7 @@ send_receive(Port, Request, Timeout) ->
         #frame{address = Address, control_field = #control_field_response{}} ->
           {ok, Response};
         _ ->
-          ?LOG_WARNING("invalid response received. Request: ~p, Response: ~p", [Request, Response]),
+          ?LOGWARNING("invalid response received. Request: ~p, Response: ~p", [Request, Response]),
           {error, invalid_response}
       end
   after
@@ -222,7 +221,7 @@ reset_link(#state{attempts = Attempts} = State) ->
   reset_link(Attempts, State).
 
 reset_link(0 = _Attempts, _State) ->
-  ?LOG_ERROR("reset link failed, no attempts left..."),
+  ?LOGERROR("reset link failed, no attempts left..."),
   {error, reset_link_error};
 reset_link(Attempts, #state{
   address = Address,
@@ -235,7 +234,7 @@ reset_link(Attempts, #state{
         #frame{address = Address, control_field = #control_field_response{function_code = ?ACKNOWLEDGE}} ->
           {ok, State#state{fcb = 0}};
         _ ->
-          ?LOG_WARNING("unexpected response to reset link. Address: ~p Response: ~p Attempts: ~p", [
+          ?LOGWARNING("unexpected response to reset link. Address: ~p Response: ~p Attempts: ~p", [
             Address,
             Response,
             Attempts - 1
@@ -243,7 +242,7 @@ reset_link(Attempts, #state{
           reset_link(Attempts - 1, State)
       end;
     {error, Error} ->
-      ?LOG_WARNING("error while attempting to reset link. Address: ~p Error: ~p Attempts: ~p", [
+      ?LOGWARNING("error while attempting to reset link. Address: ~p Error: ~p Attempts: ~p", [
         Address,
         Error,
         Attempts - 1

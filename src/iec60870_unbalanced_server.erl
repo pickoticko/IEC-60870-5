@@ -6,6 +6,7 @@
 
 -module(iec60870_unbalanced_server).
 
+-include_lib("kernel/include/logger.hrl").
 -include("iec60870.hrl").
 -include("ft12.hrl").
 -include("unbalanced.hrl").
@@ -55,7 +56,7 @@ start(Root, Options) ->
     {ready, PID} ->
       PID;
     {'EXIT', PID, Reason} ->
-      ?LOGERROR("server is down due to an error: ~p", [Reason]),
+      ?LOG_ERROR("server is down due to an error: ~p", [Reason]),
       throw(Reason)
   end.
 
@@ -104,10 +105,10 @@ loop(#data{
 } = Data) ->
   receive
     {data, Switch, #frame{address = ReqAddress}} when ReqAddress =/= Address ->
-      ?LOGWARNING("server w/ link address ~p received unexpected link address: ~p", [Address, ReqAddress]),
+      ?LOG_WARNING("server w/ link address ~p received unexpected link address: ~p", [Address, ReqAddress]),
       loop(Data);
     {data, Switch, Unexpected = #frame{control_field = #control_field_response{}}} ->
-      ?LOGWARNING("server w/ link address ~p received unexpected response frame: ~p", [Address, Unexpected]),
+      ?LOG_WARNING("server w/ link address ~p received unexpected response frame: ~p", [Address, Unexpected]),
       loop(Data);
     {data, Switch, #frame{control_field = CF, data = UserData}} ->
       case check_fcb(CF, FCB) of
@@ -115,7 +116,7 @@ loop(#data{
           Data1 = handle_request(CF#control_field_request.function_code, UserData, Data),
           loop(Data1#data{fcb = NextFCB});
         error ->
-          ?LOGWARNING("server w/ link address ~p got check fcb error. CF: ~p, FCB: ~p", [Address, CF, FCB]),
+          ?LOG_WARNING("server w/ link address ~p got check fcb error. CF: ~p, FCB: ~p", [Address, CF, FCB]),
           case SentFrame of
             #frame{} -> send_response(Switch, SentFrame);
             _ -> ignore
@@ -123,14 +124,14 @@ loop(#data{
           loop(Data)
       end;
     {'DOWN', _, process, Connection, _Error} ->
-      ?LOGWARNING("~p server w/ link address ~p is down", [Name, Address]),
+      ?LOG_WARNING("~p server w/ link address ~p is down", [Name, Address]),
       NewConnection = start_connection( Root ),
       loop(Data#data{connection = NewConnection});
     {'DOWN', _, process, Switch, SwitchError} ->
-      ?LOGWARNING("~p server w/ link address ~p is down because of the switch error: ~p", [Name, Address, SwitchError]),
+      ?LOG_WARNING("~p server w/ link address ~p is down because of the switch error: ~p", [Name, Address, SwitchError]),
       exit( SwitchError );
     {stop, Root} ->
-      ?LOGWARNING("server w/ link address ~p has been terminated by the owner", [Address])
+      ?LOG_WARNING("server w/ link address ~p has been terminated by the owner", [Address])
   after
     ?CONNECTION_TIMEOUT->
       drop_queue(),
@@ -247,7 +248,7 @@ handle_request(RequestData, _UserData, #data{
   };
 
 handle_request(InvalidFC, _UserData, #data{address = Address} = Data) ->
-  ?LOGERROR("server w/ link address ~p received invalid request function code: ~p", [Address, InvalidFC]),
+  ?LOG_ERROR("server w/ link address ~p received invalid request function code: ~p", [Address, InvalidFC]),
   Data.
 
 send_response(Switch, Frame) ->

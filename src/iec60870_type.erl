@@ -6,6 +6,7 @@
 
 -module(iec60870_type).
 
+-include_lib("kernel/include/logger.hrl").
 -include("iec60870.hrl").
 -include("asdu.hrl").
 
@@ -557,7 +558,7 @@ parse_cp24(<<
 >>) ->
   Millis + (Minutes * ?MILLIS_IN_MINUTE);
 parse_cp24(InvalidTimestamp) ->
-  ?LOGWARNING("Invalid CP24 has been received: ~p", [InvalidTimestamp]),
+  ?LOG_WARNING("Invalid CP24 has been received: ~p", [InvalidTimestamp]),
   throw({invalid_object_ts, InvalidTimestamp}).
 
 parse_cp56(<<
@@ -581,11 +582,11 @@ parse_cp56(<<
     seconds_to_millis(GregorianSeconds - ?UNIX_EPOCH_SECONDS)
   catch
     _:Error ->
-      ?LOGERROR("CP56 parse error: ~p, timestamp: ~p", [Error, Timestamp]),
+      ?LOG_ERROR("CP56 parse error: ~p, timestamp: ~p", [Error, Timestamp]),
       none
   end;
 parse_cp56(InvalidTimestamp) ->
-  ?LOGWARNING("Invalid CP56 has been received: ~p", [InvalidTimestamp]),
+  ?LOG_WARNING("Invalid CP56 has been received: ~p", [InvalidTimestamp]),
   throw({invalid_object_ts, InvalidTimestamp}).
 
 get_cp16(undefined) -> get_cp16(0);
@@ -606,7 +607,7 @@ get_cp24(TotalMillis) ->
     <<(round(Millis)):16/little-integer, 16#00:2, (round(Minutes)):6>>
   catch
     _:Error ->
-      ?LOGERROR("CP24 get error: ~p, timestamp: ~p", [Error, TotalMillis]),
+      ?LOG_ERROR("CP24 get error: ~p, timestamp: ~p", [Error, TotalMillis]),
       undefined
   end.
 
@@ -631,7 +632,7 @@ get_cp56(PosixTimestamp) ->
       (Year - ?CURRENT_MILLENNIUM):7>>
   catch
     _:Error ->
-      ?LOGERROR("CP56 get error: ~p, timestamp: ~p", [Error, PosixTimestamp]),
+      ?LOG_ERROR("CP56 get error: ~p, timestamp: ~p", [Error, PosixTimestamp]),
       undefined
   end.
 

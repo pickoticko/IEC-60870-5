@@ -6,6 +6,7 @@
 
 -module(iec60870_client).
 
+-include_lib("kernel/include/logger.hrl").
 -include("iec60870.hrl").
 -include("asdu.hrl").
 
@@ -107,7 +108,7 @@ write(#?MODULE{pid = PID}, IOA, InDataObject) when is_map(InDataObject) ->
             ok ->
               ok;
             {error, Reason} ->
-              ?LOGERROR("write operation call failed with reason: ~p", [Reason]),
+              ?LOG_ERROR("write operation call failed with reason: ~p", [Reason]),
               throw(Reason)
           end;
         false ->
@@ -115,7 +116,7 @@ write(#?MODULE{pid = PID}, IOA, InDataObject) when is_map(InDataObject) ->
           ok
       end;
     false ->
-      ?LOGERROR("write operation called on no longer alive connection"),
+      ?LOG_ERROR("write operation called on no longer alive connection"),
       throw(connection_closed)
   end;
 write(_, _, _) ->

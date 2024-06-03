@@ -6,7 +6,6 @@
 
 -module(iec60870_switch).
 
--include_lib("kernel/include/logger.hrl").
 -include("iec60870.hrl").
 -include("ft12.hrl").
 
@@ -88,7 +87,7 @@ switch_loop(#switch_state{
       % Check if the link address is served by a switch
       case maps:get(LinkAddress, Servers, none) of
         none ->
-          ?LOG_WARNING("switch received unexpected link address: ~p", [LinkAddress]);
+          ?LOGWARNING("switch received unexpected link address: ~p", [LinkAddress]);
         ServerPID ->
           ServerPID ! {data, self(), Frame}
       end,
@@ -99,11 +98,11 @@ switch_loop(#switch_state{
       % Checking if the link address is served by a switch
       case maps:get(LinkAddress, Servers, none) of
         none ->
-          ?LOG_WARNING("switch received an unexpected link address for sending data: ~p", [LinkAddress]);
+          ?LOGWARNING("switch received an unexpected link address for sending data: ~p", [LinkAddress]);
         ServerPID ->
           iec60870_ft12:send(PortFT12, Frame);
         _Other ->
-          ?LOG_WARNING("switch received unexpected server PID: ~p", [ServerPID])
+          ?LOGWARNING("switch received unexpected server PID: ~p", [ServerPID])
       end,
       switch_loop(State);
 
@@ -122,13 +121,13 @@ switch_loop(#switch_state{
       RestServers = maps:filter(fun(_A, PID) -> PID =/= DeadServer end, Servers),
       if
         map_size(RestServers) =:= 0 ->
-          ?LOG_INFO("switch on port ~p has been shutdown due to no remaining servers", [Name]),
+          ?LOGINFO("switch on port ~p has been shutdown due to no remaining servers", [Name]),
           exit(normal);
         true ->
           switch_loop(State#switch_state{servers = RestServers})
       end;
 
     Unexpected ->
-      ?LOG_WARNING("switch on port ~p received unexpected message: ~p", [Name, Unexpected]),
+      ?LOGWARNING("switch on port ~p received unexpected message: ~p", [Name, Unexpected]),
       switch_loop(State)
   end.

@@ -7,7 +7,6 @@
 -module(iec60870_server_stm).
 -behaviour(gen_statem).
 
--include_lib("kernel/include/logger.hrl").
 -include("iec60870.hrl").
 -include("asdu.hrl").
 
@@ -49,7 +48,7 @@ callback_mode() -> [
 ].
 
 init({Root, Connection, #{name := Name, groups := Groups} = Settings}) ->
-  ?LOG_INFO("~p server initiating incoming connection...", [Name]),
+  ?LOGINFO("~p server initiating incoming connection...", [Name]),
   esubscribe:subscribe(Name, update, self()),
   process_flag(trap_exit, true),
   erlang:monitor(process, Root),
@@ -90,7 +89,7 @@ handle_event(info, {asdu, Connection, ASDU}, _AnyState, #data{
     handle_asdu(ParsedASDU, Data)
   catch
     _Exception:Error ->
-      ?LOG_ERROR("~p server received invalid ASDU. ASDU: ~p, Error: ~p", [Name, ASDU, Error]),
+      ?LOGERROR("~p server received invalid ASDU. ASDU: ~p, Error: ~p", [Name, ASDU, Error]),
       keep_state_and_data
   end;
 
@@ -114,30 +113,30 @@ handle_event(info, {update_group, GroupID, Timer}, ?RUNNING, #data{
 handle_event(info, {'EXIT', Connection, Reason}, _AnyState, #data{
   connection = Connection
 }) ->
-  ?LOG_WARNING("server connection terminated. Reason: ~p", [Reason] ),
+  ?LOGWARNING("server connection terminated. Reason: ~p", [Reason] ),
   {stop, Reason};
 
 %% The root process is down
 handle_event(info, {'DOWN', _, process, Root, Reason}, _AnyState, #data{
   root = Root
 }) ->
-  ?LOG_WARNING("incoming server connection terminated. Reason: ~p", [Reason]),
+  ?LOGWARNING("incoming server connection terminated. Reason: ~p", [Reason]),
   {stop, Reason};
 
 handle_event(EventType, EventContent, _AnyState, _Data) ->
-  ?LOG_WARNING("incoming server connection received unexpected event type. Event: ~p, Content: ~p", [
+  ?LOGWARNING("incoming server connection received unexpected event type. Event: ~p, Content: ~p", [
     EventType, EventContent
   ]),
   keep_state_and_data.
 
 terminate(Reason, _, _State) when Reason =:= normal; Reason =:= shutdown ->
-  ?LOG_WARNING("incoming server connection is terminated normally. Reason: ~p", [Reason]),
+  ?LOGWARNING("incoming server connection is terminated normally. Reason: ~p", [Reason]),
   ok;
 terminate({connection_closed, Reason}, _, _State)->
-  ?LOG_WARNING("incoming server connection is closed. Reason: ~p", [Reason]),
+  ?LOGWARNING("incoming server connection is closed. Reason: ~p", [Reason]),
   ok;
 terminate(Reason, _, _Data) ->
-  ?LOG_WARNING("incoming server connection is terminated abnormally. Reason: ~p", [Reason]),
+  ?LOGWARNING("incoming server connection is terminated abnormally. Reason: ~p", [Reason]),
   ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -202,7 +201,7 @@ handle_asdu(#asdu{
         [{IOA, Value}] = Objects,
         case Handler(ServerRef, Type, IOA, Value) of
           {error, HandlerError} ->
-            ?LOG_ERROR("remote control handler returned error: ~p", [HandlerError]),
+            ?LOGERROR("remote control handler returned error: ~p", [HandlerError]),
             %% +-------[ Negative activation confirmation ]---------+
             build_and_send(Self, Type, Objects, ?COT_ACTCON, ?NEGATIVE_PN, Connection, ASDUSettings);
           ok ->
@@ -213,13 +212,13 @@ handle_asdu(#asdu{
         end
       catch
         _Exception:Reason ->
-          ?LOG_ERROR("remote control handler failed. Reason: ~p", [Reason]),
+          ?LOGERROR("remote control handler failed. Reason: ~p", [Reason]),
           %% +-------[ Negative activation confirmation ]---------+
           build_and_send(Self, Type, Objects, ?COT_ACTCON, ?NEGATIVE_PN, Connection, ASDUSettings)
       end;
     true ->
       %% +-------[ Negative activation confirmation ]---------+
-      ?LOG_WARNING("remote control request accepted but no handler is defined"),
+      ?LOGWARNING("remote control request accepted but no handler is defined"),
       build_and_send(self(), Type, Objects, ?COT_ACTCON, ?NEGATIVE_PN, Connection, ASDUSettings)
   end,
   keep_state_and_data;
@@ -312,7 +311,7 @@ handle_asdu(#asdu{
 }, #data{
   settings = #{name := Name}
 }) ->
-  ?LOG_WARNING("~p server received unsupported ASDU type. Type: ~p", [Name, Type]),
+  ?LOGWARNING("~p server received unsupported ASDU type. Type: ~p", [Name, Type]),
   keep_state_and_data.
 
 send_asdu(Connection, ASDU) ->

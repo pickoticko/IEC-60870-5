@@ -6,7 +6,6 @@
 
 -module(iec60870_ft12).
 
--include_lib("kernel/include/logger.hrl").
 -include("iec60870.hrl").
 -include("ft12.hrl").
 
@@ -145,7 +144,7 @@ parse_frame(<<
         Checksum ->
           case parse_control_field(<<ControlField>>) of
             error ->
-              ?LOG_ERROR("invalid control field: ~p", [ControlField]),
+              ?LOGERROR("invalid control field: ~p", [ControlField]),
               Tail;
             CFRec ->
               {#frame{
@@ -155,7 +154,7 @@ parse_frame(<<
               }, Tail}
           end;
         Sum ->
-          ?LOG_ERROR("invalid control sum: ~p", [Sum]),
+          ?LOGERROR("invalid control sum: ~p", [Sum]),
           Tail
       end;
     _ ->
@@ -183,7 +182,7 @@ parse_frame(<<
           <<ControlField, Address:AddressSize/little-integer, Data/binary>> = FrameData,
           case parse_control_field(<<ControlField>>) of
             error ->
-              ?LOG_ERROR("invalid control field ~p", [ControlField]),
+              ?LOGERROR("invalid control field ~p", [ControlField]),
               Tail;
             CF ->
               {#frame{
@@ -193,7 +192,7 @@ parse_frame(<<
               }, Tail}
           end;
         _ ->
-          ?LOG_ERROR("invalid control sum"),
+          ?LOGERROR("invalid control sum"),
           Tail
       end;
     _ ->

@@ -6,7 +6,6 @@
 
 -module(iec60870_server).
 
--include_lib("kernel/include/logger.hrl").
 -include("iec60870.hrl").
 -include("asdu.hrl").
 
@@ -77,7 +76,7 @@ start(InSettings) ->
       ServerRef;
     {'EXIT', PID, Reason} ->
       process_flag(trap_exit, OldFlag),
-      ?LOG_ERROR("server failed to start due to a reason: ~p", [Reason]),
+      ?LOGERROR("server failed to start due to a reason: ~p", [Reason]),
       throw(Reason)
   end.
 
@@ -240,17 +239,17 @@ await_connection(#state{
         {ok, PID} ->
           From ! {self(), PID};
         {error, Error} ->
-          ?LOG_ERROR("unable to start process for incoming connection, error ~p",[Error]),
+          ?LOGERROR("unable to start process for incoming connection, error ~p",[Error]),
           From ! {self(), error}
       end,
       await_connection(State);
     {'EXIT', _, StopReason} ->
-      ?LOG_INFO("stop server, reason: ~p", [StopReason]),
+      ?LOGINFO("stop server, reason: ~p", [StopReason]),
       exit(EsubscribePID, shutdown),
       Module:stop_server(Server),
       exit(StopReason);
     Unexpected ->
-      ?LOG_WARNING("unexpected mesaage ~p", [Unexpected]),
+      ?LOGWARNING("unexpected mesaage ~p", [Unexpected]),
       await_connection(State)
   end.
 

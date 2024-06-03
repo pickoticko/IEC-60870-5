@@ -6,7 +6,6 @@
 
 -module(iec60870_104).
 
--include_lib("kernel/include/logger.hrl").
 -include("iec60870.hrl").
 -include("asdu.hrl").
 
@@ -138,12 +137,12 @@ wait_connection(ListenSocket, Settings, Root) ->
               buffer = Buffer
             });
           {error, InternalError} ->
-            ?LOG_ERROR("unable to start a process to handle the incoming connection with error: ~p", [InternalError]),
+            ?LOGERROR("unable to start a process to handle the incoming connection with error: ~p", [InternalError]),
             gen_tcp:close(Socket),
             exit(InternalError)
         end;
       {error, ActivateError} ->
-        ?LOG_WARNING("error activating incoming connection: ~p", [ActivateError]),
+        ?LOGWARNING("error activating incoming connection: ~p", [ActivateError]),
         gen_tcp:close(Socket),
         exit(ActivateError)
     end
@@ -156,7 +155,7 @@ accept_loop(ListenSocket, Root) ->
     {error, timeout} ->
       receive
         {'EXIT', Root, Reason} ->
-          ?LOG_ERROR("connection is down due to owner process shutdown"),
+          ?LOGERROR("connection is down due to owner process shutdown"),
           timer:sleep(1000),
           catch gen_tcp:close(ListenSocket),
           exit(Reason)
@@ -224,14 +223,14 @@ loop(#state{
 
   % Connection exit signal
     {'EXIT', Connection, Reason} ->
-      ?LOG_ERROR("connection is down due to a reason: ~p", [Reason]),
+      ?LOGERROR("connection is down due to a reason: ~p", [Reason]),
       gen_tcp:close(Socket),
       exit(Reason);
 
   % If an ASDU packet isn't accepted because we are waiting for confirmation,
   % we should compare the sent packets with K to avoid ignoring other ASDUs
     Unexpected when length(Sent) =< K ->
-      ?LOG_WARNING("unexpected message received ~p", [Unexpected]),
+      ?LOGWARNING("unexpected message received ~p", [Unexpected]),
       loop(State)
   end.
 
@@ -255,7 +254,7 @@ init_client(Owner, #{
             buffer = Buffer
           });
         {error, ActivateError} ->
-          ?LOG_WARNING("client connection activation error: ~p", [ActivateError]),
+          ?LOGWARNING("client connection activation error: ~p", [ActivateError]),
           gen_tcp:close(Socket),
           exit(ActivateError)
       end;
@@ -426,7 +425,7 @@ create_i_packet(ASDU, #state{
 %%% +--------------------------------------------------------------+
 
 handle_packet(u, ?START_DT_CONFIRM, State)->
-  ?LOG_WARNING("unexpected START_DT_CONFIRM packet was received!"),
+  ?LOGWARNING("unexpected START_DT_CONFIRM packet was received!"),
   State;
 
 handle_packet(u, ?TEST_FRAME_ACTIVATE, #state{

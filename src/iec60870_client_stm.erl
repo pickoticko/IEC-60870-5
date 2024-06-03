@@ -7,7 +7,6 @@
 -module(iec60870_client_stm).
 -behaviour(gen_statem).
 
--include_lib("kernel/include/logger.hrl").
 -include("iec60870.hrl").
 -include("asdu.hrl").
 
@@ -140,7 +139,7 @@ handle_event(
     _:{invalid_object, _Value} = Error ->
       {stop, Error, Data};
     _:Error ->
-      ?LOG_ERROR("~p invalid ASDU received: ~p, error: ~p", [Name, ASDU, Error]),
+      ?LOGERROR("~p invalid ASDU received: ~p, error: ~p", [Name, ASDU, Error]),
       keep_state_and_data
   end;
 
@@ -241,7 +240,7 @@ handle_event(
   #gi{state = confirm, id = ID} = State,
   #data{name = Name} = Data
 ) ->
-  ?LOG_WARNING("~p, group interrogation ~p rejected", [Name, ID]),
+  ?LOGWARNING("~p, group interrogation ~p rejected", [Name, ID]),
   {next_state, State#gi{state = error}, Data};
 
 handle_event(
@@ -250,7 +249,7 @@ handle_event(
   #gi{state = confirm, id = ID} = State,
   #data{name = Name} = Data
 ) ->
-  ?LOG_WARNING("~p, group ~p interrogation confirmation timeout", [Name, ID]),
+  ?LOGWARNING("~p, group ~p interrogation confirmation timeout", [Name, ID]),
   {next_state, State#gi{state = error}, Data};
 
 %% GI Running
@@ -563,7 +562,7 @@ handle_event(
   _AnyState,
   #data{name = Name}
 ) ->
-  ?LOG_INFO("~p received termination of the group interrogation by ID: ~p, PN: ~p", [Name, ID, PN]),
+  ?LOGINFO("~p received termination of the group interrogation by ID: ~p, PN: ~p", [Name, ID, PN]),
   keep_state_and_data;
 
 handle_event(
@@ -572,7 +571,7 @@ handle_event(
   State,
   #data{name = Name}
 ) ->
-  ?LOG_WARNING("~p unexpected ASDU type is received: ASDU ~p, state ~p", [
+  ?LOGWARNING("~p unexpected ASDU type is received: ASDU ~p, state ~p", [
     Name,
     Unexpected,
     State
@@ -617,7 +616,7 @@ handle_event(
   _AnyState,
   #data{connection = Connection}
 ) ->
-  ?LOG_WARNING("client connection failed to send packet, error: ~p", [Error]),
+  ?LOGWARNING("client connection failed to send packet, error: ~p", [Error]),
   keep_state_and_data;
 
 handle_event(
@@ -626,7 +625,7 @@ handle_event(
   _AnyState,
   #data{name = Name}
 ) ->
-  ?LOG_WARNING("client connection ~p received unexpected event type ~p, content ~p", [
+  ?LOGWARNING("client connection ~p received unexpected event type ~p, content ~p", [
     Name, EventType, EventContent
   ]),
   keep_state_and_data.
@@ -634,11 +633,11 @@ handle_event(
 terminate(Reason, _, _State = #data{esubscribe = PID})
   when Reason =:= normal; Reason =:= shutdown ->
     exit(PID, shutdown),
-    ?LOG_WARNING("client connection terminated with reason: ~p", [Reason]),
+    ?LOGWARNING("client connection terminated with reason: ~p", [Reason]),
     ok;
 
 terminate(Reason, _, _State) ->
-  ?LOG_WARNING("client connection terminated with reason: ~p", [Reason]),
+  ?LOGWARNING("client connection terminated with reason: ~p", [Reason]),
   ok.
 
 code_change(_OldVsn, State, _Extra) ->

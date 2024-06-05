@@ -86,10 +86,10 @@ init(Owner, #{
   port_options := PortOptions,
   address_size := AddressSize
 }) ->
-  ?LOGDEBUG("FT12 port ~p trying to open eserial..."),
+  ?LOGDEBUG("FT12 port ~p trying to open eserial...", [PortName]),
   case eserial:open(PortName, PortOptions) of
     {ok, Port} ->
-      ?LOGDEBUG("FT12 port ~p eserial is opened!"),
+      ?LOGDEBUG("FT12 port ~p eserial is opened!", [PortName]),
       Owner ! {ready, self()},
       loop(#state{
         name = PortName,

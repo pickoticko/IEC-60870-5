@@ -131,9 +131,11 @@ connect(Attempts, #state{
 } = State) when Attempts > 0 ->
   case reset_link(State) of
     {ok, ResetState} ->
+      ?LOGDEBUG("RESET LINK is OK. Address: ~p", [Address]),
       Request = build_request(?REQUEST_STATUS_LINK, _Data = undefined, ResetState),
       case SendReceive(Request) of
         {ok, Response} ->
+          ?LOGDEBUG("REQUEST STATUS LINK is OK. Address: ~p", [Address]),
           case Response of
             #frame{
               control_field = #control_field_response{

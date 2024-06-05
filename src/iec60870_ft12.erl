@@ -25,6 +25,7 @@
 %%% +--------------------------------------------------------------+
 
 -record(state, {
+  name,
   owner,
   port,
   buffer,
@@ -89,6 +90,7 @@ init(Owner, #{
     {ok, Port} ->
       Owner ! {ready, self()},
       loop(#state{
+        name = PortName,
         owner = Owner,
         port = Port,
         address_size = AddressSize * 8,
@@ -100,6 +102,7 @@ init(Owner, #{
 
 loop(#state{
   port = Port,
+  name = PortName,
   buffer = Buffer,
   owner = Owner,
   address_size = AddressSize
@@ -108,13 +111,16 @@ loop(#state{
     {Port, data, Data} ->
       case parse_frame(<<Buffer/binary, Data/binary>>, AddressSize) of
         {Frame, TailBuffer} ->
+          ?LOGDEBUG("FT12 port ~p received parsed data. frame: ~p, tailbuffer: ~p", [PortName, Frame, TailBuffer]),
           Owner ! {data, self(), Frame},
           loop(State#state{buffer = TailBuffer});
         TailBuffer ->
+          ?LOGDEBUG("FT12 port ~p received data, no parse. tailbuffer: ~p", [PortName, TailBuffer]),
           loop(State#state{buffer = TailBuffer})
       end;
 
     {send, Owner, Frame} ->
+      ?LOGDEBUG("FT12 port ~p sending frame: ~p", [PortName, Frame]),
       State1 =
         case Frame#frame.control_field of
           % If the request is reset remote link then we delete all the data from the buffer
@@ -131,6 +137,7 @@ loop(#state{
       loop(State1);
 
     {stop, Owner} ->
+      ?LOGDEBUG("FT12 port ~p closed by owner", [PortName]),
       eserial:close(Port)
   end.
 

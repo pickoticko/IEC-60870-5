@@ -151,8 +151,9 @@ handle_event(
   enter,
   _PrevState,
   {?CONNECTING, _, _},
-  _Data
+  #data{name = Name} = _Data
 ) ->
+  ?LOGDEBUG("client ~p: entering CONNECTING state", [Name]),
   {keep_state_and_data, [{state_timeout, 0, connect}]};
 
 handle_event(
@@ -181,8 +182,9 @@ handle_event(
   enter,
   _PrevState,
   ?INIT_GROUPS,
-  _Data
+  #data{name = Name} = _Data
 ) ->
+  ?LOGDEBUG("client ~p: entering INIT GROUPS state", [Name]),
   {keep_state_and_data, [{state_timeout, 0, init}]};
 
 handle_event(
@@ -213,8 +215,9 @@ handle_event(
   enter,
   _PrevState,
   #gi{state = confirm, id = ID},
-  #data{asdu = ASDUSettings, connection = Connection}
+  #data{name = Name, asdu = ASDUSettings, connection = Connection}
 ) ->
+  ?LOGDEBUG("client ~p: sending GI REQUEST for group ~p", [Name, ID]),
   [GroupRequest] = iec60870_asdu:build(#asdu{
     type = ?C_IC_NA_1,
     pn = ?POSITIVE_PN,
@@ -229,8 +232,9 @@ handle_event(
   internal,
   #asdu{type = ?C_IC_NA_1, cot = ?COT_ACTCON, pn = ?POSITIVE_PN, objects = [{_IOA, ID}]},
   #gi{state = confirm, id = ID} = State,
-  Data
+  #data{name = Name} = Data
 ) ->
+  ?LOGDEBUG("client ~p: received GI CONFIRMATION for group ~p", [Name, ID]),
   {next_state, State#gi{state = run}, Data};
 
 %% GI Reject
@@ -256,18 +260,20 @@ handle_event(
 handle_event(
   enter,
   _PrevState,
-  #gi{state = run, timeout = Timeout},
-  Data
+  #gi{state = run, timeout = Timeout, id = ID},
+  #data{name = Name} = Data
 ) ->
+  ?LOGDEBUG("client ~p: entering GI RUN state for group ~p", [Name, ID]),
   {keep_state, Data#data{state_acc = #{}}, [{state_timeout, Timeout, timeout}]};
 
 %% Update received
 handle_event(
   internal,
-  #asdu{type = Type, objects = Objects, cot = COT},
+  #asdu{type = Type, objects = Objects, cot = COT} = ASDU,
   #gi{state = run, id = ID},
   #data{name = Name, storage = Storage, state_acc = GroupItems0} = Data
 ) when (COT - ?COT_GROUP_MIN) =:= ID ->
+  ?LOGDEBUG("client ~p: received GI for group ~p update ASDU: ~p", [Name, ID, ASDU]),
   GroupItems =
     lists:foldl(
       fun({IOA, Value}, AccIn) ->
@@ -281,8 +287,9 @@ handle_event(
   internal,
   #asdu{type = ?C_IC_NA_1, cot = ?COT_ACTTERM, pn = ?POSITIVE_PN, objects = [{_IOA, ID}]},
   #gi{state = run, id = ID, count = Count} = State,
-  #data{state_acc = GroupItems} = Data
+  #data{name = Name, state_acc = GroupItems} = Data
 ) ->
+  ?LOGDEBUG("client ~p: received GI TERMINATION for group ~p", [Name, ID]),
   IsSuccessful =
     if
       is_number(Count) -> map_size(GroupItems) >= Count;
@@ -322,18 +329,20 @@ handle_event(
 handle_event(
   enter,
   _PrevState,
-  #gi{state = error},
-  _Data
+  #gi{state = error, id = ID},
+  #data{name = Name} = _Data
 ) ->
+  ?LOGDEBUG("client ~p: entering GI TIMEOUT for group ~p", [Name, ID]),
   {keep_state_and_data, [{state_timeout, 0, timeout}]};
 
 handle_event(
   state_timeout,
   timeout,
   #gi{state = error, id = ID, required = Required, attempts = Attempts} = State,
-  Data
+  #data{name = Name} = Data
 ) ->
   RestAttempts = Attempts - 1,
+  ?LOGDEBUG("client ~p: GI attempts for group ~p left: ~p", [Name, ID, RestAttempts]),
   if
     RestAttempts > 0 ->
       {next_state, State#gi{state = confirm, attempts = RestAttempts}, Data};
@@ -347,9 +356,10 @@ handle_event(
 handle_event(
   enter,
   _PrevState,
-  #gi{state = finish},
+  #gi{state = finish, id = ID},
   _Data
 ) ->
+  ?LOGDEBUG("client ~p: entering GI FINISH for group ~p", [ID]),
   {keep_state_and_data, [{state_timeout, 0, timeout}]};
 
 handle_event(
@@ -386,8 +396,9 @@ handle_event(
   enter,
   _PrevState,
   ?CONNECTED,
-  _Data
+  #data{name = Name} = _Data
 ) ->
+  ?LOGDEBUG("client ~p: entering CONNECTED state", [Name]),
   keep_state_and_data;
 
 handle_event(
@@ -515,12 +526,13 @@ handle_event(
 
 handle_event(
   internal,
-  #asdu{type = Type, objects = Objects, cot = COT},
+  #asdu{type = Type, objects = Objects, cot = COT} = ASDU,
   _AnyState,
   #data{name = Name, storage = Storage}
 ) when (Type >= ?M_SP_NA_1 andalso Type =< ?M_ME_ND_1)
     orelse (Type >= ?M_SP_TB_1 andalso Type =< ?M_EP_TD_1)
     orelse (Type =:= ?M_EI_NA_1) ->
+  ?LOGDEBUG("client ~p: received normal update ASDU: ~p", [Name, ASDU]),
   Group =
     if
       COT >= ?COT_GROUP_MIN, COT =< ?COT_GROUP_MAX ->

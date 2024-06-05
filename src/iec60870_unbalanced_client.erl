@@ -108,11 +108,12 @@ loop(#data{
 } = Data) ->
   receive
     {update, Self} when Self =:= self() ->
+      ?LOGDEBUG("client ~p: received update event from itself", [Name]),
       timer:send_after(Cycle, {update, Self}),
       get_data(Data),
       loop(Data);
     {asdu, Owner, ASDU} ->
-      case send_asdu(ASDU, Port) of
+      case send_asdu(ASDU, Port, Name) of
         ok ->
           success;
         {error, Error} ->
@@ -130,11 +131,13 @@ loop(#data{
 
 get_data(#data{
   owner = Owner,
-  port = Port
+  port = Port,
+  name = Name
 }) ->
   Self = self(),
   OnResponse =
     fun(Response) ->
+      ?LOGDEBUG("client ~p: data class request RESPONSE: ~p", [Name, Response]),
       case Response of
         #frame{control_field = #control_field_response{function_code = ?USER_DATA}, data = ASDUClass1} ->
           Owner ! {asdu, Self, ASDUClass1},
@@ -145,20 +148,23 @@ get_data(#data{
           error
       end
     end,
+  ?LOGDEBUG("client ~p: sending DATA CLASS REQUEST 1!", [Name]),
   %% +-----------[ Class 1 data request ]-----------+
   case transaction(?REQUEST_DATA_CLASS_1, _Data1 = undefined, Port, OnResponse) of
     ok -> ok;
     {error, ErrorClass1} -> exit(ErrorClass1)
   end,
+  ?LOGDEBUG("client ~p: sending DATA CLASS REQUEST 2!", [Name]),
   %% +-----------[ Class 2 data request ]-----------+
   case transaction(?REQUEST_DATA_CLASS_2, _Data2 = undefined, Port, OnResponse) of
     ok -> ok;
     {error, ErrorClass2} -> exit(ErrorClass2)
   end.
 
-send_asdu(ASDU, Port) ->
+send_asdu(ASDU, Port, Name) ->
   OnResponse =
     fun(Response) ->
+      ?LOGDEBUG("client ~p: response to USER DATA CONFIRM: ~p", [Name, Response]),
       case Response of
         #frame{control_field = #control_field_response{function_code = ?ACKNOWLEDGE}} ->
           ok;
@@ -166,6 +172,7 @@ send_asdu(ASDU, Port) ->
           error
       end
     end,
+  ?LOGDEBUG("client ~p: sending user data confirm", [Name]),
   case transaction(?USER_DATA_CONFIRM, ASDU, Port, OnResponse) of
     ok -> ok;
     {error, Error} -> {error, Error}

@@ -109,7 +109,8 @@ loop(#data{
     {data, Switch, Unexpected = #frame{control_field = #control_field_response{}}} ->
       ?LOGWARNING("server w/ link address ~p received unexpected response frame: ~p", [Address, Unexpected]),
       loop(Data);
-    {data, Switch, #frame{control_field = CF, data = UserData}} ->
+    {data, Switch, Frame = #frame{control_field = CF, data = UserData}} ->
+      ?LOGDEBUG("server ~p w/ address ~p: received frame: ~p", [Name, Address, Frame]),
       case check_fcb(CF, FCB) of
         {ok, NextFCB} ->
           Data1 = handle_request(CF#control_field_request.function_code, UserData, Data),
@@ -133,6 +134,7 @@ loop(#data{
       ?LOGWARNING("server w/ link address ~p has been terminated by the owner", [Address])
   after
     ?CONNECTION_TIMEOUT->
+      ?LOGDEBUG("server ~p w/ address ~p: connection timeout!", [Name, Address]),
       drop_queue(),
       loop(Data)
   end.
@@ -146,8 +148,10 @@ check_fcb(#control_field_request{fcv = 1, fcb = RecFCB}, _FCB) ->
 
 handle_request(?RESET_REMOTE_LINK, _UserData, #data{
   switch = Switch,
-  address = Address
+  address = Address,
+  name = Name
 } = Data) ->
+  ?LOGDEBUG("server ~p w/ address ~p: received RESET LINK", [Name, Address]),
   drop_asdu(),
   Data#data{
     sent_frame = send_response(Switch, ?ACKNOWLEDGE_FRAME(Address))
@@ -155,8 +159,10 @@ handle_request(?RESET_REMOTE_LINK, _UserData, #data{
 
 handle_request(?RESET_USER_PROCESS, _UserData, #data{
   switch = Switch,
-  address = Address
+  address = Address,
+  name = Name
 } = Data) ->
+  ?LOGDEBUG("server ~p w/ address ~p: received RESET USER PROCESS", [Name, Address]),
   % TODO. Do we need to do anything? May be restart connection?
   Data#data{
     sent_frame = send_response(Switch, ?ACKNOWLEDGE_FRAME(Address))
@@ -165,23 +171,30 @@ handle_request(?RESET_USER_PROCESS, _UserData, #data{
 handle_request(?USER_DATA_CONFIRM, ASDU, #data{
   connection = Connection,
   switch = Switch,
-  address = Address
+  address = Address,
+  name = Name
 } = Data) ->
+  ?LOGDEBUG("server ~p w/ address ~p: received USER DATA CONFIRM", [Name, Address]),
   Connection ! {asdu, self(), ASDU},
   Data#data{
     sent_frame = send_response(Switch, ?ACKNOWLEDGE_FRAME(Address))
   };
 
 handle_request(?USER_DATA_NO_REPLY, ASDU, #data{
-  connection = Connection
+  connection = Connection,
+  address = Address,
+  name = Name
 } = Data) ->
+  ?LOGDEBUG("server ~p w/ address ~p: received USER DATA CONFIRM", [Name, Address]),
   Connection ! {asdu, self(), ASDU},
   Data;
 
 handle_request(?ACCESS_DEMAND, _UserData, #data{
   switch = Switch,
-  address = Address
+  address = Address,
+  name = Name
 } = Data) ->
+  ?LOGDEBUG("server ~p w/ address ~p: received ACCESS DEMAND", [Name, Address]),
   Data#data{
     sent_frame = send_response(Switch, #frame{
       address = Address,
@@ -196,8 +209,10 @@ handle_request(?ACCESS_DEMAND, _UserData, #data{
 
 handle_request(?REQUEST_STATUS_LINK, _UserData, #data{
   switch = Switch,
-  address = Address
+  address = Address,
+  name = Name
 } = Data) ->
+  ?LOGDEBUG("server ~p w/ address ~p: received REQUEST STATUS LINK", [Name, Address]),
   Data#data{
     sent_frame = send_response(Switch, #frame{
       address = Address,
@@ -213,7 +228,8 @@ handle_request(?REQUEST_STATUS_LINK, _UserData, #data{
 handle_request(RequestData, _UserData, #data{
   switch = Switch,
   address = Address,
-  connection = Connection
+  connection = Connection,
+  name = Name
 } = Data)
   when RequestData =:= ?REQUEST_DATA_CLASS_1;
        RequestData =:= ?REQUEST_DATA_CLASS_2 ->
@@ -242,6 +258,7 @@ handle_request(RequestData, _UserData, #data{
           }
         }
     end,
+  ?LOGDEBUG("server ~p w/ address ~p: received DATA CLASS REQUEST, our RESPONSE: ~p", [Name, Address, Response]),
   Data#data{
     sent_frame = send_response(Switch, Response)
   };

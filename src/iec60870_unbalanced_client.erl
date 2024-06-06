@@ -112,6 +112,10 @@ loop(#data{
       timer:send_after(Cycle, {update, Self}),
       get_data(Data),
       loop(Data);
+    {access_demand, Self} when Self =:= self() ->
+      ?LOGDEBUG("client ~p: received access_demand event from itself", [Name]),
+      get_data(Data),
+      loop(Data);
     {asdu, Owner, ASDU} ->
       case send_asdu(ASDU, Port, Name) of
         ok ->
@@ -139,8 +143,10 @@ get_data(#data{
     fun(Response) ->
       ?LOGDEBUG("client ~p: data class request RESPONSE: ~p", [Name, Response]),
       case Response of
-        #frame{control_field = #control_field_response{function_code = ?USER_DATA}, data = ASDUClass1} ->
+        #frame{control_field = #control_field_response{function_code = ?USER_DATA, acd = ACD}, data = ASDUClass1} ->
           Owner ! {asdu, Self, ASDUClass1},
+          % The server set the signal that it has data to send
+          if ACD =:= 1 -> Self ! {access_demand, Self}; true -> ignore end,
           ok;
         #frame{control_field = #control_field_response{function_code = ?NACK_DATA_NOT_AVAILABLE}} ->
           ok;

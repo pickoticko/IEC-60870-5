@@ -24,7 +24,7 @@
 %%% +--------------------------------------------------------------+
 
 -define(START_TIMEOUT, 1000).
--define(DEFAULT_CYCLE, 10).
+-define(DEFAULT_CYCLE, 1000).
 
 -define(NOT(X), abs(X - 1)).
 

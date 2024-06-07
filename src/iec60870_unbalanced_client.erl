@@ -79,6 +79,7 @@ stop(Port) ->
 init_client(Owner, Options) ->
   Port = start_port(Options),
   connect(Port, Options),
+  erlang:monitor(process, Owner),
   Owner ! {connected, self()},
   Cycle = maps:get(cycle, Options, ?DEFAULT_CYCLE),
   timer:send_after(Cycle, {update, self()}),
@@ -125,6 +126,9 @@ loop(#data{
           Owner ! {send_error, self(), Error}
       end,
       loop(Data);
+    {'DOWN', _, process, Owner, Reason} ->
+      ?LOGWARNING("~p client down because of the owner exit: ~p", [Name, Reason]),
+      exit({down_port, Reason});
     {'DOWN', _, process, Port, Reason} ->
       ?LOGWARNING("~p client down because of the port error: ~p", [Name, Reason]),
       exit({down_port, Reason});
@@ -221,6 +225,7 @@ init_port(Client, #{port := PortName} = Options) ->
         {'EXIT', _} ->
           Client ! {error, self(), serial_port_init_fail};
         PortFT12 ->
+          erlang:monitor(process, PortFT12),
           Client ! {ready, self(), self()},
           port_loop(#port_state{port_ft12 = PortFT12, clients = #{}, name = PortName})
       end
@@ -251,6 +256,7 @@ port_loop(#port_state{port_ft12 = PortFT12, clients = Clients, name = Name} = Sh
     {add_client, Client, Options} ->
       case start_client(PortFT12, Options) of
         {ok, NewClientState} ->
+          ?LOGDEBUG("shared port ~p add client ~p", [Name, Client]),
           erlang:monitor(process, Client),
           Client ! {ok, self()},
           port_loop(SharedState#port_state{
@@ -259,12 +265,17 @@ port_loop(#port_state{port_ft12 = PortFT12, clients = Clients, name = Name} = Sh
             }
           });
         {error, Error} ->
+          ?LOGERROR("shared port ~p add client ~p error: ~p", [Name, Client, Error]),
           Client ! {error, self(), Error},
           port_loop(SharedState)
       end;
+    {'DOWN', _, process, PortFT12, Reason} ->
+      ?LOGERROR("shared port ~p exit, ft12 transport error: ~p",[Name, Reason]),
+      exit(Reason);
 
     % Client is down due to some reason
-    {'DOWN', _, process, Client, _Reason} ->
+    {'DOWN', _, process, Client, Reason} ->
+      ?LOGDEBUG("shared port ~p client ~p exit, reason ~p", [Name, Client, Reason]),
       RestClients = maps:remove(Client, Clients),
       if
         % No clients left, we should stop the shared port
@@ -274,7 +285,6 @@ port_loop(#port_state{port_ft12 = PortFT12, clients = Clients, name = Name} = Sh
         true ->
           port_loop(SharedState#port_state{clients = RestClients})
       end;
-
     Unexpected ->
       ?LOGWARNING("shared port received unexpected message: ~p", [Unexpected]),
       port_loop(SharedState)

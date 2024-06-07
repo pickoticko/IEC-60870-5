@@ -90,6 +90,7 @@ init(Owner, #{
   case eserial:open(PortName, PortOptions) of
     {ok, Port} ->
       ?LOGDEBUG("FT12 port ~p eserial is opened!", [PortName]),
+      erlang:monitor(process, Port),
       Owner ! {ready, self()},
       loop(#state{
         name = PortName,
@@ -140,7 +141,10 @@ loop(#state{
 
     {stop, Owner} ->
       ?LOGDEBUG("FT12 port ~p closed by owner", [PortName]),
-      eserial:close(Port)
+      eserial:close(Port);
+    {'DOWN', _, process, Port, Reason} ->
+      ?LOGERROR("FT12 port ~p with reason: ~p",[PortName, Reason]),
+      exit(Reason)
   end.
 
 parse_frame(<<

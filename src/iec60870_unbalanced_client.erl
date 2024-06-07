@@ -225,6 +225,7 @@ init_port(Client, #{port := PortName} = Options) ->
         {'EXIT', _} ->
           Client ! {error, self(), serial_port_init_fail};
         PortFT12 ->
+          ?LOGDEBUG("shared port ~p start",[PortName]),
           erlang:monitor(process, PortFT12),
           Client ! {ready, self(), self()},
           port_loop(#port_state{port_ft12 = PortFT12, clients = #{}, name = PortName})
@@ -267,7 +268,8 @@ port_loop(#port_state{port_ft12 = PortFT12, clients = Clients, name = Name} = Sh
         {error, Error} ->
           ?LOGERROR("shared port ~p add client ~p error: ~p", [Name, Client, Error]),
           Client ! {error, self(), Error},
-          port_loop(SharedState)
+          State1 = check_stop( SharedState ),
+          port_loop( State1 )
       end;
     {'DOWN', _, process, PortFT12, Reason} ->
       ?LOGERROR("shared port ~p exit, ft12 transport error: ~p",[Name, Reason]),
@@ -276,15 +278,8 @@ port_loop(#port_state{port_ft12 = PortFT12, clients = Clients, name = Name} = Sh
     % Client is down due to some reason
     {'DOWN', _, process, Client, Reason} ->
       ?LOGDEBUG("shared port ~p client ~p exit, reason ~p", [Name, Client, Reason]),
-      RestClients = maps:remove(Client, Clients),
-      if
-        % No clients left, we should stop the shared port
-        map_size(RestClients) =:= 0 ->
-          ?LOGINFO("shared port ~p has been shutdown due to no clients remaining", [Name]),
-          exit(normal);
-        true ->
-          port_loop(SharedState#port_state{clients = RestClients})
-      end;
+      State1 = check_stop( SharedState#port_state{clients = maps:remove(Client, Clients)} ),
+      port_loop( State1 );
     Unexpected ->
       ?LOGWARNING("shared port received unexpected message: ~p", [Unexpected]),
       port_loop(SharedState)
@@ -301,4 +296,19 @@ start_client(PortFT12, #{
       {ok, State};
     Error ->
       Error
+  end.
+
+check_stop(#port_state{
+  clients = Clients,
+  port_ft12 = PortFT12,
+  name = Name
+} = State)->
+  if
+  % No clients left, we should stop the shared port
+    map_size( Clients ) =:= 0 ->
+      ?LOGINFO("shared port ~p has been shutdown due to no clients remaining", [Name]),
+      iec60870_ft12:stop( PortFT12 ),
+      exit(normal);
+    true ->
+      State
   end.

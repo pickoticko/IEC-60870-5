@@ -9,14 +9,15 @@
 
 -include_lib("kernel/include/logger.hrl").
 
--define(LOGERROR(Text),          ?LOG_ERROR(Text)).
--define(LOGERROR(Text,Params),   ?LOG_ERROR( Text, Params)).
--define(LOGWARNING(Text),        ?LOG_WARNING(Text)).
--define(LOGWARNING(Text,Params), ?LOG_WARNING(Text, Params)).
--define(LOGINFO(Text),           ?LOG_INFO(Text)).
--define(LOGINFO(Text,Params),    ?LOG_INFO(Text, Params)).
--define(LOGDEBUG(Text),          ?LOG_DEBUG(Text)).
--define(LOGDEBUG(Text,Params),   ?LOG_DEBUG(Text,Params)).
+-define(SELF, pid_to_list(self())++": ").
+-define(LOGERROR(Text),          ?LOG_ERROR(?SELF ++ Text)).
+-define(LOGERROR(Text,Params),   ?LOG_ERROR(?SELF ++ Text, Params)).
+-define(LOGWARNING(Text),        ?LOG_WARNING(?SELF++Text)).
+-define(LOGWARNING(Text,Params), ?LOG_WARNING(?SELF++Text, Params)).
+-define(LOGINFO(Text),           ?LOG_INFO(?SELF++Text)).
+-define(LOGINFO(Text,Params),    ?LOG_INFO(?SELF++Text, Params)).
+-define(LOGDEBUG(Text),          ?LOG_DEBUG(?SELF++Text)).
+-define(LOGDEBUG(Text,Params),   ?LOG_DEBUG(?SELF++Text,Params)).
 
 -define(DATA(Connection, Data), {data, Connection, Data}).
 -define(OBJECT(Type, COT, IOA, Value), {object, Type, COT, IOA, Value}).

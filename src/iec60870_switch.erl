@@ -122,6 +122,7 @@ switch_loop(#switch_state{
       if
         map_size(RestServers) =:= 0 ->
           ?LOGINFO("switch on port ~p has been shutdown due to no remaining servers", [Name]),
+          iec60870_ft12:stop( PortFT12 ),
           exit(normal);
         true ->
           switch_loop(State#switch_state{servers = RestServers})

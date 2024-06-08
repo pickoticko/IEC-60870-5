@@ -236,11 +236,12 @@ handle_request(RequestData, _UserData, #data{
   Response =
     case check_data(Connection) of
       {ok, ConnectionData} ->
+        ?LOGINFO("DEBUG: server ~p message queue: ~p", [Name, element(2,erlang:process_info(self(), message_queue_len))]),
         #frame{
           address = Address,
           control_field = #control_field_response{
             direction = 0,
-            acd = 0,
+            acd = 1,
             dfc = 0,
             function_code = ?USER_DATA
           },

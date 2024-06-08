@@ -99,6 +99,9 @@ init({Owner, #{
   connection := ConnectionSettings,
   groups := Groups
 } = Settings}) ->
+
+  process_flag(trap_exit, true),
+
   Storage = ets:new(data_objects, [
     set,
     public,
@@ -164,8 +167,8 @@ handle_event(
 ) ->
   Module = iec60870_lib:get_driver_module(Type),
   try
-    Connection =
-      Module:start_client(Settings),
+    Connection = Module:start_client(Settings),
+    erlang:monitor(process, Connection),
     {next_state, ?INIT_GROUPS, Data#data{
       connection = Connection
     }}
@@ -630,6 +633,14 @@ handle_event(
 ) ->
   ?LOGWARNING("client connection failed to send packet, error: ~p", [Error]),
   keep_state_and_data;
+
+%% The root process is down
+handle_event(info, {'DOWN', _, process, Connection, Reason}, _AnyState, #data{
+  name = Name,
+  connection = Connection
+}) ->
+  ?LOGWARNING("~p client connection terminated. Reason: ~p", [Name, Reason]),
+  {stop, Reason};
 
 handle_event(
   EventType,

@@ -83,6 +83,7 @@ init_client(Owner, Options) ->
   Owner ! {connected, self()},
   Cycle = maps:get(cycle, Options, ?DEFAULT_CYCLE),
   timer:send_after(Cycle, {update, self()}),
+  ?LOGINFO("iec60870_unbalanced_client settings: ~p", [Options]),
   loop(#data{
     name = maps:get(port, Options),
     cycle = Cycle,
@@ -210,7 +211,10 @@ start_port(Options) ->
       exit(InitError)
   end.
 
-init_port(Client, #{port := PortName} = Options) ->
+init_port(Client, Options) ->
+  ?LOGINFO("iec60870_unbalanced_client init_port options: ~p", [Options]),
+  [MainPort | _RestPorts] = maps:get(ports, Options),
+  PortName = maps:get(name, MainPort),
   RegisterName = list_to_atom(PortName),
   case catch register(RegisterName, self()) of
     {'EXIT', _} ->
@@ -221,7 +225,7 @@ init_port(Client, #{port := PortName} = Options) ->
           init_client(Client, Options)
       end;
     true ->
-      case catch iec60870_ft12:start_link(maps:with([port, port_options, address_size], Options)) of
+      case catch iec60870_ft12:start_link(maps:with([ports, address_size], Options)) of
         {'EXIT', _} ->
           Client ! {error, self(), serial_port_init_fail};
         PortFT12 ->
@@ -272,6 +276,7 @@ port_loop(#port_state{port_ft12 = PortFT12, clients = Clients, name = Name} = Sh
           port_loop( State1 )
       end;
     {'DOWN', _, process, PortFT12, Reason} ->
+
       ?LOGERROR("shared port ~p exit, ft12 transport error: ~p",[Name, Reason]),
       exit(Reason);
 

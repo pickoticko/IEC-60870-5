@@ -48,16 +48,11 @@
 
 %% Connection settings
 -define(REQUIRED, {?MODULE, required}).
+
 -define(DEFAULT_SETTINGS, #{
-  port => ?REQUIRED,
   balanced => ?REQUIRED,
   address => ?REQUIRED,
-  port_options => #{
-    baudrate => 9600,
-    parity => 0,
-    stopbits => 1,
-    bytesize => 8
-  },
+  ports => ?REQUIRED,
   address_size => 1
 }).
 
@@ -83,6 +78,7 @@ start_server(InSettings) ->
         iec60870_balanced_server
     end,
   Root = self(),
+  ?LOGINFO("iec60870_101 server settings: ~p", [Settings]),
   Server = Module:start(Root, Settings),
   {Module, Server}.
 
@@ -103,6 +99,7 @@ start_client(InSettings) ->
         iec60870_balanced_client
     end,
   Root = self(),
+  ?LOGINFO("iec60870_101 settings: ~p", [Settings]),
   Module:start(Root, Settings).
 
 %%% +--------------------------------------------------------------+

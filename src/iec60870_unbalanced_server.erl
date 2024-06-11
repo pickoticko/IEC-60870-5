@@ -69,14 +69,15 @@ stop(PID) ->
 init(Root, #{
   address := Address
 } = Options) ->
+  % Switch initialization
   Switch = iec60870_switch:start(Options),
   iec60870_switch:add_server(Switch, Address),
-
+  ?LOGINFO("Main port name: ~p", []),
+  % Informing owner with ready
   Root ! {ready, self()},
   Connection = start_connection(Root),
-
   loop(#data{
-    name = maps:get(port, Options),
+    name = maps:get(name, Options),
     root = Root,
     address = Address,
     switch = Switch,

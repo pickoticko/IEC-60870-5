@@ -53,8 +53,11 @@ add_server(Switch, Address) ->
 %%% |                      Internal functions                      |
 %%% +--------------------------------------------------------------+
 
-init_switch(ServerPID, #{port := PortName} = Options) ->
+init_switch(ServerPID, Options) ->
+  [MainPort | _RestPorts] = Options,
+  PortName = maps:get(name, MainPort),
   RegisterName = list_to_atom(PortName),
+  ?LOGINFO("Register name: ~p", [RegisterName]),
   case catch register(RegisterName, self()) of
     % Probably already registered
     % Check the registered PID by the port name
@@ -67,7 +70,7 @@ init_switch(ServerPID, #{port := PortName} = Options) ->
       end;
     % Succeeded to register port, start the switch
     true ->
-      case catch iec60870_ft12:start_link(maps:with([port, port_options, address_size], Options)) of
+      case catch iec60870_ft12:start_link(PortSettings, AddressSize) of
         {'EXIT', _} ->
           ServerPID ! {error, self(), serial_port_init_fail};
         PortFT12 ->

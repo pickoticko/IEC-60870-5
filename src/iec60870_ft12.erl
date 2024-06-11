@@ -14,7 +14,6 @@
 %%% +--------------------------------------------------------------+
 
 -export([
-  check_options/1,
   start_link/1,
   send/2,
   stop/1
@@ -41,8 +40,7 @@
 }).
 
 -define(DEFAULT_OPTIONS, #{
-  port => required,
-  port_options => ?DEFAULT_PORT_OPTIONS,
+  port => ?DEFAULT_PORT_OPTIONS,
   address_size => 1
 }).
 
@@ -55,8 +53,8 @@
 %%% +--------------------------------------------------------------+
 
 start_link(InOptions) ->
-  Options = maps:merge(?DEFAULT_OPTIONS, InOptions),
-  check_options(Options),
+  Options = maps:merge(?DEFAULT_OPTIONS, maps:get(port)),
+  [check_option(Option) || Option <- maps:to_list(Options)],
   Self = self(),
   PID = spawn_link(fun() -> init(Self, Options) end),
   receive
@@ -71,23 +69,33 @@ send(Port, Frame) ->
 stop(Port) ->
   Port ! {stop, self()}.
 
-check_options(#{port := Port} = _Options) when is_list(Port); is_binary(Port) ->
-  % TODO. validate other options
+check_option({name, Name}) when is_binary(Name) ->
   ok;
-check_options(_) ->
-  throw(invalid_options).
+check_option({baudrate, Baudrate}) when is_integer(Baudrate) ->
+  ok;
+check_option({parity, Parity}) when is_integer(Parity) ->
+  ok;
+check_option({stopbits, Stopbits}) when is_integer(Stopbits) ->
+  ok;
+check_option({bytesize, Bytesize}) when is_integer(Bytesize) ->
+  ok;
+check_option({mode, Mode}) when Mode =:= active; Mode =:= passive ->
+  ok;
+check_option(Option) ->
+  throw({invalid_ft12_option, Option}).
 
 %%% +--------------------------------------------------------------+
 %%% |                      Internal functions                      |
 %%% +--------------------------------------------------------------+
 
 init(Owner, #{
-  port := PortName,
-  port_options := PortOptions,
+  port := #{
+    name := PortName
+  } = PortSettings,
   address_size := AddressSize
 }) ->
   ?LOGDEBUG("FT12 port ~p trying to open eserial...", [PortName]),
-  case eserial:open(PortName, PortOptions) of
+  case eserial:open(PortName, maps:without([name], PortSettings)) of
     {ok, Port} ->
       ?LOGDEBUG("FT12 port ~p eserial is opened!", [PortName]),
       erlang:monitor(process, Port),

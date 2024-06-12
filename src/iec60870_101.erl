@@ -24,9 +24,9 @@
 %%% +--------------------------------------------------------------+
 
 -export([
-  connect/4,
+  connect/1,
   transaction/4,
-  send_receive/3
+  send_receive/4
 ]).
 
 %%% +--------------------------------------------------------------+
@@ -61,12 +61,13 @@
   address_size => 1
 }).
 
--record(state,{
+-record(state, {
   address,
+  attempts,
   direction,
-  send_receive,
   fcb,
-  attempts
+  portFT12,
+  timeout
 }).
 
 %%% +--------------------------------------------------------------+
@@ -79,7 +80,7 @@ start_server(InSettings) ->
     case Settings of
       #{balanced := false} ->
         iec60870_unbalanced_server;
-      _ ->
+      _Other ->
         iec60870_balanced_server
     end,
   Root = self(),
@@ -99,7 +100,7 @@ start_client(InSettings) ->
     case Settings of
       #{balanced := false} ->
         iec60870_unbalanced_client;
-      _ ->
+      _Other ->
         iec60870_balanced_client
     end,
   Root = self(),
@@ -110,14 +111,21 @@ start_client(InSettings) ->
 %%% +--------------------------------------------------------------+
 
 %% Connection transmission procedure initialization
-connect(Address, Direction, SendReceive, Attempts) ->
+connect(#{
+  address := Address,
+  attempts := Attempts,
+  direction := Direction,
+  portFT12 := PortFT12,
+  timeout := Timeout
+} = Settings) when is_map(Settings) ->
   connect(#state{
     address = Address,
+    attempts = Attempts,
     direction = Direction,
-    send_receive = SendReceive,
     fcb = undefined,
-    attempts = Attempts
-  }).
+    portFT12 = PortFT12,
+    timeout = Timeout
+  });
 
 %% Connection transmission procedure
 %% Sequence:
@@ -126,31 +134,15 @@ connect(Address, Direction, SendReceive, Attempts) ->
 connect(#state{attempts = Attempts} = State) ->
   connect(Attempts, State).
 connect(Attempts, #state{
-  send_receive = SendReceive,
   address = Address
 } = State) when Attempts > 0 ->
   case reset_link(State) of
     {ok, ResetState} ->
       ?LOGDEBUG("RESET LINK is OK. Address: ~p", [Address]),
-      Request = build_request(?REQUEST_STATUS_LINK, _Data = undefined, ResetState),
-      case SendReceive(Request) of
-        {ok, Response} ->
+      case request_status_link(ResetState) of
+        {ok, ReturnState} ->
           ?LOGDEBUG("REQUEST STATUS LINK is OK. Address: ~p", [Address]),
-          case Response of
-            #frame{
-              control_field = #control_field_response{
-                function_code = ?STATUS_LINK_ACCESS_DEMAND
-              }
-            } ->
-              {ok, ResetState#state{fcb = 0}};
-            _ ->
-              ?LOGWARNING("unexpected response to reset link. Address: ~p Response: ~p Attempts: ~p", [
-                Address,
-                Response,
-                Attempts - 1
-              ]),
-              connect(Attempts - 1, State)
-          end;
+          {ok, ReturnState};
         {error, Error} ->
           ?LOGWARNING("error while attempting to reset link. Address: ~p Error: ~p Attempts: ~p", [
             Address,
@@ -159,47 +151,43 @@ connect(Attempts, #state{
           ]),
           connect(Attempts - 1, State)
       end;
-    Error ->
-      Error
+    Error -> Error
   end;
 connect(_Attempts = 0, _State) ->
-  {error, connect_error}.
+  {error, connection_fail}.
 
-%% Procedure of sending message initialization
+%% Initialization of sending message
 transaction(FunctionCode, Data, OnResponseFun, #state{attempts = Attempts} = State)->
   transaction(Attempts, FunctionCode, Data, OnResponseFun, State).
 
 %% Procedure of sending packet
-transaction(Attempts, FunctionCode, Data, OnResponseFun, #state{
-  send_receive = SendReceive
+transaction(Attempts, FunctionCode, Data, TransactionFun, #state{
+  portFT12 = Port,
+  timeout = Timeout
 } = State) ->
   Request = build_request(FunctionCode, Data, State),
-  case SendReceive(Request) of
-    {ok, Response} ->
-      case OnResponseFun(Response) of
-        ok ->
-          NewFCB = Request#frame.control_field#control_field_request.fcb,
-          {ok, State#state{fcb = NewFCB}};
-        error ->
-          ?LOGWARNING("unexpected response to transaction. Request: ~p Response: ~p", [Request, Response]),
-          retry(Attempts - 1, FunctionCode, Data, OnResponseFun, State, {unexpected_response, Response})
-      end;
+  case iec60870_101:send_receive(Port, Request, TransactionFun, Timeout) of
+    {ok, _Result} ->
+      NewFCB = Request#frame.control_field#control_field_request.fcb,
+      {ok, State#state{fcb = NewFCB}};
     {error, Error} ->
       ?LOGWARNING("transaction error. Request: ~p Error: ~p", [Request, Error]),
-      retry(Attempts - 1, FunctionCode, Data, OnResponseFun, State, Error)
+      retry(Attempts - 1, FunctionCode, Data, TransactionFun, State, Error)
   end.
 
-send_receive(Port, Request, Timeout) ->
-  Address = Request#frame.address,
-  ok = iec60870_ft12:send(Port, Request),
+send_receive(Port, Request, OnResponse, Timeout) ->
+  iec60870_ft12:send(Port, Request),
+  await_response(Port, OnResponse, Timeout).
+
+await_response(Port, OnResponse, Timeout) ->
   receive
-    {data, Port, Response} ->
-      case Response of
-        #frame{address = Address, control_field = #control_field_response{}} ->
-          {ok, Response};
-        _ ->
-          ?LOGWARNING("invalid response received. Request: ~p, Response: ~p", [Request, Response]),
-          {error, invalid_response}
+    {data, Port, Frame} ->
+      case OnResponse(Frame) of
+        {ok, Result} ->
+          {ok, Result};
+        {error, Reason} ->
+          ?LOGINFO("port ~p received unexpected frame on await reponse, error: ~p", [Reason]),
+          await_response(Port, OnResponse, Timeout)
       end
   after
     Timeout -> {error, timeout}
@@ -208,6 +196,85 @@ send_receive(Port, Request, Timeout) ->
 %%% +--------------------------------------------------------------+
 %%% |                      Internal functions                      |
 %%% +--------------------------------------------------------------+
+
+%% Reset link request sequence
+reset_link(#state{attempts = Attempts} = State) ->
+  reset_link(Attempts, State).
+
+reset_link(0 = _Attempts, _State) ->
+  ?LOGERROR("no attempts left for the reset link..."),
+  {error, reset_link};
+reset_link(Attempts, #state{
+  address = Address,
+  portFT12 = PortFT12,
+  timeout = Timeout
+} = State) ->
+  Request = build_request(?RESET_REMOTE_LINK, _Data = undefined, State),
+  OnResponse =
+    fun(Response) ->
+      case Response of
+        #frame{address = Address, control_field = #control_field_response{function_code = ?ACKNOWLEDGE}} ->
+          {ok, Response};
+        _ ->
+          ?LOGWARNING("unexpected response to reset link. Address: ~p, Response: ~p", [
+            Address,
+            Response
+          ]),
+          {error, invalid_response}
+      end
+    end,
+  case iec60870_101:send_receive(PortFT12, Request, OnResponse, Timeout) of
+    {ok, _Response} ->
+      {ok, State#state{fcb = 0}};
+    {error, timeout} ->
+      ?LOGWARNING("reset link timeout, no response received. Address: ~p, Attempts: ~p", [
+        Address,
+        Attempts - 1
+      ]),
+      reset_link(Attempts - 1, State)
+  end.
+
+%% Request status link sequence
+request_status_link(#state{attempts = Attempts} = State) ->
+  request_status_link(Attempts, State).
+
+request_status_link(0 = _Attempts, _State) ->
+  ?LOGERROR("no attempts left for the request status of link..."),
+  {error, request_status_link};
+request_status_link(Attempts, #state{
+  address = Address,
+  portFT12 = PortFT12,
+  timeout = Timeout
+} = State) ->
+  Request = build_request(?REQUEST_STATUS_LINK, _Data = undefined, State),
+  OnResponse =
+    fun(Response) ->
+      case Response of
+        #frame{
+          control_field = #control_field_response{
+            function_code = ?STATUS_LINK_ACCESS_DEMAND
+          }
+        } ->
+          {ok, Response};
+        _ ->
+          ?LOGWARNING("unexpected response to request status of link. Address: ~p Response: ~p Attempts: ~p", [
+            Address,
+            Response,
+            Attempts - 1
+          ]),
+          {error, invalid_response}
+      end
+    end,
+  case iec60870_101:send_receive(PortFT12, Request, OnResponse, Timeout) of
+    {ok, _Response} ->
+      {ok, State#state{fcb = 0}};
+    {error, timeout} ->
+      ?LOGWARNING("timeout while waiting for response to request status of link. Address: ~p, Attempts: ~p", [
+        Address,
+        Attempts - 1
+      ]),
+      request_status_link(Attempts - 1, State)
+  end.
 
 retry(Attempts, FC, Data, OnResponse, State, _Error) when Attempts > 0 ->
   case connect(State) of
@@ -218,39 +285,6 @@ retry(Attempts, FC, Data, OnResponse, State, _Error) when Attempts > 0 ->
   end;
 retry(0 = _Attempts, _FC, _Data, _OnResponse, _State, Error)->
   {error, Error}.
-
-reset_link(#state{attempts = Attempts} = State) ->
-  reset_link(Attempts, State).
-
-reset_link(0 = _Attempts, _State) ->
-  ?LOGERROR("reset link failed, no attempts left..."),
-  {error, reset_link_error};
-reset_link(Attempts, #state{
-  address = Address,
-  send_receive = SendReceive
-} = State) ->
-  Request = build_request(?RESET_REMOTE_LINK, _Data = undefined, State),
-  case SendReceive(Request) of
-    {ok, Response} ->
-      case Response of
-        #frame{address = Address, control_field = #control_field_response{function_code = ?ACKNOWLEDGE}} ->
-          {ok, State#state{fcb = 0}};
-        _ ->
-          ?LOGWARNING("unexpected response to reset link. Address: ~p Response: ~p Attempts: ~p", [
-            Address,
-            Response,
-            Attempts - 1
-          ]),
-          reset_link(Attempts - 1, State)
-      end;
-    {error, Error} ->
-      ?LOGWARNING("error while attempting to reset link. Address: ~p Error: ~p Attempts: ~p", [
-        Address,
-        Error,
-        Attempts - 1
-      ]),
-      reset_link(Attempts - 1, State)
-  end.
 
 %% Building a request frame (packet) to send
 build_request(FunctionCode, UserData, #state{

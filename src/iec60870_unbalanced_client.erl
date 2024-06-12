@@ -151,11 +151,11 @@ get_data(#data{
           Owner ! {asdu, Self, ASDUClass1},
           % The server set the signal that it has data to send
           if ACD =:= 1 -> Self ! {access_demand, Self}; true -> ignore end,
-          ok;
+          {ok, Response};
         #frame{control_field = #control_field_response{function_code = ?NACK_DATA_NOT_AVAILABLE}} ->
-          ok;
+          {ok, Response};
         _ ->
-          error
+          {error, invalid_response}
       end
     end,
   ?LOGDEBUG("client ~p: sending DATA CLASS REQUEST 1!", [Name]),
@@ -177,9 +177,9 @@ send_asdu(ASDU, Port, Name) ->
       ?LOGDEBUG("client ~p: response to USER DATA CONFIRM: ~p", [Name, Response]),
       case Response of
         #frame{control_field = #control_field_response{function_code = ?ACKNOWLEDGE}} ->
-          ok;
+          {ok, Response};
         _ ->
-          error
+          {error, invalid_response}
       end
     end,
   ?LOGDEBUG("client ~p: sending user data confirm", [Name]),
@@ -271,6 +271,8 @@ port_loop(#port_state{port_ft12 = PortFT12, clients = Clients, name = Name} = Sh
           State1 = check_stop( SharedState ),
           port_loop( State1 )
       end;
+
+    % Port FT12 is down, transport level is unavailable
     {'DOWN', _, process, PortFT12, Reason} ->
       ?LOGERROR("shared port ~p exit, ft12 transport error: ~p",[Name, Reason]),
       exit(Reason);
@@ -280,6 +282,7 @@ port_loop(#port_state{port_ft12 = PortFT12, clients = Clients, name = Name} = Sh
       ?LOGDEBUG("shared port ~p client ~p exit, reason ~p", [Name, Client, Reason]),
       State1 = check_stop( SharedState#port_state{clients = maps:remove(Client, Clients)} ),
       port_loop( State1 );
+
     Unexpected ->
       ?LOGWARNING("shared port received unexpected message: ~p", [Unexpected]),
       port_loop(SharedState)
@@ -290,8 +293,13 @@ start_client(PortFT12, #{
   timeout := Timeout,
   attempts := Attempts
 }) ->
-  SendReceive = fun(Request) -> iec60870_101:send_receive(PortFT12, Request, Timeout) end,
-  case iec60870_101:connect(Address, _Direction = 0, SendReceive, Attempts) of
+  case iec60870_101:connect(#{
+    address => Address,
+    timeout => Timeout,
+    portFT12 => PortFT12,
+    direction => 0,
+    attempts => Attempts
+  }) of
     {ok, State} ->
       {ok, State};
     Error ->

@@ -69,16 +69,15 @@ init(Owner, Direction, #{
   timeout := Timeout,
   attempts := Attempts
 } = Options) ->
-  Port = iec60870_ft12:start_link(maps:with([port, port_options, address_size], Options)),
+  PortFT12 = iec60870_ft12:start_link(maps:with([port, port_options, address_size], Options)),
   Owner ! {ready, self()},
-  Data = #data{
-    owner = Owner,
-    address = Address,
-    direction = Direction,
-    port = Port
-  },
-  SendReceive = fun(Request) -> send_receive(Data, Request, Timeout) end,
-  case iec60870_101:connect(Address, Direction, SendReceive, Attempts) of
+  case iec60870_101:connect(#{
+    address := Address,
+    timeout := Timeout,
+    portFT12 := PortFT12,
+    direction := Direction,
+    attempts := Attempts
+  }) of
     {ok, State} ->
       Owner ! {connected, self()},
       Connection =
@@ -91,7 +90,7 @@ init(Owner, Direction, #{
         address = Address,
         direction = Direction,
         state = State,
-        port = Port,
+        port = PortFT12,
         connection = Connection
       });
     {error, Error} ->
@@ -139,9 +138,9 @@ loop(#data{
         fun(Response) ->
           case Response of
             #frame{control_field = #control_field_response{function_code = ?ACKNOWLEDGE}} ->
-              ok;
+              {ok, Response};
             _ ->
-              error
+              {error, invalid_response}
           end
         end,
       case iec60870_101:transaction(?USER_DATA_CONFIRM, ASDU, OnResponse, State) of

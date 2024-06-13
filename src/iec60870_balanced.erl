@@ -72,11 +72,28 @@ init(Owner, Direction, #{
   PortFT12 = iec60870_ft12:start_link(maps:with([port, port_options, address_size], Options)),
   Owner ! {ready, self()},
   case iec60870_101:connect(#{
-    address := Address,
-    timeout := Timeout,
-    portFT12 := PortFT12,
-    direction := Direction,
-    attempts := Attempts
+    address => Address,
+    timeout => Timeout,
+    portFT12 => PortFT12,
+    direction => Direction,
+    attempts => Attempts,
+    on_response =>
+      fun(Response) ->
+        case Response of
+          #frame{address = ResponseAddress} when ResponseAddress =/= Address ->
+            ?LOGWARNING("unexpected address frame received ~p", [ResponseAddress]),
+            {error, invalid_response};
+          #frame{control_field = #control_field_response{}} ->
+            {ok, Response};
+          #frame{control_field = #control_field_request{} = CF, data = UserData} ->
+            handle_request(CF#control_field_request.function_code, UserData, #data{
+              owner = Owner,
+              address = Address,
+              direction = Direction,
+              port = PortFT12
+            })
+        end
+      end
   }) of
     {ok, State} ->
       Owner ! {connected, self()},
@@ -156,31 +173,6 @@ loop(#data{
       ?LOGWARNING("unexpected message ~p", [Unexpected]),
       loop(Data)
   end.
-
-send_receive(#data{port = Port} = Data, Request, Timeout) ->
-  iec60870_ft12:send(Port, Request),
-  await_response(Timeout, Data).
-
-await_response(Timeout, #data{
-  port = Port,
-  address = Address
-} = Data) when Timeout > 0 ->
-  CurrentTime = ?TIMESTAMP,
-  receive
-    {data, Port, #frame{address = ReqAddress} = Unexpected} when ReqAddress =/= Address ->
-      ?LOGWARNING("unexpected address frame received ~p", [Unexpected]),
-      await_response(Timeout - ?DURATION(CurrentTime), Data);
-    {data, Port, #frame{control_field = #control_field_response{}} = Response} ->
-      {ok, Response};
-
-    {data, Port, #frame{control_field = #control_field_request{} = CF, data = UserData}} ->
-      handle_request(CF#control_field_request.function_code, UserData, Data),
-      await_response(Timeout - ?DURATION(CurrentTime), Data)
-  after
-    Timeout -> {error, Data}
-  end;
-await_response(_Timeout, _Data) ->
-  {error, timeout}.
 
 %% FCB - Frame count bit
 %% Alternated between 0 to 1 for successive SEND / CONFIRM or

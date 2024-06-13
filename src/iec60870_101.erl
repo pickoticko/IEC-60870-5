@@ -67,7 +67,8 @@
   direction,
   fcb,
   portFT12,
-  timeout
+  timeout,
+  on_response
 }).
 
 %%% +--------------------------------------------------------------+
@@ -116,7 +117,8 @@ connect(#{
   attempts := Attempts,
   direction := Direction,
   portFT12 := PortFT12,
-  timeout := Timeout
+  timeout := Timeout,
+  on_response := OnResponse
 } = Settings) when is_map(Settings) ->
   connect(#state{
     address = Address,
@@ -124,7 +126,8 @@ connect(#{
     direction = Direction,
     fcb = undefined,
     portFT12 = PortFT12,
-    timeout = Timeout
+    timeout = Timeout,
+    on_response = OnResponse
   });
 
 %% Connection transmission procedure
@@ -175,19 +178,25 @@ transaction(Attempts, FunctionCode, Data, TransactionFun, #state{
       retry(Attempts - 1, FunctionCode, Data, TransactionFun, State, Error)
   end.
 
+%% Sending a request and waiting for a response
 send_receive(Port, Request, OnResponse, Timeout) ->
   iec60870_ft12:send(Port, Request),
   await_response(Port, OnResponse, Timeout).
 
+%% Waiting for a response frame
+%% The user's function determines whether
+%% to continue waiting for the desired frame
+%% or to end the await
 await_response(Port, OnResponse, Timeout) ->
   receive
     {data, Port, Frame} ->
       case OnResponse(Frame) of
         {ok, Result} ->
           {ok, Result};
-        {error, Reason} ->
-          ?LOGINFO("port ~p received unexpected frame on await reponse, error: ~p", [Reason]),
-          await_response(Port, OnResponse, Timeout)
+        {error, _Reason} ->
+          await_response(Port, OnResponse, Timeout);
+        _ ->
+          {error, unexpected_return_value}
       end
   after
     Timeout -> {error, timeout}
@@ -207,23 +216,29 @@ reset_link(0 = _Attempts, _State) ->
 reset_link(Attempts, #state{
   address = Address,
   portFT12 = PortFT12,
-  timeout = Timeout
+  timeout = Timeout,
+  on_response = OnResponse
 } = State) ->
   Request = build_request(?RESET_REMOTE_LINK, _Data = undefined, State),
-  OnResponse =
-    fun(Response) ->
-      case Response of
-        #frame{address = Address, control_field = #control_field_response{function_code = ?ACKNOWLEDGE}} ->
-          {ok, Response};
-        _ ->
-          ?LOGWARNING("unexpected response to reset link. Address: ~p, Response: ~p", [
-            Address,
-            Response
-          ]),
-          {error, invalid_response}
-      end
+  ResponseFun =
+    case is_function(OnResponse) of
+      true ->
+        OnResponse;
+      false ->
+        fun(Response) ->
+          case Response of
+            #frame{address = Address, control_field = #control_field_response{function_code = ?ACKNOWLEDGE}} ->
+              {ok, Response};
+            _ ->
+              ?LOGWARNING("unexpected response to reset link. Address: ~p, Response: ~p", [
+                Address,
+                Response
+              ]),
+              {error, invalid_response}
+          end
+        end
     end,
-  case iec60870_101:send_receive(PortFT12, Request, OnResponse, Timeout) of
+  case iec60870_101:send_receive(PortFT12, Request, ResponseFun, Timeout) of
     {ok, _Response} ->
       {ok, State#state{fcb = 0}};
     {error, timeout} ->
@@ -244,29 +259,35 @@ request_status_link(0 = _Attempts, _State) ->
 request_status_link(Attempts, #state{
   address = Address,
   portFT12 = PortFT12,
-  timeout = Timeout
+  timeout = Timeout,
+  on_response = OnResponse
 } = State) ->
   Request = build_request(?REQUEST_STATUS_LINK, _Data = undefined, State),
-  OnResponse =
-    fun(Response) ->
-      case Response of
-        #frame{
-          control_field = #control_field_response{
-            function_code = ?STATUS_LINK_ACCESS_DEMAND
-          }
-        } ->
-          {ok, Response};
-        _ ->
-          ?LOGWARNING("unexpected response to request status of link. Address: ~p Response: ~p Attempts: ~p", [
-            Address,
-            Response,
-            Attempts - 1
-          ]),
-          {error, invalid_response}
-      end
+  ResponseFun =
+    case is_function(OnResponse) of
+      true ->
+        OnResponse;
+      false ->
+        fun(Response) ->
+          case Response of
+            #frame{
+              control_field = #control_field_response{
+                function_code = ?STATUS_LINK_ACCESS_DEMAND
+              }
+            } ->
+              {ok, Response};
+            _ ->
+              ?LOGWARNING("unexpected response to request status of link. Address: ~p Response: ~p Attempts: ~p", [
+                Address,
+                Response,
+                Attempts - 1
+              ]),
+              {error, invalid_response}
+          end
+        end
     end,
-  case iec60870_101:send_receive(PortFT12, Request, OnResponse, Timeout) of
-    {ok, _Response} ->
+  case iec60870_101:send_receive(PortFT12, Request, ResponseFun, Timeout) of
+    {ok, _Result} ->
       {ok, State#state{fcb = 0}};
     {error, timeout} ->
       ?LOGWARNING("timeout while waiting for response to request status of link. Address: ~p, Attempts: ~p", [

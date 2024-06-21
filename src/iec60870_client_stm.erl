@@ -99,9 +99,7 @@ init({Owner, #{
   connection := ConnectionSettings,
   groups := Groups
 } = Settings}) ->
-
   process_flag(trap_exit, true),
-
   Storage = ets:new(data_objects, [
     set,
     public,

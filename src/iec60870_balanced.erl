@@ -8,7 +8,7 @@
 
 -include("iec60870.hrl").
 -include("ft12.hrl").
--include("balanced.hrl").
+-include("function_codes.hrl").
 
 %%% +--------------------------------------------------------------+
 %%% |                            API                               |
@@ -71,47 +71,36 @@ init(Owner, Direction, #{
 } = Options) ->
   PortFT12 = iec60870_ft12:start_link(maps:with([port, port_options, address_size], Options)),
   Owner ! {ready, self()},
+  Data = #data{
+    owner = Owner,
+    address = Address,
+    direction = Direction,
+    port = PortFT12
+  },
   case iec60870_101:connect(#{
     address => Address,
     timeout => Timeout,
     portFT12 => PortFT12,
     direction => Direction,
     attempts => Attempts,
-    on_response =>
-      fun(Response) ->
-        case Response of
-          #frame{address = ResponseAddress} when ResponseAddress =/= Address ->
-            ?LOGWARNING("unexpected address frame received ~p", [ResponseAddress]),
-            {error, invalid_response};
-          #frame{control_field = #control_field_response{}} ->
-            {ok, Response};
-          #frame{control_field = #control_field_request{} = CF, data = UserData} ->
-            handle_request(CF#control_field_request.function_code, UserData, #data{
-              owner = Owner,
-              address = Address,
-              direction = Direction,
-              port = PortFT12
-            })
-        end
+    on_request =>
+      fun(#frame{control_field = #control_field_request{function_code = FC}, data = UserData}) ->
+        handle_request(FC, UserData, Data)
       end
   }) of
-    {ok, State} ->
+    error ->
+      exit({error, connect_fail});
+    State ->
       Owner ! {connected, self()},
       Connection =
         receive
           {connection, Owner, _Connection} -> _Connection
         end,
       send_delayed_asdu(Connection),
-      loop(#data{
-        owner = Owner,
-        address = Address,
-        direction = Direction,
+      loop(Data#data{
         state = State,
-        port = PortFT12,
         connection = Connection
-      });
-    {error, Error} ->
-      exit(Error)
+      })
   end.
 
 send_delayed_asdu(Connection) ->
@@ -151,22 +140,17 @@ loop(#data{
           loop(Data)
       end;
     {asdu, Connection, ASDU} ->
-      OnResponse =
-        fun(Response) ->
-          case Response of
-            #frame{control_field = #control_field_response{function_code = ?ACKNOWLEDGE}} ->
-              {ok, Response};
-            _ ->
-              {error, invalid_response}
-          end
+      NewState =
+        case iec60870_101:user_data_confirm(ASDU, State) of
+          error ->
+            ?LOGERROR("~p failed to send ASDU", [Address]),
+            Owner ! {send_error, self(), timeout},
+            State;
+          State1 ->
+            ?LOGDEBUG("~p balanced send user ASDU", [Address]),
+            State1
         end,
-      case iec60870_101:transaction(?USER_DATA_CONFIRM, ASDU, OnResponse, State) of
-        {ok, State1} ->
-          loop(Data#data{state = State1});
-        {error, Error} ->
-          Owner ! {send_error, self(), Error},
-          loop(Data)
-      end;
+      loop(Data#data{state = NewState});
     {stop, Owner} ->
       iec60870_ft12:stop(Port);
     Unexpected ->

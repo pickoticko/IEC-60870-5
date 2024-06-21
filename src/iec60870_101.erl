@@ -8,6 +8,7 @@
 
 -include("iec60870.hrl").
 -include("ft12.hrl").
+-include("function_codes.hrl").
 
 %%% +--------------------------------------------------------------+
 %%% |                       Server & Client API                    |
@@ -25,25 +26,14 @@
 
 -export([
   connect/1,
-  transaction/4,
-  send_receive/4
+  user_data_confirm/2,
+  data_class/2
 ]).
 
 %%% +--------------------------------------------------------------+
 %%% |                       Macros & Records                       |
 %%% +--------------------------------------------------------------+
 
-%% Master request codes
--define(RESET_REMOTE_LINK, 0).
--define(LINK_TEST, 2).
--define(REQUEST_STATUS_LINK, 9).
--define(REQUEST_DATA_CLASS_1, 10).
--define(REQUEST_DATA_CLASS_2, 11).
-
-%% Slave request codes
--define(ACKNOWLEDGE, 0).
--define(USER_DATA_CONFIRM, 3).
--define(STATUS_LINK_ACCESS_DEMAND, 11).
 -define(NOT(X), abs(X - 1)).
 
 %% Connection settings
@@ -61,6 +51,8 @@
   address_size => 1
 }).
 
+-define(UPDATE_FCB(State,Request),State#state{ fcb = Request#frame.control_field#control_field_request.fcb }).
+
 -record(state, {
   address,
   attempts,
@@ -68,7 +60,7 @@
   fcb,
   portFT12,
   timeout,
-  on_response
+  on_request
 }).
 
 %%% +--------------------------------------------------------------+
@@ -107,6 +99,12 @@ start_client(InSettings) ->
   Root = self(),
   Module:start(Root, Settings).
 
+data_class(DataClassCode, #state{attempts = Attempts} = State) ->
+  data_class(DataClassCode, Attempts, State).
+
+user_data_confirm(ASDU, #state{attempts = Attempts} = State) ->
+  user_data_confirm(Attempts, ASDU, State).
+
 %%% +--------------------------------------------------------------+
 %%% |               Shared functions implementation                |
 %%% +--------------------------------------------------------------+
@@ -118,7 +116,7 @@ connect(#{
   direction := Direction,
   portFT12 := PortFT12,
   timeout := Timeout,
-  on_response := OnResponse
+  on_request := OnRequest
 } = Settings) when is_map(Settings) ->
   connect(#state{
     address = Address,
@@ -127,7 +125,7 @@ connect(#{
     fcb = undefined,
     portFT12 = PortFT12,
     timeout = Timeout,
-    on_response = OnResponse
+    on_request = OnRequest
   });
 
 %% Connection transmission procedure
@@ -138,174 +136,136 @@ connect(#state{attempts = Attempts} = State) ->
   connect(Attempts, State).
 connect(Attempts, #state{
   address = Address
-} = State) when Attempts > 0 ->
-  case reset_link(State) of
-    {ok, ResetState} ->
+} = State0) when Attempts > 0 ->
+  % TODO: Diagnostic log: Reset Link = false, Request Status link = false
+  case reset_link(State0) of
+    error->
+      ?LOGERROR("RESET LINK is ERROR. Address: ~p", [Address]),
+      error;
+    State1 ->
+      % TODO: Diagnostic log: Reset Link = true
       ?LOGDEBUG("RESET LINK is OK. Address: ~p", [Address]),
-      case request_status_link(ResetState) of
-        {ok, ReturnState} ->
+      case request_status_link(State1) of
+        error ->
+          ?LOGWARNING("REQUEST STATUS LINK is ERROR. Address: ~p", [Address]),
+          connect(Attempts - 1, State0);
+        State ->
+          % TODO: Diagnostic log: Request Status Link = true, Connected = true
           ?LOGDEBUG("REQUEST STATUS LINK is OK. Address: ~p", [Address]),
-          {ok, ReturnState};
-        {error, Error} ->
-          ?LOGWARNING("error while attempting to reset link. Address: ~p Error: ~p Attempts: ~p", [
-            Address,
-            Error,
-            Attempts - 1
-          ]),
-          connect(Attempts - 1, State)
-      end;
-    Error -> Error
-  end;
-connect(_Attempts = 0, _State) ->
-  {error, connection_fail}.
-
-%% Initialization of sending message
-transaction(FunctionCode, Data, OnResponseFun, #state{attempts = Attempts} = State)->
-  transaction(Attempts, FunctionCode, Data, OnResponseFun, State).
-
-%% Procedure of sending packet
-transaction(Attempts, FunctionCode, Data, TransactionFun, #state{
-  portFT12 = Port,
-  timeout = Timeout
-} = State) ->
-  Request = build_request(FunctionCode, Data, State),
-  case iec60870_101:send_receive(Port, Request, TransactionFun, Timeout) of
-    {ok, _Result} ->
-      NewFCB = Request#frame.control_field#control_field_request.fcb,
-      {ok, State#state{fcb = NewFCB}};
-    {error, Error} ->
-      ?LOGWARNING("transaction error. Request: ~p Error: ~p", [Request, Error]),
-      retry(Attempts - 1, FunctionCode, Data, TransactionFun, State, Error)
-  end.
-
-%% Sending a request and waiting for a response
-send_receive(Port, Request, OnResponse, Timeout) ->
-  iec60870_ft12:send(Port, Request),
-  await_response(Port, OnResponse, Timeout).
-
-%% Waiting for a response frame
-%% The user's function determines whether
-%% to continue waiting for the desired frame
-%% or to end the await
-await_response(Port, OnResponse, Timeout) ->
-  receive
-    {data, Port, Frame} ->
-      case OnResponse(Frame) of
-        {ok, Result} ->
-          {ok, Result};
-        {error, _Reason} ->
-          await_response(Port, OnResponse, Timeout);
-        _ ->
-          {error, unexpected_return_value}
+          State
       end
-  after
-    Timeout -> {error, timeout}
-  end.
+  end;
+connect(_Attempts = 0, #state{
+  address = Address
+}) ->
+  ?LOGERROR("CONNECT ERROR. Address: ~p", [Address]),
+  error.
 
 %%% +--------------------------------------------------------------+
-%%% |                      Internal functions                      |
+%%% |                  Reset link request sequence                 |
 %%% +--------------------------------------------------------------+
 
-%% Reset link request sequence
 reset_link(#state{attempts = Attempts} = State) ->
   reset_link(Attempts, State).
 
 reset_link(0 = _Attempts, _State) ->
   ?LOGERROR("no attempts left for the reset link..."),
-  {error, reset_link};
+  error;
 reset_link(Attempts, #state{
-  address = Address,
-  portFT12 = PortFT12,
-  timeout = Timeout,
-  on_response = OnResponse
+  portFT12 = PortFT12
 } = State) ->
   Request = build_request(?RESET_REMOTE_LINK, _Data = undefined, State),
-  ResponseFun =
-    case is_function(OnResponse) of
-      true ->
-        OnResponse;
-      false ->
-        fun(Response) ->
-          case Response of
-            #frame{address = Address, control_field = #control_field_response{function_code = ?ACKNOWLEDGE}} ->
-              {ok, Response};
-            _ ->
-              ?LOGWARNING("unexpected response to reset link. Address: ~p, Response: ~p", [
-                Address,
-                Response
-              ]),
-              {error, invalid_response}
-          end
-        end
-    end,
-  case iec60870_101:send_receive(PortFT12, Request, ResponseFun, Timeout) of
-    {ok, _Response} ->
-      {ok, State#state{fcb = 0}};
-    {error, timeout} ->
-      ?LOGWARNING("reset link timeout, no response received. Address: ~p, Attempts: ~p", [
-        Address,
-        Attempts - 1
-      ]),
-      reset_link(Attempts - 1, State)
+  iec60870_ft12:send(PortFT12, Request),
+  case wait_response(?ACKNOWLEDGE, undefined, State) of
+    error -> reset_link(Attempts - 1, State);
+    _ -> State#state{fcb = 0}
   end.
 
-%% Request status link sequence
-request_status_link(#state{attempts = Attempts} = State) ->
-  request_status_link(Attempts, State).
+%%% +--------------------------------------------------------------+
+%%% |                 Request status link sequence                 |
+%%% +--------------------------------------------------------------+
 
-request_status_link(0 = _Attempts, _State) ->
-  ?LOGERROR("no attempts left for the request status of link..."),
-  {error, request_status_link};
-request_status_link(Attempts, #state{
-  address = Address,
-  portFT12 = PortFT12,
-  timeout = Timeout,
-  on_response = OnResponse
+request_status_link(#state{
+  portFT12 = PortFT12
 } = State) ->
   Request = build_request(?REQUEST_STATUS_LINK, _Data = undefined, State),
-  ResponseFun =
-    case is_function(OnResponse) of
-      true ->
-        OnResponse;
-      false ->
-        fun(Response) ->
-          case Response of
-            #frame{
-              control_field = #control_field_response{
-                function_code = ?STATUS_LINK_ACCESS_DEMAND
-              }
-            } ->
-              {ok, Response};
-            _ ->
-              ?LOGWARNING("unexpected response to request status of link. Address: ~p Response: ~p Attempts: ~p", [
-                Address,
-                Response,
-                Attempts - 1
-              ]),
-              {error, invalid_response}
-          end
-        end
-    end,
-  case iec60870_101:send_receive(PortFT12, Request, ResponseFun, Timeout) of
-    {ok, _Result} ->
-      {ok, State#state{fcb = 0}};
-    {error, timeout} ->
-      ?LOGWARNING("timeout while waiting for response to request status of link. Address: ~p, Attempts: ~p", [
-        Address,
-        Attempts - 1
-      ]),
-      request_status_link(Attempts - 1, State)
+  iec60870_ft12:send(PortFT12, Request),
+  case wait_response(?STATUS_LINK_ACCESS_DEMAND, undefined, State) of
+    error -> error;
+    _ -> State#state{fcb = 0}
   end.
 
-retry(Attempts, FC, Data, OnResponse, State, _Error) when Attempts > 0 ->
+%%% +--------------------------------------------------------------+
+%%% |              User data confirm request sequence              |
+%%% +--------------------------------------------------------------+
+
+user_data_confirm(Attempts, ASDU, #state{
+  portFT12 = PortFT12
+} = State) ->
+  Request = build_request(?USER_DATA_CONFIRM, ASDU, State),
+  iec60870_ft12:send(PortFT12, Request),
+  case wait_response(?ACKNOWLEDGE, undefined, State) of
+    error ->
+      retry(fun(NewState) -> user_data_confirm(Attempts - 1, ASDU, NewState) end, State);
+    _ ->
+      ?UPDATE_FCB( State, Request )
+  end.
+
+%%% +--------------------------------------------------------------+
+%%% |                  Data class request sequence                 |
+%%% +--------------------------------------------------------------+
+
+data_class(DataClassCode, Attempts, #state{
+  portFT12 = PortFT12
+} = State) ->
+  Request = build_request(DataClassCode, undefined, State),
+  iec60870_ft12:send(PortFT12, Request),
+  case wait_response(?USER_DATA, ?NACK_DATA_NOT_AVAILABLE, State) of
+    error ->
+      retry(fun(NewState) -> data_class(DataClassCode, Attempts - 1, NewState) end, State);
+    #frame{control_field = #control_field_response{function_code = ?USER_DATA, acd = ACD}, data = ASDU} ->
+      NewState = ?UPDATE_FCB(State, Request),
+      {NewState, ACD, ASDU};
+    #frame{control_field = #control_field_response{function_code = ?NACK_DATA_NOT_AVAILABLE, acd = ACD}} ->
+      NewState = ?UPDATE_FCB(State, Request),
+      {NewState, ACD, undefined}
+  end.
+
+%%% +--------------------------------------------------------------+
+%%% |                       Helper functions                       |
+%%% +--------------------------------------------------------------+
+
+wait_response(R1,R2,#state{
+  portFT12 = PortFT12,
+  address = Address,
+  timeout = Timeout,
+  on_request = OnRequest
+} = State) ->
+  receive
+    {data, PortFT12, #frame{address = UnexpectedAddress}} when UnexpectedAddress =/= Address ->
+      ?LOGWARNING("~p received unexpected address: ~p", [Address, UnexpectedAddress]),
+      wait_response(R1, R2, State);
+    {data, PortFT12, #frame{control_field = #control_field_response{function_code = RC}} = Response} when RC=:=R1; RC=:=R2 ->
+      % TODO: Diagnostic. ASDU
+      Response;
+    {data, PortFT12, #frame{control_field = #control_field_request{}} = Frame} when is_function(OnRequest) ->
+      ?LOGDEBUG("~p received request on wait response, request: ~p", [Address, Frame]),
+      OnRequest(Frame),
+      wait_response(R1, R2, State);
+    {data, PortFT12, UnexpectedFrame} ->
+      % TODO: Diagnostic. PortFT12, UnexpectedFrame
+      ?LOGWARNING("~p received unexpected frame: ~p", [Address, UnexpectedFrame]),
+      wait_response(R1, R2, State)
+  after
+    Timeout -> error
+  end.
+
+%% Retrying to connect and executing user-function
+retry(Fun, State) ->
   case connect(State) of
-    {ok, ReconnectState} ->
-      transaction(Attempts, FC, Data, OnResponse, ReconnectState);
-    Error ->
-      Error
-  end;
-retry(0 = _Attempts, _FC, _Data, _OnResponse, _State, Error)->
-  {error, Error}.
+    error -> error;
+    NewState -> Fun(NewState)
+  end.
 
 %% Building a request frame (packet) to send
 build_request(FunctionCode, UserData, #state{

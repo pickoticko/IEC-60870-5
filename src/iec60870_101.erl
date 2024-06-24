@@ -100,12 +100,6 @@ start_client(InSettings) ->
   Root = self(),
   Module:start(Root, Settings).
 
-data_class(DataClassCode, #state{attempts = Attempts} = State) ->
-  data_class(DataClassCode, Attempts, State).
-
-user_data_confirm(ASDU, #state{attempts = Attempts} = State) ->
-  user_data_confirm(Attempts, ASDU, State).
-
 %%% +--------------------------------------------------------------+
 %%% |               Shared functions implementation                |
 %%% +--------------------------------------------------------------+
@@ -161,6 +155,12 @@ connect(_Attempts = 0, #state{
 }) ->
   ?LOGERROR("CONNECT ERROR. Address: ~p", [Address]),
   error.
+
+data_class(DataClassCode, #state{attempts = Attempts} = State) ->
+  data_class(DataClassCode, Attempts, State).
+
+user_data_confirm(ASDU, #state{attempts = Attempts} = State) ->
+  user_data_confirm(Attempts, ASDU, State).
 
 %%% +--------------------------------------------------------------+
 %%% |                  Reset link request sequence                 |

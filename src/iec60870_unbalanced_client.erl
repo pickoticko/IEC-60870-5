@@ -216,7 +216,7 @@ init_port(Client, #{port := PortName} = Options) ->
         {'EXIT', _} ->
           Client ! {error, self(), serial_port_init_fail};
         PortFT12 ->
-          ?LOGDEBUG("shared port ~p start",[PortName]),
+          ?LOGDEBUG("shared port ~p is started", [PortName]),
           erlang:monitor(process, PortFT12),
           Client ! {ready, self(), self()},
           port_loop(#port_state{port_ft12 = PortFT12, clients = #{}, name = PortName})
@@ -237,12 +237,12 @@ port_loop(#port_state{port_ft12 = PortFT12, clients = Clients, name = Name} = Sh
     {add_client, Client, Options} ->
       case iec60870_101:connect(Options#{portFT12 => PortFT12, direction => 0}) of
         error ->
-          ?LOGERROR("shared port ~p add client ~p", [Name, Client]),
+          ?LOGERROR("shared port ~p failed to add client: ", [Name, Client]),
           Client ! {error, self(), timeout},
           State1 = check_stop(SharedState),
           port_loop(State1);
         ClientState ->
-          ?LOGDEBUG("shared port ~p add client ~p", [Name, Client]),
+          ?LOGDEBUG("shared port ~p added a client ~p", [Name, Client]),
           erlang:monitor(process, Client),
           Client ! {ok, self(), ClientState},
           port_loop(SharedState#port_state{clients = Clients#{Client => true}})
@@ -250,7 +250,7 @@ port_loop(#port_state{port_ft12 = PortFT12, clients = Clients, name = Name} = Sh
 
     % Port FT12 is down, transport level is unavailable
     {'DOWN', _, process, PortFT12, Reason} ->
-      ?LOGERROR("shared port ~p exit, ft12 transport error: ~p",[Name, Reason]),
+      ?LOGERROR("shared port ~p exit, ft12 transport error: ~p", [Name, Reason]),
       exit(Reason);
 
     % Client is down due to some reason

@@ -42,16 +42,15 @@
   port => ?REQUIRED,
   balanced => ?REQUIRED,
   address => ?REQUIRED,
+  address_size => 1,
+  on_request => undefined,
   port_options => #{
     baudrate => 9600,
     parity => 0,
     stopbits => 1,
     bytesize => 8
-  },
-  address_size => 1
+  }
 }).
-
--define(UPDATE_FCB(State,Request),State#state{ fcb = Request#frame.control_field#control_field_request.fcb }).
 
 -record(state, {
   address,
@@ -62,6 +61,8 @@
   timeout,
   on_request
 }).
+
+-define(UPDATE_FCB(State, Request), State#state{fcb = Request#frame.control_field#control_field_request.fcb}).
 
 %%% +--------------------------------------------------------------+
 %%% |                    Server API implementation                 |
@@ -136,23 +137,23 @@ connect(#state{attempts = Attempts} = State) ->
   connect(Attempts, State).
 connect(Attempts, #state{
   address = Address
-} = State0) when Attempts > 0 ->
+} = StateIn) when Attempts > 0 ->
   % TODO: Diagnostic log: Reset Link = false, Request Status link = false
-  case reset_link(State0) of
-    error->
+  case reset_link(StateIn) of
+    error ->
       ?LOGERROR("RESET LINK is ERROR. Address: ~p", [Address]),
       error;
-    State1 ->
+    StateReset ->
       % TODO: Diagnostic log: Reset Link = true
       ?LOGDEBUG("RESET LINK is OK. Address: ~p", [Address]),
-      case request_status_link(State1) of
+      case request_status_link(StateReset) of
         error ->
           ?LOGWARNING("REQUEST STATUS LINK is ERROR. Address: ~p", [Address]),
-          connect(Attempts - 1, State0);
-        State ->
+          connect(Attempts - 1, StateIn);
+        StateOut ->
           % TODO: Diagnostic log: Request Status Link = true, Connected = true
           ?LOGDEBUG("REQUEST STATUS LINK is OK. Address: ~p", [Address]),
-          State
+          StateOut
       end
   end;
 connect(_Attempts = 0, #state{
@@ -177,8 +178,8 @@ reset_link(Attempts, #state{
   Request = build_request(?RESET_REMOTE_LINK, _Data = undefined, State),
   iec60870_ft12:send(PortFT12, Request),
   case wait_response(?ACKNOWLEDGE, undefined, State) of
-    error -> reset_link(Attempts - 1, State);
-    _ -> State#state{fcb = 0}
+    {ok, _} -> State#state{fcb = 0};
+    error -> reset_link(Attempts - 1, State)
   end.
 
 %%% +--------------------------------------------------------------+
@@ -191,8 +192,8 @@ request_status_link(#state{
   Request = build_request(?REQUEST_STATUS_LINK, _Data = undefined, State),
   iec60870_ft12:send(PortFT12, Request),
   case wait_response(?STATUS_LINK_ACCESS_DEMAND, undefined, State) of
-    error -> error;
-    _ -> State#state{fcb = 0}
+    {ok, _} -> State#state{fcb = 0};
+    error -> error
   end.
 
 %%% +--------------------------------------------------------------+
@@ -205,10 +206,10 @@ user_data_confirm(Attempts, ASDU, #state{
   Request = build_request(?USER_DATA_CONFIRM, ASDU, State),
   iec60870_ft12:send(PortFT12, Request),
   case wait_response(?ACKNOWLEDGE, undefined, State) of
+    {ok, _} ->
+      ?UPDATE_FCB(State, Request);
     error ->
-      retry(fun(NewState) -> user_data_confirm(Attempts - 1, ASDU, NewState) end, State);
-    _ ->
-      ?UPDATE_FCB( State, Request )
+      retry(fun(NewState) -> user_data_confirm(Attempts - 1, ASDU, NewState) end, State)
   end.
 
 %%% +--------------------------------------------------------------+
@@ -221,21 +222,21 @@ data_class(DataClassCode, Attempts, #state{
   Request = build_request(DataClassCode, undefined, State),
   iec60870_ft12:send(PortFT12, Request),
   case wait_response(?USER_DATA, ?NACK_DATA_NOT_AVAILABLE, State) of
-    error ->
-      retry(fun(NewState) -> data_class(DataClassCode, Attempts - 1, NewState) end, State);
-    #frame{control_field = #control_field_response{function_code = ?USER_DATA, acd = ACD}, data = ASDU} ->
+    {ok, #frame{control_field = #control_field_response{function_code = ?USER_DATA, acd = ACD}, data = ASDU}} ->
       NewState = ?UPDATE_FCB(State, Request),
       {NewState, ACD, ASDU};
-    #frame{control_field = #control_field_response{function_code = ?NACK_DATA_NOT_AVAILABLE, acd = ACD}} ->
+    {ok, #frame{control_field = #control_field_response{function_code = ?NACK_DATA_NOT_AVAILABLE, acd = ACD}}} ->
       NewState = ?UPDATE_FCB(State, Request),
-      {NewState, ACD, undefined}
+      {NewState, ACD, undefined};
+    error ->
+      retry(fun(NewState) -> data_class(DataClassCode, Attempts - 1, NewState) end, State)
   end.
 
 %%% +--------------------------------------------------------------+
 %%% |                       Helper functions                       |
 %%% +--------------------------------------------------------------+
 
-wait_response(R1,R2,#state{
+wait_response(Response1, Response2, #state{
   portFT12 = PortFT12,
   address = Address,
   timeout = Timeout,
@@ -244,18 +245,20 @@ wait_response(R1,R2,#state{
   receive
     {data, PortFT12, #frame{address = UnexpectedAddress}} when UnexpectedAddress =/= Address ->
       ?LOGWARNING("~p received unexpected address: ~p", [Address, UnexpectedAddress]),
-      wait_response(R1, R2, State);
-    {data, PortFT12, #frame{control_field = #control_field_response{function_code = RC}} = Response} when RC=:=R1; RC=:=R2 ->
+      wait_response(Response1, Response2, State);
+    {data, PortFT12, #frame{
+      control_field = #control_field_response{function_code = ResponseCode}
+    } = Response} when ResponseCode =:= Response1; ResponseCode =:= Response2 ->
       % TODO: Diagnostic. ASDU
-      Response;
+      {ok, Response};
     {data, PortFT12, #frame{control_field = #control_field_request{}} = Frame} when is_function(OnRequest) ->
       ?LOGDEBUG("~p received request on wait response, request: ~p", [Address, Frame]),
       OnRequest(Frame),
-      wait_response(R1, R2, State);
+      wait_response(Response1, Response2, State);
     {data, PortFT12, UnexpectedFrame} ->
       % TODO: Diagnostic. PortFT12, UnexpectedFrame
       ?LOGWARNING("~p received unexpected frame: ~p", [Address, UnexpectedFrame]),
-      wait_response(R1, R2, State)
+      wait_response(Response1, Response2, State)
   after
     Timeout -> error
   end.

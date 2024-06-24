@@ -149,7 +149,11 @@ send_data_class_request(DataClass, #data{
       ?LOGERROR("~p failed to request data class 1", [Port]),
       exit({error, {request_data_class, DataClass}});
     {NewState, ACD, ASDU} ->
-      Owner ! {asdu, self(), ASDU},
+      % Send ASDU to the owner if it exists
+      if
+        ASDU =/= undefined -> Owner ! {asdu, self(), ASDU};
+        true -> ignore
+      end,
       % The server set the signal that it has data to send
       if
         ACD =:= 1 -> self() ! {access_demand, self()};
@@ -226,9 +230,9 @@ port_loop(#port_state{port_ft12 = PortFT12, clients = Clients, name = Name} = Sh
         #{From := true} ->
           From ! {self(), Function()};
         _Unexpected ->
-          ?LOGWARNING("switch ignored a request from an undefined process: ~p", [From]),
-          port_loop(SharedState)
-      end;
+          ?LOGWARNING("switch ignored a request from an undefined process: ~p", [From])
+      end,
+      port_loop(SharedState);
 
     {add_client, Client, Options} ->
       case iec60870_101:connect(Options#{portFT12 => PortFT12, direction => 0}) of

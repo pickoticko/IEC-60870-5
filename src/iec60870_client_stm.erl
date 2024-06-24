@@ -358,9 +358,9 @@ handle_event(
   enter,
   _PrevState,
   #gi{state = finish, id = ID},
-  _Data
+  #data{name = Name}
 ) ->
-  ?LOGDEBUG("client ~p: entering GI FINISH for group ~p", [ID]),
+  ?LOGDEBUG("client ~p: entering GI FINISH for group ~p", [Name, ID]),
   {keep_state_and_data, [{state_timeout, 0, timeout}]};
 
 handle_event(

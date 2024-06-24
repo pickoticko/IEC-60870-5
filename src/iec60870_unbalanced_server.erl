@@ -8,7 +8,7 @@
 
 -include("iec60870.hrl").
 -include("ft12.hrl").
--include("unbalanced.hrl").
+-include("function_codes.hrl").
 
 %%% +--------------------------------------------------------------+
 %%% |                             API                              |

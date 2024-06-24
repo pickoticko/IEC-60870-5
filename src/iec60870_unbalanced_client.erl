@@ -149,16 +149,8 @@ send_data_class_request(DataClass, #data{
       ?LOGERROR("~p failed to request data class 1", [Port]),
       exit({error, {request_data_class, DataClass}});
     {NewState, ACD, ASDU} ->
-      % Send ASDU to the owner if it exists
-      if
-        ASDU =/= undefined -> Owner ! {asdu, self(), ASDU};
-        true -> ignore
-      end,
-      % The server set the signal that it has data to send
-      if
-        ACD =:= 1 -> self() ! {access_demand, self()};
-        true -> ignore
-      end,
+      send_asdu_to_owner(Owner, ASDU),
+      check_access_demand(ACD),
       Data#data{state = NewState}
   end.
 
@@ -270,7 +262,7 @@ check_stop(#port_state{
   name = Name
 } = State) ->
   if
-  % No clients left, we should stop the shared port
+    % No clients left, we should stop the shared port
     map_size(Clients) =:= 0 ->
       ?LOGINFO("shared port ~p has been shutdown due to no clients remaining", [Name]),
       iec60870_ft12:stop(PortFT12),
@@ -278,3 +270,15 @@ check_stop(#port_state{
     true ->
       State
   end.
+
+%% Send ASDU to the owner if it exists
+send_asdu_to_owner(_Owner, _ASDU = undefined) ->
+  ok;
+send_asdu_to_owner(Owner, ASDU) ->
+  Owner ! {asdu, self(), ASDU}.
+
+%% The server set the signal that it has data to send
+check_access_demand(_ACD = 1) ->
+  self() ! {access_demand, self()};
+check_access_demand(_ACD) ->
+  ok.

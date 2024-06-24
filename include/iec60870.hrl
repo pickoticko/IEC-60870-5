@@ -9,18 +9,15 @@
 
 -include_lib("kernel/include/logger.hrl").
 
--define(SELF, pid_to_list(self())++": ").
--define(LOGERROR(Text),          ?LOG_ERROR(?SELF ++ Text)).
--define(LOGERROR(Text,Params),   ?LOG_ERROR(?SELF ++ Text, Params)).
--define(LOGWARNING(Text),        ?LOG_WARNING(?SELF++Text)).
--define(LOGWARNING(Text,Params), ?LOG_WARNING(?SELF++Text, Params)).
--define(LOGINFO(Text),           ?LOG_INFO(?SELF++Text)).
--define(LOGINFO(Text,Params),    ?LOG_INFO(?SELF++Text, Params)).
--define(LOGDEBUG(Text),          ?LOG_DEBUG(?SELF++Text)).
--define(LOGDEBUG(Text,Params),   ?LOG_DEBUG(?SELF++Text,Params)).
-
--define(DATA(Connection, Data), {data, Connection, Data}).
--define(OBJECT(Type, COT, IOA, Value), {object, Type, COT, IOA, Value}).
+-define(SELF, pid_to_list(self()) ++ ": ").
+-define(LOGERROR(Text),           ?LOG_ERROR(?SELF ++ Text)).
+-define(LOGERROR(Text, Params),   ?LOG_ERROR(?SELF ++ Text, Params)).
+-define(LOGWARNING(Text),         ?LOG_WARNING(?SELF ++ Text)).
+-define(LOGWARNING(Text, Params), ?LOG_WARNING(?SELF ++ Text, Params)).
+-define(LOGINFO(Text),            ?LOG_INFO(?SELF ++ Text)).
+-define(LOGINFO(Text, Params),    ?LOG_INFO(?SELF ++ Text, Params)).
+-define(LOGDEBUG(Text),           ?LOG_DEBUG(?SELF ++ Text)).
+-define(LOGDEBUG(Text, Params),   ?LOG_DEBUG(?SELF ++ Text, Params)).
 
 %% Structure Qualifier (SQ) types:
 %% 0 - Different IOAs
@@ -84,8 +81,6 @@
 -define(C_IC_NA_1, 16#64). % 100: Group Request Command
 -define(C_CI_NA_1, 16#65). % 101: Counter Interrogation Command
 -define(C_CS_NA_1, 16#67). % 103: Clock Synchronization Command
-
--define(DEFAULT_WRITE_TIMEOUT, 30000).
 
 %% Limitations
 -define(MAX_FRAME_LIMIT, 32767).

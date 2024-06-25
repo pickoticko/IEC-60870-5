@@ -173,13 +173,17 @@ reset_link(0 = _Attempts, _State) ->
   ?LOGERROR("no attempts left for the reset link..."),
   error;
 reset_link(Attempts, #state{
-  portFT12 = PortFT12
+  portFT12 = PortFT12,
+  address = Address
 } = State) ->
   Request = build_request(?RESET_REMOTE_LINK, _Data = undefined, State),
   iec60870_ft12:send(PortFT12, Request),
   case wait_response(?ACKNOWLEDGE, undefined, State) of
-    {ok, _} -> State#state{fcb = 0};
-    error -> reset_link(Attempts - 1, State)
+    {ok, _} ->
+      State#state{fcb = 0};
+    error ->
+      ?LOGWARNING("FT12 port ~p, address ~p, no response received for RESET LINK", [PortFT12, Address]),
+      reset_link(Attempts - 1, State)
   end.
 
 %%% +--------------------------------------------------------------+
@@ -187,13 +191,17 @@ reset_link(Attempts, #state{
 %%% +--------------------------------------------------------------+
 
 request_status_link(#state{
-  portFT12 = PortFT12
+  portFT12 = PortFT12,
+  address = Address
 } = State) ->
   Request = build_request(?REQUEST_STATUS_LINK, _Data = undefined, State),
   iec60870_ft12:send(PortFT12, Request),
   case wait_response(?STATUS_LINK_ACCESS_DEMAND, undefined, State) of
-    {ok, _} -> State#state{fcb = 0};
-    error -> error
+    {ok, _} ->
+      State#state{fcb = 0};
+    error ->
+      ?LOGWARNING("FT12 port ~p, address ~p, no response received for REQUEST STATUS LINK", [PortFT12, Address]),
+      error
   end.
 
 %%% +--------------------------------------------------------------+
@@ -201,7 +209,8 @@ request_status_link(#state{
 %%% +--------------------------------------------------------------+
 
 user_data_confirm(Attempts, ASDU, #state{
-  portFT12 = PortFT12
+  portFT12 = PortFT12,
+  address = Address
 } = State) ->
   Request = build_request(?USER_DATA_CONFIRM, ASDU, State),
   iec60870_ft12:send(PortFT12, Request),
@@ -209,6 +218,10 @@ user_data_confirm(Attempts, ASDU, #state{
     {ok, _} ->
       ?UPDATE_FCB(State, Request);
     error ->
+      ?LOGWARNING("FT12 port ~p, address ~p, no response received for USER DATA CONFIRM", [
+        PortFT12,
+        Address
+      ]),
       retry(fun(NewState) -> user_data_confirm(Attempts - 1, ASDU, NewState) end, State)
   end.
 
@@ -217,7 +230,8 @@ user_data_confirm(Attempts, ASDU, #state{
 %%% +--------------------------------------------------------------+
 
 data_class(DataClassCode, Attempts, #state{
-  portFT12 = PortFT12
+  portFT12 = PortFT12,
+  address = Address
 } = State) ->
   Request = build_request(DataClassCode, undefined, State),
   iec60870_ft12:send(PortFT12, Request),
@@ -229,6 +243,10 @@ data_class(DataClassCode, Attempts, #state{
       NewState = ?UPDATE_FCB(State, Request),
       {NewState, ACD, undefined};
     error ->
+      ?LOGWARNING("FT12 port ~p, address ~p, no response received for DATA CLASS REQUEST", [
+        PortFT12,
+        Address
+      ]),
       retry(fun(NewState) -> data_class(DataClassCode, Attempts - 1, NewState) end, State)
   end.
 
@@ -252,7 +270,7 @@ wait_response(Response1, Response2, #state{
       % TODO: Diagnostic. ASDU
       {ok, Response};
     {data, PortFT12, #frame{control_field = #control_field_request{}} = Frame} when is_function(OnRequest) ->
-      ?LOGDEBUG("~p received request on wait response, request: ~p", [Address, Frame]),
+      ?LOGDEBUG("~p received request while waiting for response, request: ~p", [Address, Frame]),
       OnRequest(Frame),
       wait_response(Response1, Response2, State);
     {data, PortFT12, UnexpectedFrame} ->

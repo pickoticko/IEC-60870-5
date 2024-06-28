@@ -157,7 +157,7 @@ connect(_Attempts = 0, #state{
   error.
 
 data_class(DataClassCode, #state{attempts = Attempts} = State) ->
-  data_class(DataClassCode, Attempts, State).
+  data_class(Attempts, DataClassCode, State).
 
 user_data_confirm(ASDU, #state{attempts = Attempts} = State) ->
   user_data_confirm(Attempts, ASDU, State).
@@ -211,7 +211,7 @@ request_status_link(#state{
 user_data_confirm(Attempts, ASDU, #state{
   portFT12 = PortFT12,
   address = Address
-} = State) ->
+} = State) when Attempts > 0 ->
   Request = build_request(?USER_DATA_CONFIRM, ASDU, State),
   iec60870_ft12:send(PortFT12, Request),
   case wait_response(?ACKNOWLEDGE, undefined, State) of
@@ -222,17 +222,21 @@ user_data_confirm(Attempts, ASDU, #state{
         PortFT12,
         Address
       ]),
-      retry(fun(NewState) -> user_data_confirm(Attempts - 1, ASDU, NewState) end, State)
-  end.
+      user_data_confirm(Attempts - 1, ASDU, State)
+  end;
+user_data_confirm(_Attempts = 0, ASDU, #state{
+  attempts = Attempts
+} = State) ->
+  retry(fun(NewState) -> user_data_confirm(Attempts, ASDU, NewState) end, State).
 
 %%% +--------------------------------------------------------------+
 %%% |                  Data class request sequence                 |
 %%% +--------------------------------------------------------------+
 
-data_class(DataClassCode, Attempts, #state{
+data_class(Attempts, DataClassCode, #state{
   portFT12 = PortFT12,
   address = Address
-} = State) ->
+} = State) when Attempts > 0 ->
   Request = build_request(DataClassCode, undefined, State),
   iec60870_ft12:send(PortFT12, Request),
   case wait_response(?USER_DATA, ?NACK_DATA_NOT_AVAILABLE, State) of
@@ -247,8 +251,12 @@ data_class(DataClassCode, Attempts, #state{
         PortFT12,
         Address
       ]),
-      retry(fun(NewState) -> data_class(DataClassCode, Attempts - 1, NewState) end, State)
-  end.
+      data_class(Attempts - 1, DataClassCode, State)
+  end;
+data_class(_Attempts = 0, DataClassCode, #state{
+  attempts = Attempts
+} = State) ->
+  retry(fun(NewState) -> data_class(Attempts, DataClassCode, NewState) end, State).
 
 %%% +--------------------------------------------------------------+
 %%% |                       Helper functions                       |

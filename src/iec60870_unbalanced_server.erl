@@ -23,7 +23,7 @@
 %%% |                       Macros & Records                       |
 %%% +--------------------------------------------------------------+
 
--define(CONNECTION_TIMEOUT, 300000). % 1 min
+-define(CONNECTION_TIMEOUT, 300000). % 5 min
 
 -define(ACKNOWLEDGE_FRAME(Address), #frame{
   address = Address,
@@ -152,7 +152,6 @@ handle_request(?RESET_REMOTE_LINK, _UserData, #data{
   name = Name
 } = Data) ->
   ?LOGDEBUG("server ~p w/ address ~p: received RESET LINK", [Name, Address]),
-  drop_asdu(),
   Data#data{
     sent_frame = send_response(Switch, ?ACKNOWLEDGE_FRAME(Address))
   };
@@ -163,7 +162,7 @@ handle_request(?RESET_USER_PROCESS, _UserData, #data{
   name = Name
 } = Data) ->
   ?LOGDEBUG("server ~p w/ address ~p: received RESET USER PROCESS", [Name, Address]),
-  % TODO. Do we need to do anything? May be restart connection?
+  drop_asdu(),
   Data#data{
     sent_frame = send_response(Switch, ?ACKNOWLEDGE_FRAME(Address))
   };

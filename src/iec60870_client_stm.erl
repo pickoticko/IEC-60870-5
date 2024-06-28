@@ -31,11 +31,11 @@
   owner,
   name,
   storage,
+  diagnostics,
   groups,
   connection,
   asdu,
-  state_acc
-}).
+  state_acc}).
 
 -record(gi, {
   state,
@@ -84,6 +84,8 @@
   rest = []
 }).
 
+-define(STATE_INFO(State), {stm, #{state=>State, timestamp=>erlang:system_time(millisecond)}}).
+
 %%% +--------------------------------------------------------------+
 %%% |                  OTP behaviour implementation                |
 %%% +--------------------------------------------------------------+
@@ -106,6 +108,13 @@ init({Owner, #{
     {read_concurrency, true},
     {write_concurrency, auto}
   ]),
+  Diagnostics = ets:new(diagnostics, [
+    set,
+    public,
+    {read_concurrency, true},
+    {write_concurrency, auto}
+  ]),
+
   ASDU =
     iec60870_asdu:get_settings(maps:with(maps:keys(?DEFAULT_ASDU_SETTINGS), Settings)),
   EsubscribePID =
@@ -114,11 +123,12 @@ init({Owner, #{
       {error, Reason} -> exit(Reason)
     end,
   % Required groups goes first
-  {ok, {?CONNECTING, Type, ConnectionSettings}, #data{
+  {ok, {?CONNECTING, Type, ConnectionSettings#{diagnostics => Diagnostics}}, #data{
     esubscribe = EsubscribePID,
     owner = Owner,
     name = Name,
     storage = Storage,
+    diagnostics = Diagnostics,
     asdu = ASDU,
     groups = Groups
   }}.
@@ -151,9 +161,10 @@ handle_event(
 handle_event(
   enter,
   _PrevState,
-  {?CONNECTING, _, _},
-  #data{name = Name} = _Data
+  {?CONNECTING, _, _} = State,
+  #data{name = Name, diagnostics = Diagnostics} = _Data
 ) ->
+  ets:insert(Diagnostics, ?STATE_INFO(State)),
   ?LOGDEBUG("client ~p: entering CONNECTING state", [Name]),
   {keep_state_and_data, [{state_timeout, 0, connect}]};
 
@@ -183,8 +194,9 @@ handle_event(
   enter,
   _PrevState,
   ?INIT_GROUPS,
-  #data{name = Name} = _Data
+  #data{name = Name, diagnostics = Diagnostics} = _Data
 ) ->
+  ets:insert(Diagnostics, ?STATE_INFO(?INIT_GROUPS)),
   ?LOGDEBUG("client ~p: entering INIT GROUPS state", [Name]),
   {keep_state_and_data, [{state_timeout, 0, init}]};
 
@@ -192,7 +204,7 @@ handle_event(
   state_timeout,
   init,
   ?INIT_GROUPS,
-  #data{owner = Owner, storage = Storage, groups = Groups} = Data
+  #data{owner = Owner, storage = Storage, groups = Groups, diagnostics = Diagnostics} = Data
 ) ->
   GIs = [?GI_STATE(G) || G <- Groups],
   % Init update events for not required groups. They are handled in the normal mode
@@ -203,7 +215,7 @@ handle_event(
     [G | Rest] ->
       {next_state, G#gi{rest = Rest}, Data};
     _ ->
-      Owner ! {ready, self(), Storage},
+      Owner ! {ready, self(), Storage, Diagnostics},
       {next_state, ?CONNECTED, Data}
   end;
 
@@ -215,9 +227,10 @@ handle_event(
 handle_event(
   enter,
   _PrevState,
-  #gi{state = confirm, id = ID},
-  #data{name = Name, asdu = ASDUSettings, connection = Connection}
+  #gi{state = confirm, id = ID} = State,
+  #data{name = Name, asdu = ASDUSettings, connection = Connection, diagnostics = Diagnostics}
 ) ->
+  ets:insert(Diagnostics, ?STATE_INFO(State)),
   ?LOGDEBUG("client ~p: sending GI REQUEST for group ~p", [Name, ID]),
   [GroupRequest] = iec60870_asdu:build(#asdu{
     type = ?C_IC_NA_1,
@@ -261,9 +274,10 @@ handle_event(
 handle_event(
   enter,
   _PrevState,
-  #gi{state = run, timeout = Timeout, id = ID},
-  #data{name = Name} = Data
+  #gi{state = run, timeout = Timeout, id = ID} = State,
+  #data{name = Name, diagnostics = Diagnostics} = Data
 ) ->
+  ets:insert(Diagnostics, ?STATE_INFO(State)),
   ?LOGDEBUG("client ~p: entering GI RUN state for group ~p", [Name, ID]),
   {keep_state, Data#data{state_acc = #{}}, [{state_timeout, Timeout, timeout}]};
 
@@ -330,9 +344,10 @@ handle_event(
 handle_event(
   enter,
   _PrevState,
-  #gi{state = error, id = ID},
-  #data{name = Name} = _Data
+  #gi{state = error, id = ID} = State,
+  #data{name = Name, diagnostics = Diagnostics} = _Data
 ) ->
+  ets:insert(Diagnostics, ?STATE_INFO(State)),
   ?LOGDEBUG("client ~p: entering GI TIMEOUT for group ~p", [Name, ID]),
   {keep_state_and_data, [{state_timeout, 0, timeout}]};
 
@@ -357,9 +372,10 @@ handle_event(
 handle_event(
   enter,
   _PrevState,
-  #gi{state = finish, id = ID},
-  #data{name = Name}
+  #gi{state = finish, id = ID} = State,
+  #data{name = Name, diagnostics = Diagnostics}
 ) ->
+  ets:insert(Diagnostics, ?STATE_INFO(State)),
   ?LOGDEBUG("client ~p: entering GI FINISH for group ~p", [Name, ID]),
   {keep_state_and_data, [{state_timeout, 0, timeout}]};
 
@@ -367,11 +383,11 @@ handle_event(
   state_timeout,
   timeout,
   #gi{state = finish, update = Update, rest = RestGI, required = IsRequired} = State,
-  #data{owner = Owner, storage = Storage} = Data
+  #data{owner = Owner, storage = Storage, diagnostics = Diagnostics} = Data
 ) ->
   case {IsRequired, RestGI} of
     {true, []} ->
-      Owner ! {ready, self(), Storage};
+      Owner ! {ready, self(), Storage, Diagnostics};
     _ ->
       ignore
   end,
@@ -397,8 +413,9 @@ handle_event(
   enter,
   _PrevState,
   ?CONNECTED,
-  #data{name = Name} = _Data
+  #data{name = Name, diagnostics = Diagnostics} = _Data
 ) ->
+  ets:insert(Diagnostics, ?STATE_INFO(?CONNECTED)),
   ?LOGDEBUG("client ~p: entering CONNECTED state", [Name]),
   keep_state_and_data;
 
@@ -449,9 +466,10 @@ handle_event(
 handle_event(
   enter,
   _PrevState,
-  #rc{state = confirm, type = Type, ioa = IOA, value = Value},
-  #data{connection = Connection, asdu = ASDUSettings}
+  #rc{state = confirm, type = Type, ioa = IOA, value = Value} = State,
+  #data{connection = Connection, asdu = ASDUSettings, diagnostics = Diagnostics}
 ) ->
+  ets:insert(Diagnostics, ?STATE_INFO(State)),
   [ASDU] = iec60870_asdu:build(#asdu{
     type = Type,
     pn = ?POSITIVE_PN,
@@ -491,9 +509,10 @@ handle_event(
 handle_event(
   enter,
   _PrevState,
-  #rc{state = run},
-  _Data
+  #rc{state = run} = State,
+  #data{diagnostics = Diagnostics}
 ) ->
+  ets:insert(Diagnostics, ?STATE_INFO(State)),
   {keep_state_and_data, [{state_timeout, ?RC_TIMEOUT, timeout}]};
 
 %% Remote control command termination

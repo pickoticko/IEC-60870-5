@@ -50,7 +50,8 @@
   name,
   owner,
   port,
-  cycle
+  cycle,
+  diagnostics
 }).
 
 %%% +--------------------------------------------------------------+
@@ -81,6 +82,7 @@ init_client(Owner, Options) ->
   Port = start_port(Options),
   State = connect(Port, Options),
   Cycle = maps:get(cycle, Options, ?DEFAULT_CYCLE),
+  Diagnostics = maps:get(diagnostics, Options),
   erlang:monitor(process, Owner),
   Owner ! {connected, self()},
   self() ! {update, self()},
@@ -89,7 +91,8 @@ init_client(Owner, Options) ->
     name = maps:get(port, Options),
     cycle = Cycle,
     owner = Owner,
-    port = Port
+    port = Port,
+    diagnostics = Diagnostics
   }).
 
 connect(Port, Options) ->
@@ -164,17 +167,20 @@ send_asdu(ASDU, #data{
   state = State,
   port = Port,
   owner = Owner,
-  name = Name
+  name = Name,
+  diagnostics = Diagnostics
 } = Data) ->
   Request = fun() -> iec60870_101:user_data_confirm(ASDU, State) end,
   case send_request(Port, Request) of
     error ->
-      %% TODO: Diagnostics. send_asdu, {error, timeout}
+      %% TO_BE_REVIEWED: Diagnostics. send_asdu, {error, timeout}
+      ets:insert(Diagnostics, {send_asdu, ASDU}),
       ?LOGERROR("~p unbalanced failed to send ASDU", [Name]),
       Owner ! {send_error, self(), timeout},
       Data;
     NewState ->
-      %% TODO: Diagnostics. send_asdu, ok
+      %% TO_BE_REVIEWED: Diagnostics. send_asdu, ok
+      ets:insert(Diagnostics, {send_asdu, ASDU}),
       ?LOGDEBUG("~p unbalanced send ASDU is OK", [Name]),
       Data#data{state = NewState}
   end.

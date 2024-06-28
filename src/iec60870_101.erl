@@ -112,7 +112,7 @@ connect(#{
   portFT12 := PortFT12,
   timeout := Timeout,
   on_request := OnRequest
-} = Settings) when is_map(Settings) ->
+}) ->
   connect(#state{
     address = Address,
     attempts = Attempts,

@@ -39,12 +39,12 @@
 %% Connection settings
 -define(REQUIRED, {?MODULE, required}).
 -define(DEFAULT_SETTINGS, #{
-  port => ?REQUIRED,
   balanced => ?REQUIRED,
   address => ?REQUIRED,
   address_size => 1,
   on_request => undefined,
-  port_options => #{
+  port => #{
+    name => undefined,
     baudrate => 9600,
     parity => 0,
     stopbits => 1,

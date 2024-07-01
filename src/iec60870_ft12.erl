@@ -33,6 +33,7 @@
 }).
 
 -define(DEFAULT_PORT_OPTIONS, #{
+  name => undefined,
   mode => active,
   baudrate => 9600,
   parity => 0,
@@ -41,8 +42,7 @@
 }).
 
 -define(DEFAULT_OPTIONS, #{
-  port => required,
-  port_options => ?DEFAULT_PORT_OPTIONS,
+  port => ?DEFAULT_PORT_OPTIONS,
   address_size => 1
 }).
 
@@ -71,23 +71,19 @@ send(Port, Frame) ->
 stop(Port) ->
   Port ! {stop, self()}.
 
-check_options(#{port := Port} = _Options) when is_list(Port); is_binary(Port) ->
-  % TODO. validate other options
-  ok;
-check_options(_) ->
-  throw(invalid_options).
-
 %%% +--------------------------------------------------------------+
 %%% |                      Internal functions                      |
 %%% +--------------------------------------------------------------+
 
 init(Owner, #{
-  port := PortName,
-  port_options := PortOptions,
+  port := #{
+    name := PortName
+  } = PortOptions,
   address_size := AddressSize
 }) ->
+  ?LOGINFO("DEBUG: PortOptions: ~p", [PortOptions]),
   ?LOGDEBUG("FT12 port ~p trying to open eserial...", [PortName]),
-  case eserial:open(PortName, PortOptions) of
+  case eserial:open(PortName, maps:without([name], PortOptions)) of
     {ok, Port} ->
       ?LOGDEBUG("FT12 port ~p eserial is opened!", [PortName]),
       erlang:monitor(process, Port),
@@ -301,3 +297,15 @@ drop_data(Port) ->
   after
     0 -> ok
   end.
+
+check_options(#{port := PortSettings}) ->
+  [check_option(Option) || Option <- maps:to_list(PortSettings)],
+  ok.
+
+check_option({baudrate, Baudrate}) when is_integer(Baudrate) -> ok;
+check_option({bytesize, Bytesize}) when is_integer(Bytesize) -> ok;
+check_option({name, Name}) when is_list(Name) -> ok;
+check_option({parity, Parity}) when is_integer(Parity) -> ok;
+check_option({stopbits, Stopbits}) when is_integer(Stopbits) -> ok;
+check_option(Option) -> throw({invalid_setting, Option}).
+

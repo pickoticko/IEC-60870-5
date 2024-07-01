@@ -71,7 +71,6 @@ init(Root, #{
 } = Options) ->
   Switch = iec60870_switch:start(Options),
   iec60870_switch:add_server(Switch, Address),
-
   Root ! {ready, self()},
   Connection = start_connection(Root),
 

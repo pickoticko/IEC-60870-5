@@ -69,7 +69,7 @@ init(Owner, Direction, #{
   timeout := Timeout,
   attempts := Attempts
 } = Options) ->
-  PortFT12 = iec60870_ft12:start_link(maps:with([port, port_options, address_size], Options)),
+  PortFT12 = iec60870_ft12:start_link(maps:with([port, address_size], Options)),
   Owner ! {ready, self()},
   Data = #data{
     owner = Owner,

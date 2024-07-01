@@ -81,7 +81,6 @@ init(Owner, #{
   } = PortOptions,
   address_size := AddressSize
 }) ->
-  ?LOGINFO("DEBUG: PortOptions: ~p", [PortOptions]),
   ?LOGDEBUG("FT12 port ~p trying to open eserial...", [PortName]),
   case eserial:open(PortName, maps:without([name], PortOptions)) of
     {ok, Port} ->

@@ -22,6 +22,7 @@
   name => ?REQUIRED,
   type => ?REQUIRED,
   connection => ?REQUIRED,
+  redundant_connection => undefined,
   groups => []
 }, ?DEFAULT_ASDU_SETTINGS)).
 

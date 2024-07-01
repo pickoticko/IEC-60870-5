@@ -57,6 +57,7 @@
   name => ?REQUIRED,
   type => ?REQUIRED,
   connection => ?REQUIRED,
+  redundant_connection => undefined,
   groups => [],
   command_handler => undefined
 }, ?DEFAULT_ASDU_SETTINGS)).

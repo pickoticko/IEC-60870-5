@@ -77,7 +77,7 @@ stop(Port) ->
 %%% |                      Internal functions                      |
 %%% +--------------------------------------------------------------+
 
-init_client(Owner, Options) ->
+init_client(Owner, #{port := #{name := PortName}} = Options) ->
   Port = start_port(Options),
   State = connect(Port, Options),
   Cycle = maps:get(cycle, Options, ?DEFAULT_CYCLE),
@@ -86,7 +86,7 @@ init_client(Owner, Options) ->
   self() ! {update, self()},
   loop(#data{
     state = State,
-    name = maps:get(port, Options),
+    name = PortName,
     cycle = Cycle,
     owner = Owner,
     port = Port

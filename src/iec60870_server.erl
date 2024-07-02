@@ -57,7 +57,6 @@
   name => ?REQUIRED,
   type => ?REQUIRED,
   connection => ?REQUIRED,
-  redundant_connection => undefined,
   groups => [],
   command_handler => undefined
 }, ?DEFAULT_ASDU_SETTINGS)).
@@ -283,9 +282,6 @@ check_setting(type, Type)
 
 check_setting(connection, Settings)
   when is_map(Settings) -> Settings;
-
-check_setting(redundant_connection, Settings)
-  when is_map(Settings) orelse Settings =:= undefined -> Settings;
 
 check_setting(groups, Groups) when is_list(Groups) ->
   [case Group of

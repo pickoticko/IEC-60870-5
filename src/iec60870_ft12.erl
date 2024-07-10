@@ -58,10 +58,13 @@ start_link(InOptions) ->
   Options = maps:merge(?DEFAULT_OPTIONS, InOptions),
   check_options(Options),
   Self = self(),
+  process_flag(trap_exit, true),
   PID = spawn_link(fun() -> init(Self, Options) end),
   receive
-    {ready, PID} -> PID;
-    {'EXIT', PID, Reason} -> throw(Reason)
+    {ready, PID} ->
+      PID;
+    {'EXIT', PID, Reason} ->
+      throw({error, Reason})
   end.
 
 send(Port, Frame) ->

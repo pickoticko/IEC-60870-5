@@ -68,8 +68,8 @@ init_switch(ServerPID, #{port := PortName} = Options) ->
     % Succeeded to register port, start the switch
     true ->
       case catch iec60870_ft12:start_link(maps:with([port, port_options, address_size], Options)) of
-        {'EXIT', _} ->
-          ServerPID ! {error, self(), serial_port_init_fail};
+        {error, Reason} ->
+          ServerPID ! {error, self(), {serial_port_init_fail, Reason}};
         PortFT12 ->
           ServerPID ! {ready, self(), self()},
           switch_loop(#switch_state{port_ft12 = PortFT12, servers = #{}, name = PortName})

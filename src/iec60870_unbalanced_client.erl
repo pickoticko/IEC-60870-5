@@ -222,8 +222,8 @@ init_port(Client, #{port := PortName} = Options) ->
       end;
     true ->
       case catch iec60870_ft12:start_link(maps:with([port, port_options, address_size], Options)) of
-        {'EXIT', _} ->
-          Client ! {error, self(), serial_port_init_fail};
+        {error, Reason} ->
+          Client ! {error, self(), {serial_port_init_fail, Reason}};
         PortFT12 ->
           ?LOGDEBUG("shared port ~p start",[PortName]),
           erlang:monitor(process, PortFT12),

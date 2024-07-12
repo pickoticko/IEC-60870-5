@@ -50,8 +50,7 @@
   name,
   owner,
   port,
-  cycle,
-  diagnostics
+  cycle
 }).
 
 %%% +--------------------------------------------------------------+
@@ -82,7 +81,6 @@ init_client(Owner, #{port := #{name := PortName}} = Options) ->
   Port = start_port(Options),
   State = connect(Port, Options),
   Cycle = maps:get(cycle, Options, ?DEFAULT_CYCLE),
-  Diagnostics = maps:get(diagnostics, Options),
   erlang:monitor(process, Owner),
   Owner ! {connected, self()},
   self() ! {update, self()},
@@ -91,8 +89,7 @@ init_client(Owner, #{port := #{name := PortName}} = Options) ->
     name = PortName,
     cycle = Cycle,
     owner = Owner,
-    port = Port,
-    diagnostics = Diagnostics
+    port = Port
   }).
 
 connect(Port, Options) ->
@@ -167,20 +164,17 @@ send_asdu(ASDU, #data{
   state = State,
   port = Port,
   owner = Owner,
-  name = Name,
-  diagnostics = Diagnostics
+  name = Name
 } = Data) ->
   Request = fun() -> iec60870_101:user_data_confirm(ASDU, State) end,
   case send_request(Port, Request) of
     error ->
-      %% TO_BE_REVIEWED: Diagnostics. send_asdu, {error, timeout}
-      ets:insert(Diagnostics, {send_asdu, ASDU}),
+      %% TODO: Diagnostics. send_asdu, {error, timeout}
       ?LOGERROR("~p unbalanced failed to send ASDU", [Name]),
       Owner ! {send_error, self(), timeout},
       Data;
     NewState ->
-      %% TO_BE_REVIEWED: Diagnostics. send_asdu, ok
-      ets:insert(Diagnostics, {send_asdu, ASDU}),
+      %% TODO: Diagnostics. send_asdu, ok
       ?LOGDEBUG("~p unbalanced send ASDU is OK", [Name]),
       Data#data{state = NewState}
   end.
@@ -246,12 +240,12 @@ port_loop(#port_state{port_ft12 = PortFT12, clients = Clients, name = Name} = Sh
           port_loop(SharedState#port_state{clients = Clients#{Client => true}})
       end;
 
-    % Port FT12 is down, transport level is unavailable
+  % Port FT12 is down, transport level is unavailable
     {'DOWN', _, process, PortFT12, Reason} ->
       ?LOGERROR("shared port ~p exit, ft12 transport error: ~p", [Name, Reason]),
       exit(Reason);
 
-    % Client is down due to some reason
+  % Client is down due to some reason
     {'DOWN', _, process, Client, Reason} ->
       ?LOGDEBUG("shared port ~p client ~p exit, reason ~p", [Name, Client, Reason]),
       State1 = check_stop(SharedState#port_state{clients = maps:remove(Client, Clients)}),
@@ -268,7 +262,7 @@ check_stop(#port_state{
   name = Name
 } = State) ->
   if
-    % No clients left, we should stop the shared port
+  % No clients left, we should stop the shared port
     map_size(Clients) =:= 0 ->
       ?LOGINFO("shared port ~p has been shutdown due to no clients remaining", [Name]),
       iec60870_ft12:stop(PortFT12),

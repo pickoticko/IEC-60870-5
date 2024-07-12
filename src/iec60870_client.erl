@@ -29,8 +29,7 @@
 -record(?MODULE, {
   storage,
   pid,
-  name,
-  diagnostics
+  name
 }).
 
 %%% +--------------------------------------------------------------+
@@ -44,8 +43,7 @@
   read/1, read/2,
   subscribe/3, subscribe/2,
   unsubscribe/3, unsubscribe/2,
-  get_pid/1,
-  get_info/1, get_info/2
+  get_pid/1
 ]).
 
 %%% +---------------------------------------------------------------+
@@ -69,13 +67,12 @@ start(InSettings) ->
       {error, Error} -> throw(Error)
     end,
   receive
-    {ready, PID, Storage, Diagnostics} ->
+    {ready, PID, Storage} ->
       process_flag(trap_exit, OldFlag),
       #?MODULE{
         pid = PID,
         name = Name,
-        storage = Storage,
-        diagnostics = Diagnostics
+        storage = Storage
       };
     {'EXIT', PID, Reason} ->
       process_flag(trap_exit, OldFlag),
@@ -126,7 +123,7 @@ write(_, _, _) ->
   throw(bad_arg).
 
 subscribe(#?MODULE{name = Name}, PID) when is_pid(PID) ->
-    esubscribe:subscribe(Name, update, PID);
+  esubscribe:subscribe(Name, update, PID);
 subscribe(_, _) ->
   throw(bad_arg).
 
@@ -136,7 +133,7 @@ subscribe(#?MODULE{name = Name}, PID, AddressList) when is_pid(PID), is_list(Add
    end || Address <- AddressList],
   ok;
 subscribe(#?MODULE{name = Name}, PID, Address) when is_pid(PID) ->
-    esubscribe:subscribe(Name, Address, PID);
+  esubscribe:subscribe(Name, Address, PID);
 subscribe(_, _, _) ->
   throw(bad_arg).
 
@@ -146,7 +143,7 @@ unsubscribe(#?MODULE{name = Name}, PID, AddressList) when is_list(AddressList), 
    end || Address <- AddressList],
   ok;
 unsubscribe(#?MODULE{name = Name}, PID, Address) when is_pid(PID) ->
-    esubscribe:unsubscribe(Name, Address, PID);
+  esubscribe:unsubscribe(Name, Address, PID);
 unsubscribe(_, _, _) ->
   throw(bad_arg).
 
@@ -235,7 +232,7 @@ check_setting(Key, _) ->
 
 is_remote_command(#{type := Type})->
   (Type >= ?C_SC_NA_1 andalso Type =< ?C_BO_NA_1) orelse
-  (Type >= ?C_SC_TA_1 andalso Type =< ?C_BO_TA_1).
+    (Type >= ?C_SC_TA_1 andalso Type =< ?C_BO_TA_1).
 
 %% The object data must contain a 'value' key
 check_value(#{value := Value} = ObjectData) when is_number(Value) ->
@@ -249,17 +246,3 @@ check_value(#{value := undefined} = ObjectData) ->
 %% Key 'value' is missing, incorrect object passed
 check_value(_Value) ->
   throw({error, value_parameter_missing}).
-
-%% Get diagnostics info by ets ref
-get_info(#?MODULE{diagnostics = Diagnostics}) ->
-  ets:tab2list(Diagnostics);
-get_info(_) ->
-  throw(bad_arg).
-
-get_info(#?MODULE{diagnostics = Diagnostics}, Key) ->
-  case ets:lookup(Diagnostics, Key) of
-    [] -> undefined;
-    [{Key, Value}] -> Value
-  end;
-get_info(_, _) ->
-  throw(bad_arg).

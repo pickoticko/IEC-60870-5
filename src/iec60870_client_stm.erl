@@ -82,6 +82,21 @@
   rest = []
 }).
 
+%% Group request defaults
+-define(GI_DEFAULT_TIMEOUT, 60000).
+-define(GI_DEFAULT_ATTEMPTS, 1).
+
+%% All states of the STM
+-define(CONNECTING, connecting).
+-define(CONNECTED, connected).
+-define(GI_INITIALIZATION, gi_initialization).
+
+%% Timeout for confirmations to requests
+-define(CONFIRM_TIMEOUT, 10000).
+
+%% Remote control timeout
+-define(RC_TIMEOUT, 10000).
+
 -define(STATE_INFO(State), {stm, #{state=>State, timestamp=>erlang:system_time(millisecond)}}).
 
 %%% +--------------------------------------------------------------+

@@ -61,15 +61,6 @@
   rest
 }).
 
-%% To save the state of the remote control requests
--record(rc, {
-  state,
-  type,
-  from,
-  ioa,
-  value
-}).
-
 %% Initial state of the general interrogation
 -define(GI_STATE(G), #gi{
   state = confirm,
@@ -231,7 +222,7 @@ handle_event(
   ?GI_INITIALIZATION,
   #data{name = Name, current_connection = CurrentConnection, diagnostics = Diagnostics} = _Data
 ) ->
-  ets:insert(Diagnostics, ?STATE_INFO(?INIT_GROUPS)),
+  ets:insert(Diagnostics, ?STATE_INFO(?GI_INITIALIZATION)),
   ?LOGDEBUG("client ~p connection ~p: entering INIT GROUPS state", [Name, CurrentConnection]),
   {keep_state_and_data, [{state_timeout, 0, init}]};
 

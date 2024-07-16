@@ -24,6 +24,7 @@
 %%% +--------------------------------------------------------------+
 
 -define(CONNECTION_TIMEOUT, 300000). % 5 min
+-define(DEFAULT_MAX_MESSAGE_QUEUE, 1000).
 
 -define(ACKNOWLEDGE_FRAME(Address), #frame{
   address = Address,
@@ -42,6 +43,7 @@
   switch,
   fcb,
   sent_frame,
+  queue_limit,
   connection
 }).
 
@@ -80,6 +82,7 @@ init(Root, #{
     address = Address,
     switch = Switch,
     connection = Connection,
+    queue_limit = maps:get(queue_limit, Options, ?DEFAULT_MAX_MESSAGE_QUEUE),
     fcb = undefined
   }).
 
@@ -227,7 +230,8 @@ handle_request(RequestData, _UserData, #data{
   switch = Switch,
   address = Address,
   connection = Connection,
-  name = Name
+  name = Name,
+  queue_limit = QueueLimit
 } = Data)
   when RequestData =:= ?REQUEST_DATA_CLASS_1;
        RequestData =:= ?REQUEST_DATA_CLASS_2 ->
@@ -235,6 +239,7 @@ handle_request(RequestData, _UserData, #data{
     case check_data(Connection) of
       {ok, ConnectionData} ->
         ?LOGDEBUG("server ~p message queue: ~p", [Name, element(2,erlang:process_info(self(), message_queue_len))]),
+        check_message_queue(QueueLimit)
         #frame{
           address = Address,
           control_field = #control_field_response{
@@ -289,4 +294,20 @@ drop_queue() ->
     _Any -> drop_queue()
   after
     0 -> ok
+  end.
+
+%% Checking if the message queue length has exceeded the limit.
+%% If the mailbox is full of ASDU messages, then clear it until the required limit is met,
+%% Otherwise, stop and continue the work.
+check_message_queue(MaxMessageQueue) ->
+  {message_queue_len, MessageQueue} = erlang:process_info(self(), message_queue_len),
+  if
+    MessageQueue >= MaxMessageQueue ->
+      receive
+        {asdu, _Connection, _Data} -> check_message_queue(MaxMessageQueue)
+      after
+        0 -> ok
+      end;
+    true ->
+      ok
   end.

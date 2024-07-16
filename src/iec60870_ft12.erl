@@ -112,9 +112,11 @@ loop(#state{
         {Frame, TailBuffer} ->
           ?LOGDEBUG("FT12 port ~p received parsed data. frame: ~p, tailbuffer: ~p", [PortName, Frame, TailBuffer]),
           Owner ! {data, self(), Frame},
+          % TODO. Diagnostics. FT12. Save tailbuffer.
           loop(State#state{buffer = TailBuffer});
         TailBuffer ->
           ?LOGDEBUG("FT12 port ~p received data, no parse. tailbuffer: ~p", [PortName, TailBuffer]),
+          % TODO. Diagnostics. FT12. Save tailbuffer.
           loop(State#state{buffer = TailBuffer})
       end;
 
@@ -126,6 +128,7 @@ loop(#state{
           #control_field_request{function_code = _ResetLink = 0} ->
             % TODO: ClearWindow should be calculated from the baudrate
             timer:sleep(_ClearWindow = 100),
+            % TODO. Diagnostics. FT12. Save last drop data timestamp.
             drop_data(Port),
             State#state{buffer = <<>>};
           _ ->

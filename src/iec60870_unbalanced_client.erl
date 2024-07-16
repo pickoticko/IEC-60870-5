@@ -124,6 +124,7 @@ loop(#data{
       NewData = get_data(Data),
       loop(NewData);
     {asdu, Owner, ASDU} ->
+      % TODO. Diagnostics. Connection. Sent ASDU from the connection w/ timestamp
       NewData = send_asdu(ASDU, Data),
       loop(NewData);
     {'DOWN', _, process, Owner, Reason} ->
@@ -174,6 +175,8 @@ send_asdu(ASDU, #data{
   case send_request(Port, Request) of
     error ->
       %% TO_BE_REVIEWED: Diagnostics. send_asdu, {error, timeout}
+      % TODO. Diagnostics. It is necessary to separate the stored value
+      % TODO. in order to know that there was a timeout error
       ets:insert(Diagnostics, {send_asdu, ASDU}),
       ?LOGERROR("~p unbalanced failed to send ASDU", [Name]),
       Owner ! {send_error, self(), timeout},

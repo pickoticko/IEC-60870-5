@@ -283,6 +283,7 @@ handle_event(
     #gi{state = confirm, id = ID} = State,
     #data{name = Name, current_connection = CurrentConnection} = Data
 ) ->
+  % TODO. Diagnostics. STM. Successful confirmation w/ timestamp of group (separate them using ID of the group)
   ?LOGDEBUG("client ~p connection ~p: GI CONFIRMATION for group ~p", [Name, CurrentConnection, ID]),
   {next_state, State#gi{state = run}, Data};
 
@@ -339,6 +340,7 @@ handle_event(
     #gi{state = run, id = ID, count = Count} = State,
     #data{name = Name, state_acc = GroupItems, current_connection = CurrentConnection} = Data
 ) ->
+  % TODO. Diagnostics. STM. Successful termination w/ timestamp of group (separate them using ID of the group)
   ?LOGDEBUG("client ~p connection ~p: GI TERMINATION for group ~p", [Name, CurrentConnection, ID]),
   IsSuccessful =
     if
@@ -367,6 +369,7 @@ handle_event(
     #gi{state = run, count = Count} = State,
     #data{state_acc = GroupItems} = Data
 ) ->
+  % TODO. Diagnostics. STM. Timestamp of the group timeout (separate them using ID of the group)
   IsSuccessful = is_number(Count) andalso (map_size(GroupItems) >= Count),
   if
     IsSuccessful ->
@@ -410,6 +413,7 @@ handle_event(
     #gi{state = finish, id = ID} = State,
     #data{name = Name, current_connection = CurrentConnection, diagnostics = Diagnostics}
 ) ->
+  % TODO. Diagnostics. STM. Timestamp of the group finish (separate them using ID of the group)
   ets:insert(Diagnostics, ?STATE_INFO(State)),
   ?LOGDEBUG("client ~p connection ~p: GI FINISH for group ~p", [Name, CurrentConnection, ID]),
   {keep_state_and_data, [{state_timeout, 0, timeout}]};

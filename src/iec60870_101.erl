@@ -132,20 +132,21 @@ connect(#state{attempts = Attempts} = State) ->
 connect(Attempts, #state{
   address = Address
 } = StateIn) when Attempts > 0 ->
-  % TODO: Diagnostic log: Reset Link = false, Request Status link = false
   case reset_link(StateIn) of
     error ->
+      % TODO. Diagnostics. Connection. Failed RESET LINK w/ timestamp
       ?LOGERROR("RESET LINK is ERROR. Address: ~p", [Address]),
       error;
     StateReset ->
-      % TODO: Diagnostic log: Reset Link = true
+      % TODO. Diagnostics. Connection. Successful RESET LINK w/ timestamp
       ?LOGDEBUG("RESET LINK is OK. Address: ~p", [Address]),
       case request_status_link(StateReset) of
         error ->
+          % TODO. Diagnostics. Connection. Failed request status link w/ timestamp
           ?LOGWARNING("REQUEST STATUS LINK is ERROR. Address: ~p", [Address]),
           connect(Attempts - 1, StateIn);
         StateOut ->
-          % TODO: Diagnostic log: Request Status Link = true, Connected = true
+          % TODO. Diagnostics. Connection. Successful request status w/ link
           ?LOGDEBUG("REQUEST STATUS LINK is OK. Address: ~p", [Address]),
           StateOut
       end
@@ -153,6 +154,7 @@ connect(Attempts, #state{
 connect(_Attempts = 0, #state{
   address = Address
 }) ->
+  % TODO. Diagnostics. Connection. Failed connect w/ timestamp
   ?LOGERROR("CONNECT ERROR. Address: ~p", [Address]),
   error.
 

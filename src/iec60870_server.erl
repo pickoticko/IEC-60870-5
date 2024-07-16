@@ -211,7 +211,6 @@ init_server(Owner, #{
     storage = Storage,
     name = Name
   },
-  ?LOGINFO("Debug. Reference: ~p", [Ref]),
   ConnectionSettings = #{
     name => Name,
     storage => Storage,

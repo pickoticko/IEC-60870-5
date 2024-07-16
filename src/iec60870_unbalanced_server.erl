@@ -134,6 +134,7 @@ loop(#data{
   after
     ?CONNECTION_TIMEOUT->
       ?LOGDEBUG("server ~p w/ address ~p: connection timeout!", [Name, Address]),
+      % TODO. Diagnostics. Connection. Last connection timeout w/ timestamp
       drop_queue(),
       loop(Data)
   end.
@@ -150,6 +151,7 @@ handle_request(?RESET_REMOTE_LINK, _UserData, #data{
   address = Address,
   name = Name
 } = Data) ->
+  % TODO. Diagnostics. Connection. Received RESET LINK w/ timestamp
   ?LOGDEBUG("server ~p w/ address ~p: received RESET LINK", [Name, Address]),
   Data#data{
     sent_frame = send_response(Switch, ?ACKNOWLEDGE_FRAME(Address))
@@ -160,6 +162,7 @@ handle_request(?RESET_USER_PROCESS, _UserData, #data{
   address = Address,
   name = Name
 } = Data) ->
+  % TODO. Diagnostics. Connection. Received RESET USER PROCESS w/ timestamp
   ?LOGDEBUG("server ~p w/ address ~p: received RESET USER PROCESS", [Name, Address]),
   drop_asdu(),
   Data#data{
@@ -172,6 +175,7 @@ handle_request(?USER_DATA_CONFIRM, ASDU, #data{
   address = Address,
   name = Name
 } = Data) ->
+  % TODO. Diagnostics. Connection. Received USER DATA CONFIRM and timestamp
   ?LOGDEBUG("server ~p w/ address ~p: received USER DATA CONFIRM", [Name, Address]),
   Connection ! {asdu, self(), ASDU},
   Data#data{
@@ -192,6 +196,7 @@ handle_request(?ACCESS_DEMAND, _UserData, #data{
   address = Address,
   name = Name
 } = Data) ->
+  % TODO. Diagnostics. Connection. Received ACCESS DEMAND w/ timestamp
   ?LOGDEBUG("server ~p w/ address ~p: received ACCESS DEMAND", [Name, Address]),
   Data#data{
     sent_frame = send_response(Switch, #frame{
@@ -210,6 +215,7 @@ handle_request(?REQUEST_STATUS_LINK, _UserData, #data{
   address = Address,
   name = Name
 } = Data) ->
+  % TODO. Diagnostics. Connection. Received REQUEST STATUS LINK w/ timestamp
   ?LOGDEBUG("server ~p w/ address ~p: received REQUEST STATUS LINK", [Name, Address]),
   Data#data{
     sent_frame = send_response(Switch, #frame{
@@ -231,6 +237,7 @@ handle_request(RequestData, _UserData, #data{
 } = Data)
   when RequestData =:= ?REQUEST_DATA_CLASS_1;
        RequestData =:= ?REQUEST_DATA_CLASS_2 ->
+  % TODO. Diagnostics. Connection. Received DATA CLASS REQUEST w/ timestamp
   Response =
     case check_data(Connection) of
       {ok, ConnectionData} ->

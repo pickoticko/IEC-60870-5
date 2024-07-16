@@ -86,9 +86,11 @@ handle_event(info, {asdu, Connection, ASDU}, _AnyState, #data{
 } = Data)->
   try
     ParsedASDU = iec60870_asdu:parse(ASDU, ASDUSettings),
+    % TODO. Diagnostics. STM. Received parsed ASDU with its type and timestamp
     handle_asdu(ParsedASDU, Data)
   catch
     _Exception:Error ->
+      % TODO. Diagnostics. STM. Received invalid ASDU with timestamp
       ?LOGERROR("~p server received invalid ASDU. ASDU: ~p, Error: ~p", [Name, ASDU, Error]),
       keep_state_and_data
   end;
@@ -234,6 +236,7 @@ handle_asdu(#asdu{
   },
   connection = Connection
 }) ->
+  % TODO. Diagnostics. STM. General interrogation timestamp and group ID
   % +-------------[ Send initialization ]-------------+
   [Confirmation] = iec60870_asdu:build(#asdu{
     type = ?C_IC_NA_1,

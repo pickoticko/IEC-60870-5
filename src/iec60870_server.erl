@@ -20,8 +20,7 @@
   write/3,
   subscribe/3, subscribe/2,
   unsubscribe/3, unsubscribe/2,
-  get_pid/1,
-  get_info/1, get_info/2
+  get_pid/1
 ]).
 
 %%% +--------------------------------------------------------------+
@@ -41,8 +40,7 @@
 -record(?MODULE, {
   storage,
   pid,
-  name,
-  diagnostics
+  name
 }).
 
 -record(state,{
@@ -213,6 +211,7 @@ init_server(Owner, #{
     storage = Storage,
     name = Name
   },
+  ?LOGINFO("Debug. Reference: ~p", [Ref]),
   ConnectionSettings = #{
     name => Name,
     storage => Storage,
@@ -326,17 +325,3 @@ check_value(#{value := undefined} = ObjectData) ->
 %% Key 'value' is missing, incorrect object passed
 check_value(_Value) ->
   throw({error, value_parameter_missing}).
-
-%% Get diagnostics info by ets ref
-get_info(#?MODULE{diagnostics = Diagnostics}) ->
-  ets:tab2list(Diagnostics);
-get_info(_) ->
-  throw(bad_arg).
-
-get_info(#?MODULE{diagnostics = Diagnostics}, Key) ->
-  case ets:lookup(Diagnostics, Key) of
-    [] -> undefined;
-    [{Key, Value}] -> Value
-  end;
-get_info(_, _) ->
-  throw(bad_arg).

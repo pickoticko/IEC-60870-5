@@ -241,6 +241,7 @@ handle_request(RequestData, _UserData, #data{
   Response =
     case check_data(Connection) of
       {ok, ConnectionData} ->
+        % TODO. Diagnostics. Connection. Message Queue Length
         ?LOGDEBUG("server ~p message queue: ~p", [Name, element(2,erlang:process_info(self(), message_queue_len))]),
         #frame{
           address = Address,

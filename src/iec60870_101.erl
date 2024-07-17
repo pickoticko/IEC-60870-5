@@ -64,6 +64,8 @@
 
 -define(UPDATE_FCB(State, Request), State#state{fcb = Request#frame.control_field#control_field_request.fcb}).
 
+-define(STATE_INFO(State), {connection, #{state=>State, timestamp=>erlang:system_time(millisecond)}}).
+
 %%% +--------------------------------------------------------------+
 %%% |                    Server API implementation                 |
 %%% +--------------------------------------------------------------+
@@ -135,6 +137,7 @@ connect(Attempts, #state{
   case reset_link(StateIn) of
     error ->
       % TODO. Diagnostics. Connection. Failed RESET LINK w/ timestamp
+
       ?LOGERROR("RESET LINK is ERROR. Address: ~p", [Address]),
       error;
     StateReset ->

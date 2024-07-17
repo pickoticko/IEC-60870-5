@@ -266,6 +266,7 @@ handle_event(
     #data{name = Name, asdu = ASDUSettings, connection = Connection, current_connection = CurrentConnection, diagnostics = Diagnostics}
 ) ->
   ets:insert(Diagnostics, ?STATE_INFO(State)),
+  ets:insert(Diagnostics, {{group, ID}, #{start=>erlang:system_time(millisecond)}}),
   ?LOGDEBUG("client ~p connection ~p: sending GI REQUEST for group ~p", [Name, CurrentConnection, ID]),
   [GroupRequest] = iec60870_asdu:build(#asdu{
     type = ?C_IC_NA_1,
@@ -281,9 +282,10 @@ handle_event(
     internal,
     #asdu{type = ?C_IC_NA_1, cot = ?COT_ACTCON, pn = ?POSITIVE_PN, objects = [{_IOA, ID}]},
     #gi{state = confirm, id = ID} = State,
-    #data{name = Name, current_connection = CurrentConnection} = Data
+    #data{name = Name, current_connection = CurrentConnection, diagnostics = Diagnostics} = Data
 ) ->
   % TODO. Diagnostics. STM. Successful confirmation w/ timestamp of group (separate them using ID of the group)
+  update_group_timeouts(Diagnostics, ID, confirm),
   ?LOGDEBUG("client ~p connection ~p: GI CONFIRMATION for group ~p", [Name, CurrentConnection, ID]),
   {next_state, State#gi{state = run}, Data};
 
@@ -338,9 +340,10 @@ handle_event(
     internal,
     #asdu{type = ?C_IC_NA_1, cot = ?COT_ACTTERM, pn = ?POSITIVE_PN, objects = [{_IOA, ID}]},
     #gi{state = run, id = ID, count = Count} = State,
-    #data{name = Name, state_acc = GroupItems, current_connection = CurrentConnection} = Data
+    #data{name = Name, state_acc = GroupItems, current_connection = CurrentConnection, diagnostics = Diagnostics} = Data
 ) ->
   % TODO. Diagnostics. STM. Successful termination w/ timestamp of group (separate them using ID of the group)
+  update_group_timeouts(Diagnostics, ID, termination),
   ?LOGDEBUG("client ~p connection ~p: GI TERMINATION for group ~p", [Name, CurrentConnection, ID]),
   IsSuccessful =
     if
@@ -366,10 +369,11 @@ handle_event(
 handle_event(
     state_timeout,
     timeout,
-    #gi{state = run, count = Count} = State,
-    #data{state_acc = GroupItems} = Data
+    #gi{state = run, count = Count, id = ID} = State,
+    #data{state_acc = GroupItems, diagnostics = Diagnostics} = Data
 ) ->
   % TODO. Diagnostics. STM. Timestamp of the group timeout (separate them using ID of the group)
+  update_group_timeouts(Diagnostics, ID, timeout),
   IsSuccessful = is_number(Count) andalso (map_size(GroupItems) >= Count),
   if
     IsSuccessful ->
@@ -415,6 +419,7 @@ handle_event(
 ) ->
   % TODO. Diagnostics. STM. Timestamp of the group finish (separate them using ID of the group)
   ets:insert(Diagnostics, ?STATE_INFO(State)),
+  update_group_timeouts(Diagnostics, ID, finish),
   ?LOGDEBUG("client ~p connection ~p: GI FINISH for group ~p", [Name, CurrentConnection, ID]),
   {keep_state_and_data, [{state_timeout, 0, timeout}]};
 
@@ -778,6 +783,20 @@ update_value(Name, Storage, ID, InValue) ->
   esubscribe:notify(Name, update, {ID, NewValue}),
   % Only address notification
   esubscribe:notify(Name, ID, NewValue).
+
+update_group_timeouts(Diagnostics, GroupId, State) ->
+  case ets:lookup(Diagnostics, {group, GroupId}) of
+    [{Key, OldMap}] ->
+      ets:insert(Diagnostics, {Key, OldMap#{State=>erlang:system_time(millisecond)}})
+  end.
+
+update_group_errors(Diagnostics, GroupId, NewError) ->
+  case ets:lookup(Diagnostics, {group, GroupId}) of
+    [{Key, OldMap}] ->
+      ets:insert(Diagnostics, {Key, OldMap#{error=>NewError}});
+    [] ->
+      ets:insert(Diagnostics, {})
+  end.
 
 %% Alternating between connections
 switch_connection(_Connection = main) -> redundant;

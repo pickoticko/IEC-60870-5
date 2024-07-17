@@ -23,8 +23,10 @@
 %%% |                       Macros & Records                       |
 %%% +--------------------------------------------------------------+
 
--define(CONNECTION_TIMEOUT, 300000). % 5 min
+-define(CONNECTION_TIMEOUT, 300000).
 -define(DEFAULT_MAX_MESSAGE_QUEUE, 1000).
+-define(DEFAULT_IDLE_TIMEOUT, 30000).
+-define(CURRENT_TIME, erlang:system_time(millisecond)).
 
 -define(ACKNOWLEDGE_FRAME(Address), #frame{
   address = Address,
@@ -44,7 +46,9 @@
   fcb,
   sent_frame,
   queue_limit,
-  connection
+  connection,
+  last_active_time,
+  max_idle_time
 }).
 
 %% +--------------------------------------------------------------+
@@ -82,8 +86,10 @@ init(Root, #{
     address = Address,
     switch = Switch,
     connection = Connection,
+    fcb = undefined,
     queue_limit = maps:get(queue_limit, Options, ?DEFAULT_MAX_MESSAGE_QUEUE),
-    fcb = undefined
+    max_idle_time = maps:get(max_idle_time, Options, ?DEFAULT_IDLE_TIMEOUT),
+    last_active_time = ?CURRENT_TIME
   }).
 
 start_connection(Root) ->
@@ -102,8 +108,10 @@ loop(#data{
   address = Address,
   fcb = FCB,
   sent_frame = SentFrame,
-  connection = Connection
-} = Data) ->
+  connection = Connection,
+  last_active_time = ActiveTime
+} = DataIn) ->
+  Data = is_connection_active(DataIn),
   receive
     {data, Switch, #frame{address = ReqAddress}} when ReqAddress =/= Address ->
       ?LOGWARNING("server w/ link address ~p received unexpected link address: ~p", [Address, ReqAddress]),
@@ -125,6 +133,8 @@ loop(#data{
           end,
           loop(Data)
       end;
+    {asdu, _Connection, _Data} when ActiveTime =:= timeout ->
+      loop(Data);
     {'DOWN', _, process, Connection, _Error} ->
       ?LOGWARNING("~p server w/ link address ~p is down", [Name, Address]),
       NewConnection = start_connection( Root ),
@@ -239,7 +249,7 @@ handle_request(RequestData, _UserData, #data{
     case check_data(Connection) of
       {ok, ConnectionData} ->
         ?LOGDEBUG("server ~p message queue: ~p", [Name, element(2,erlang:process_info(self(), message_queue_len))]),
-        check_message_queue(QueueLimit)
+        check_message_queue(QueueLimit),
         #frame{
           address = Address,
           control_field = #control_field_response{
@@ -264,6 +274,7 @@ handle_request(RequestData, _UserData, #data{
     end,
   ?LOGDEBUG("server ~p w/ address ~p: received DATA CLASS REQUEST, our RESPONSE: ~p", [Name, Address, Response]),
   Data#data{
+    last_active_time = ?CURRENT_TIME,
     sent_frame = send_response(Switch, Response)
   };
 
@@ -310,4 +321,18 @@ check_message_queue(MaxMessageQueue) ->
       end;
     true ->
       ok
+  end.
+
+%% Checking the time elapsed since the last data class request was received.
+%% If the elapsed time (delta time) exceeds the specified limit, set the timeout flag
+%% which allows for a process to ignore ASDU messages.
+is_connection_active(#data{last_active_time = timeout} = Data) ->
+  Data;
+is_connection_active(#data{last_active_time = StartTime, max_idle_time = MaxIdleTime} = Data) ->
+  DeltaTime = ?CURRENT_TIME - StartTime,
+  if
+    DeltaTime > MaxIdleTime ->
+      Data#data{last_active_time = timeout};
+    true ->
+      Data
   end.

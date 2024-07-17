@@ -23,11 +23,6 @@
 %%% |                       Macros & Records                       |
 %%% +--------------------------------------------------------------+
 
--define(START_TIMEOUT, 1000).
--define(DEFAULT_CYCLE, 1000).
-
--define(NOT(X), abs(X - 1)).
-
 -define(RESPONSE(Address, FC, UserData), #frame{
   address = Address,
   control_field = #control_field_response{
@@ -77,15 +72,15 @@ stop(Port) ->
 %%% |                      Internal functions                      |
 %%% +--------------------------------------------------------------+
 
-init_client(Owner, #{port := #{name := PortName}} = Options) ->
+init_client(Owner, #{cycle := Cycle, port := #{name := PortName}} = Options) ->
   Port = start_port(Options),
   State = connect(Port, Options),
-  Cycle = maps:get(cycle, Options, ?DEFAULT_CYCLE),
   erlang:monitor(process, Owner),
   Owner ! {connected, self()},
   self() ! {update, self()},
   loop(#data{
     state = State,
+    cycle = Cycle,
     name = PortName,
     cycle = Cycle,
     owner = Owner,

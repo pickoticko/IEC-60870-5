@@ -34,14 +34,26 @@
 %%% |                       Macros & Records                       |
 %%% +--------------------------------------------------------------+
 
+-define(UPDATE_FCB(State, Request), State#state{fcb = Request#frame.control_field#control_field_request.fcb}).
+-define(DEFAULT_MAX_MESSAGE_QUEUE, 1000).
+-define(DEFAULT_IDLE_TIMEOUT, 30000).
+-define(DEFAULT_CYCLE, 1000).
+-define(REQUIRED, {?MODULE, required}).
 -define(NOT(X), abs(X - 1)).
 
-%% Connection settings
--define(REQUIRED, {?MODULE, required}).
+-define(UNBALANCED_CLIENT_SETTINGS, #{
+  cycle => ?DEFAULT_CYCLE
+}).
+
+-define(UNBALANCED_SERVER_SETTINGS, #{
+  max_message_queue => ?DEFAULT_MAX_MESSAGE_QUEUE,
+  max_idle_time => ?DEFAULT_IDLE_TIMEOUT
+}).
+
 -define(DEFAULT_SETTINGS, #{
   balanced => ?REQUIRED,
   address => ?REQUIRED,
-  address_size => 1,
+  address_size => ?REQUIRED,
   on_request => undefined,
   port => #{
     name => undefined,
@@ -62,23 +74,21 @@
   on_request
 }).
 
--define(UPDATE_FCB(State, Request), State#state{fcb = Request#frame.control_field#control_field_request.fcb}).
-
 %%% +--------------------------------------------------------------+
 %%% |                    Server API implementation                 |
 %%% +--------------------------------------------------------------+
 
 start_server(InSettings) ->
-  Settings = check_settings(maps:merge(?DEFAULT_SETTINGS, InSettings)),
-  Module =
-    case Settings of
+  {Module, Settings} =
+    case InSettings of
       #{balanced := false} ->
-        iec60870_unbalanced_server;
+        {iec60870_unbalanced_server, maps:merge(?UNBALANCED_SERVER_SETTINGS, InSettings)};
       _Other ->
-        iec60870_balanced_server
+        {iec60870_balanced_server, InSettings}
     end,
+  OutSettings = check_settings(maps:merge(?DEFAULT_SETTINGS, Settings)),
   Root = self(),
-  Server = Module:start(Root, Settings),
+  Server = Module:start(Root, OutSettings),
   {Module, Server}.
 
 stop_server({Module, Server})->
@@ -89,16 +99,16 @@ stop_server({Module, Server})->
 %%% +--------------------------------------------------------------+
 
 start_client(InSettings) ->
-  Settings = check_settings(maps:merge(?DEFAULT_SETTINGS, InSettings)),
-  Module =
-    case Settings of
+  {Module, Settings} =
+    case InSettings of
       #{balanced := false} ->
-        iec60870_unbalanced_client;
+        {iec60870_unbalanced_client, maps:merge(?UNBALANCED_CLIENT_SETTINGS, InSettings)};
       _Other ->
-        iec60870_balanced_client
+        {iec60870_balanced_client, InSettings}
     end,
+  OutSettings = check_settings(maps:merge(?DEFAULT_SETTINGS, Settings)),
   Root = self(),
-  Module:start(Root, Settings).
+  Module:start(Root, OutSettings).
 
 %%% +--------------------------------------------------------------+
 %%% |               Shared functions implementation                |
@@ -336,5 +346,64 @@ handle_fcv(FunctionCode) ->
   end.
 
 check_settings(Settings) ->
-  % TODO: Add settings validation
+  [begin
+     case Value of
+       ?REQUIRED ->
+         throw({required, Key});
+       _Exists ->
+         check_setting(Setting)
+     end
+   end || {Key, Value} = Setting <- maps:to_list(Settings)],
   Settings.
+
+check_setting({balanced, IsBalanced})
+  when is_boolean(IsBalanced) -> ok;
+
+check_setting({address, DataLinkAddress})
+  when is_integer(DataLinkAddress) -> ok;
+
+check_setting({address_size, DataLinkAddressSize})
+  when is_integer(DataLinkAddressSize) -> ok;
+
+check_setting({cycle, Cycle})
+  when is_integer(Cycle) -> ok;
+
+check_setting({max_idle_time, Milliseconds})
+  when is_integer(Milliseconds) -> ok;
+
+check_setting({max_message_queue, QueueLimit})
+  when is_integer(QueueLimit) -> ok;
+
+check_setting({attempts, Attempts})
+  when is_integer(Attempts) -> ok;
+
+check_setting({timeout, Timeout})
+  when is_integer(Timeout) -> ok;
+
+check_setting({on_request, OnRequest})
+  when is_function(OnRequest) orelse OnRequest =:= undefined -> ok;
+
+check_setting({port, PortSettings})
+  when is_map(PortSettings) ->
+    [check_port_settings(PortSetting) || PortSetting <- maps:to_list(PortSettings)];
+
+check_setting(InvalidSetting) ->
+  throw({invalid_setting, InvalidSetting}).
+
+check_port_settings({name, Name})
+  when is_list(Name) -> ok;
+
+check_port_settings({baudrate, Baudrate})
+  when is_integer(Baudrate) -> ok;
+
+check_port_settings({parity, Parity})
+  when is_integer(Parity) -> ok;
+
+check_port_settings({stopbits, Stopbits})
+  when is_integer(Stopbits) -> ok;
+
+check_port_settings({bytesize, Bytesize})
+  when is_integer(Bytesize) -> ok;
+
+check_port_settings(InvalidSetting) ->
+  throw({invalid_port_setting, InvalidSetting}).

@@ -80,7 +80,6 @@ init_client(Owner, #{cycle := Cycle, port := #{name := PortName}} = Options) ->
   self() ! {update, self()},
   loop(#data{
     state = State,
-    cycle = Cycle,
     name = PortName,
     cycle = Cycle,
     owner = Owner,

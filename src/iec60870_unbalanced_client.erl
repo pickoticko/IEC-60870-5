@@ -223,7 +223,7 @@ port_loop(#port_state{port_ft12 = PortFT12, clients = Clients, name = Name} = Sh
     {add_client, Client, Options} ->
       case iec60870_101:connect(Options#{portFT12 => PortFT12, direction => 0}) of
         error ->
-          ?LOGERROR("shared port ~p failed to add client: ", [Name, Client]),
+          ?LOGERROR("shared port ~p failed to add client: ~p", [Name, Client]),
           Client ! {error, self(), timeout},
           State1 = check_stop(SharedState),
           port_loop(State1);

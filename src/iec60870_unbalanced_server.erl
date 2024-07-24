@@ -42,7 +42,8 @@
   switch,
   fcb,
   sent_frame,
-  connection
+  connection,
+  diagnostics
 }).
 
 %% +--------------------------------------------------------------+
@@ -74,13 +75,15 @@ init(Root, #{
   iec60870_switch:add_server(Switch, Address),
   Root ! {ready, self()},
   Connection = start_connection(Root),
+  Diagnostics = maps:get(diagnostics, Options),
   loop(#data{
     name = PortName,
     root = Root,
     address = Address,
     switch = Switch,
     connection = Connection,
-    fcb = undefined
+    fcb = undefined,
+    diagnostics = Diagnostics
   }).
 
 start_connection(Root) ->
@@ -99,7 +102,8 @@ loop(#data{
   address = Address,
   fcb = FCB,
   sent_frame = SentFrame,
-  connection = Connection
+  connection = Connection,
+  diagnostics = Diagnostics
 } = Data) ->
   receive
     {data, Switch, #frame{address = ReqAddress}} when ReqAddress =/= Address ->
@@ -135,6 +139,7 @@ loop(#data{
     ?CONNECTION_TIMEOUT->
       ?LOGDEBUG("server ~p w/ address ~p: connection timeout!", [Name, Address]),
       % TODO. Diagnostics. Connection. Last connection timeout w/ timestamp
+      iec60870_lib:update_diagnostics(Diagnostics, connection, last_connection_timeout),
       drop_queue(),
       loop(Data)
   end.
@@ -149,9 +154,11 @@ check_fcb(#control_field_request{fcv = 1, fcb = RecFCB}, _FCB) ->
 handle_request(?RESET_REMOTE_LINK, _UserData, #data{
   switch = Switch,
   address = Address,
-  name = Name
+  name = Name,
+  diagnostics = Diagnostics
 } = Data) ->
   % TODO. Diagnostics. Connection. Received RESET LINK w/ timestamp
+  iec60870_lib:update_diagnostics(Diagnostics, connection, reset_link),
   ?LOGDEBUG("server ~p w/ address ~p: received RESET LINK", [Name, Address]),
   Data#data{
     sent_frame = send_response(Switch, ?ACKNOWLEDGE_FRAME(Address))
@@ -160,9 +167,11 @@ handle_request(?RESET_REMOTE_LINK, _UserData, #data{
 handle_request(?RESET_USER_PROCESS, _UserData, #data{
   switch = Switch,
   address = Address,
-  name = Name
+  name = Name,
+  diagnostics = Diagnostics
 } = Data) ->
   % TODO. Diagnostics. Connection. Received RESET USER PROCESS w/ timestamp
+  iec60870_lib:update_diagnostics(Diagnostics, connection, reset_user_process),
   ?LOGDEBUG("server ~p w/ address ~p: received RESET USER PROCESS", [Name, Address]),
   drop_asdu(),
   Data#data{
@@ -173,9 +182,11 @@ handle_request(?USER_DATA_CONFIRM, ASDU, #data{
   connection = Connection,
   switch = Switch,
   address = Address,
-  name = Name
+  name = Name,
+  diagnostics = Diagnostics
 } = Data) ->
   % TODO. Diagnostics. Connection. Received USER DATA CONFIRM and timestamp
+  iec60870_lib:update_diagnostics(Diagnostics, connection, user_data_confirm),
   ?LOGDEBUG("server ~p w/ address ~p: received USER DATA CONFIRM", [Name, Address]),
   Connection ! {asdu, self(), ASDU},
   Data#data{
@@ -194,9 +205,11 @@ handle_request(?USER_DATA_NO_REPLY, ASDU, #data{
 handle_request(?ACCESS_DEMAND, _UserData, #data{
   switch = Switch,
   address = Address,
-  name = Name
+  name = Name,
+  diagnostics = Diagnostics
 } = Data) ->
   % TODO. Diagnostics. Connection. Received ACCESS DEMAND w/ timestamp
+  iec60870_lib:update_diagnostics(Diagnostics, connection, access_demand),
   ?LOGDEBUG("server ~p w/ address ~p: received ACCESS DEMAND", [Name, Address]),
   Data#data{
     sent_frame = send_response(Switch, #frame{
@@ -213,9 +226,11 @@ handle_request(?ACCESS_DEMAND, _UserData, #data{
 handle_request(?REQUEST_STATUS_LINK, _UserData, #data{
   switch = Switch,
   address = Address,
-  name = Name
+  name = Name,
+  diagnostics = Diagnostics
 } = Data) ->
   % TODO. Diagnostics. Connection. Received REQUEST STATUS LINK w/ timestamp
+  iec60870_lib:update_diagnostics(Diagnostics, connection, request_status_link),
   ?LOGDEBUG("server ~p w/ address ~p: received REQUEST STATUS LINK", [Name, Address]),
   Data#data{
     sent_frame = send_response(Switch, #frame{
@@ -233,15 +248,18 @@ handle_request(RequestData, _UserData, #data{
   switch = Switch,
   address = Address,
   connection = Connection,
-  name = Name
+  name = Name,
+  diagnostics = Diagnostics
 } = Data)
   when RequestData =:= ?REQUEST_DATA_CLASS_1;
        RequestData =:= ?REQUEST_DATA_CLASS_2 ->
   % TODO. Diagnostics. Connection. Received DATA CLASS REQUEST w/ timestamp
+  iec60870_lib:update_diagnostics(Diagnostics, connection, data_class_request),
   Response =
     case check_data(Connection) of
       {ok, ConnectionData} ->
         % TODO. Diagnostics. Connection. Message Queue Length
+        iec60870_lib:update_diagnostics(Diagnostics, connection, erlang:process_info(self(), message_queue_len)),
         ?LOGDEBUG("server ~p message queue: ~p", [Name, element(2,erlang:process_info(self(), message_queue_len))]),
         #frame{
           address = Address,

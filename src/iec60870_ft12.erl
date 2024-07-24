@@ -29,7 +29,8 @@
   owner,
   port,
   buffer,
-  address_size
+  address_size,
+  diagnostics
 }).
 
 -define(DEFAULT_PORT_OPTIONS, #{
@@ -80,7 +81,7 @@ init(Owner, #{
     name := PortName
   } = PortOptions,
   address_size := AddressSize
-}) ->
+} = Options) ->
   ?LOGDEBUG("FT12 port ~p trying to open eserial...", [PortName]),
   case eserial:open(PortName, maps:without([name], PortOptions)) of
     {ok, Port} ->
@@ -88,12 +89,14 @@ init(Owner, #{
       erlang:monitor(process, Port),
       erlang:monitor(process, Owner),
       Owner ! {ready, self()},
+      Diagnostics = maps:get(diagnostics, Options),
       loop(#state{
         name = PortName,
         owner = Owner,
         port = Port,
         address_size = AddressSize * 8,
-        buffer = <<>>
+        buffer = <<>>,
+        diagnostics = Diagnostics
       });
     {error, Error} ->
       exit(Error)
@@ -104,7 +107,8 @@ loop(#state{
   name = PortName,
   buffer = Buffer,
   owner = Owner,
-  address_size = AddressSize
+  address_size = AddressSize,
+  diagnostics = Diagnostics
 } = State) ->
   receive
     {Port, data, Data} ->
@@ -113,10 +117,12 @@ loop(#state{
           ?LOGDEBUG("FT12 port ~p received parsed data. frame: ~p, tailbuffer: ~p", [PortName, Frame, TailBuffer]),
           Owner ! {data, self(), Frame},
           % TODO. Diagnostics. FT12. Save tailbuffer.
+          iec60870_lib:update_diagnostics(Diagnostics, ft12, {tailbuffer, {parsed, TailBuffer}}),
           loop(State#state{buffer = TailBuffer});
         TailBuffer ->
           ?LOGDEBUG("FT12 port ~p received data, no parse. tailbuffer: ~p", [PortName, TailBuffer]),
           % TODO. Diagnostics. FT12. Save tailbuffer.
+          iec60870_lib:update_diagnostics(Diagnostics, ft12, {tailbuffer, {no_parsed, TailBuffer}}),
           loop(State#state{buffer = TailBuffer})
       end;
 
@@ -129,6 +135,7 @@ loop(#state{
             % TODO: ClearWindow should be calculated from the baudrate
             timer:sleep(_ClearWindow = 100),
             % TODO. Diagnostics. FT12. Save last drop data timestamp.
+            iec60870_lib:update_diagnostics(Diagnostics, ft12, last_drop_data),
             drop_data(Port),
             State#state{buffer = <<>>};
           _ ->

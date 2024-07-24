@@ -97,8 +97,6 @@
 %% Remote control timeout
 -define(RC_TIMEOUT, 10000).
 
--define(STATE_INFO(State), {stm, #{state=>State, timestamp=>erlang:system_time(millisecond)}}).
-
 %%% +--------------------------------------------------------------+
 %%% |                  OTP behaviour implementation                |
 %%% +--------------------------------------------------------------+
@@ -185,7 +183,7 @@ handle_event(
     #connecting{} = State,
     #data{name = Name, current_connection = CurrentConnection, diagnostics = Diagnostics} = _Data
 ) ->
-  ets:insert(Diagnostics, ?STATE_INFO(State)),
+  iec60870_lib:update_diagnostics(Diagnostics, stm, {state, State}),
   ?LOGDEBUG("client ~p connection ~p: entering CONNECTING state", [Name, CurrentConnection]),
   {keep_state_and_data, [{state_timeout, 0, connect}]};
 
@@ -202,11 +200,12 @@ handle_event(
     state_timeout,
     connect,
     #connecting{failed = Failed, next_state = NextState} = Connecting,
-    #data{current_connection = CurrentConnection, type = Type, connections = Connections, name = Name} = Data
+    #data{current_connection = CurrentConnection, type = Type, connections = Connections, name = Name, diagnostics = Diagnostics} = Data
 ) ->
   Module = iec60870_lib:get_driver_module(Type),
   try
-    Connection = Module:start_client(maps:get(CurrentConnection, Connections)),
+    ConnectionSettings = maps:get(CurrentConnection, Connections),
+    Connection = Module:start_client(ConnectionSettings#{diagnostics => Diagnostics}),
     erlang:monitor(process, Connection),
     ?LOGINFO("client ~p started ~p connection", [Name, CurrentConnection]),
     {next_state, NextState, Data#data{connection = Connection}}
@@ -231,7 +230,7 @@ handle_event(
     ?GI_INITIALIZATION,
     #data{name = Name, current_connection = CurrentConnection, diagnostics = Diagnostics} = _Data
 ) ->
-  ets:insert(Diagnostics, ?STATE_INFO(?GI_INITIALIZATION)),
+  iec60870_lib:update_diagnostics(Diagnostics, stm, {state, ?GI_INITIALIZATION}),
   ?LOGDEBUG("client ~p connection ~p: entering INIT GROUPS state", [Name, CurrentConnection]),
   {keep_state_and_data, [{state_timeout, 0, init}]};
 
@@ -265,8 +264,8 @@ handle_event(
     #gi{state = confirm, id = ID} = State,
     #data{name = Name, asdu = ASDUSettings, connection = Connection, current_connection = CurrentConnection, diagnostics = Diagnostics}
 ) ->
-  ets:insert(Diagnostics, ?STATE_INFO(State)),
-  ets:insert(Diagnostics, {{group, ID}, #{start=>erlang:system_time(millisecond)}}),
+  iec60870_lib:update_diagnostics(Diagnostics, stm, {state, State}),
+  iec60870_lib:update_diagnostics(Diagnostics, {group, ID}, start),
   ?LOGDEBUG("client ~p connection ~p: sending GI REQUEST for group ~p", [Name, CurrentConnection, ID]),
   [GroupRequest] = iec60870_asdu:build(#asdu{
     type = ?C_IC_NA_1,
@@ -284,8 +283,7 @@ handle_event(
     #gi{state = confirm, id = ID} = State,
     #data{name = Name, current_connection = CurrentConnection, diagnostics = Diagnostics} = Data
 ) ->
-  % TODO. Diagnostics. STM. Successful confirmation w/ timestamp of group (separate them using ID of the group)
-  update_group_timeouts(Diagnostics, ID, confirm),
+  iec60870_lib:update_diagnostics(Diagnostics, {group, ID}, confirm),
   ?LOGDEBUG("client ~p connection ~p: GI CONFIRMATION for group ~p", [Name, CurrentConnection, ID]),
   {next_state, State#gi{state = run}, Data};
 
@@ -294,8 +292,9 @@ handle_event(
     internal,
     #asdu{type = ?C_IC_NA_1, cot = ?COT_ACTCON, pn = ?NEGATIVE_PN, objects = [{_IOA, ID}]},
     #gi{state = confirm, id = ID} = State,
-    #data{name = Name, current_connection = CurrentConnection} = Data
+    #data{name = Name, current_connection = CurrentConnection, diagnostics = Diagnostics} = Data
 ) ->
+  iec60870_lib:update_diagnostics(Diagnostics, {group,ID}, {last_error, {confirmation, rejected}}),
   ?LOGWARNING("client ~p connection ~p: group ~p interrogation rejected", [Name, CurrentConnection, ID]),
   {next_state, State#gi{state = error}, Data};
 
@@ -303,8 +302,9 @@ handle_event(
     state_timeout,
     timeout,
     #gi{state = confirm, id = ID} = State,
-    #data{name = Name, current_connection = CurrentConnection} = Data
+    #data{name = Name, current_connection = CurrentConnection, diagnostics = Diagnostics} = Data
 ) ->
+  iec60870_lib:update_diagnostics(Diagnostics, {group,ID}, {last_error, {confirmation, timeout}}),
   ?LOGWARNING("client ~p connection ~p: group ~p interrogation confirmation timeout", [Name, CurrentConnection, ID]),
   {next_state, State#gi{state = error}, Data};
 
@@ -315,7 +315,7 @@ handle_event(
     #gi{state = run, timeout = Timeout, id = ID} = State,
     #data{name = Name, current_connection = CurrentConnection, diagnostics = Diagnostics} = Data
 ) ->
-  ets:insert(Diagnostics, ?STATE_INFO(State)),
+  iec60870_lib:update_diagnostics(Diagnostics, stm, {state, State}),
   ?LOGDEBUG("client ~p connection ~p: GI RUN state for group ~p", [Name, CurrentConnection, ID]),
   {keep_state, Data#data{state_acc = #{}}, [{state_timeout, Timeout, timeout}]};
 
@@ -342,8 +342,7 @@ handle_event(
     #gi{state = run, id = ID, count = Count} = State,
     #data{name = Name, state_acc = GroupItems, current_connection = CurrentConnection, diagnostics = Diagnostics} = Data
 ) ->
-  % TODO. Diagnostics. STM. Successful termination w/ timestamp of group (separate them using ID of the group)
-  update_group_timeouts(Diagnostics, ID, termination),
+  iec60870_lib:update_diagnostics(Diagnostics, {group, ID}, termination),
   ?LOGDEBUG("client ~p connection ~p: GI TERMINATION for group ~p", [Name, CurrentConnection, ID]),
   IsSuccessful =
     if
@@ -362,8 +361,9 @@ handle_event(
     internal,
     #asdu{type = ?C_IC_NA_1, cot = ?COT_ACTTERM, pn = ?NEGATIVE_PN, objects = [{_IOA, ID}]},
     #gi{state = run, id = ID} = State,
-    Data
+    #data{diagnostics = Diagnostics} = Data
 ) ->
+  iec60870_lib:update_diagnostics(Diagnostics, {group, ID}, {last_error, {termination, rejected}}),
   {next_state, State#gi{state = error}, Data};
 
 handle_event(
@@ -372,8 +372,7 @@ handle_event(
     #gi{state = run, count = Count, id = ID} = State,
     #data{state_acc = GroupItems, diagnostics = Diagnostics} = Data
 ) ->
-  % TODO. Diagnostics. STM. Timestamp of the group timeout (separate them using ID of the group)
-  update_group_timeouts(Diagnostics, ID, timeout),
+  iec60870_lib:update_diagnostics(Diagnostics, {group, ID}, timeout),
   IsSuccessful = is_number(Count) andalso (map_size(GroupItems) >= Count),
   if
     IsSuccessful ->
@@ -389,7 +388,8 @@ handle_event(
     #gi{state = error, id = ID} = State,
     #data{name = Name, current_connection = CurrentConnection, diagnostics = Diagnostics} = _Data
 ) ->
-  ets:insert(Diagnostics, ?STATE_INFO(State)),
+  iec60870_lib:update_diagnostics(Diagnostics, stm, {state, State}),
+  iec60870_lib:update_diagnostics(Diagnostics, {group, ID}, {last_error, timeout}),
   ?LOGDEBUG("client ~p connection ~p: GI TIMEOUT for group ~p", [Name, CurrentConnection, ID]),
   {keep_state_and_data, [{state_timeout, 0, timeout}]};
 
@@ -417,9 +417,8 @@ handle_event(
     #gi{state = finish, id = ID} = State,
     #data{name = Name, current_connection = CurrentConnection, diagnostics = Diagnostics}
 ) ->
-  % TODO. Diagnostics. STM. Timestamp of the group finish (separate them using ID of the group)
-  ets:insert(Diagnostics, ?STATE_INFO(State)),
-  update_group_timeouts(Diagnostics, ID, finish),
+  iec60870_lib:update_diagnostics(Diagnostics, stm, {state, State}),
+  iec60870_lib:update_diagnostics(Diagnostics, {group, ID}, finish),
   ?LOGDEBUG("client ~p connection ~p: GI FINISH for group ~p", [Name, CurrentConnection, ID]),
   {keep_state_and_data, [{state_timeout, 0, timeout}]};
 
@@ -459,7 +458,7 @@ handle_event(
     ?CONNECTED,
     #data{name = Name, current_connection = CurrentConnection, diagnostics = Diagnostics} = _Data
 ) ->
-  ets:insert(Diagnostics, ?STATE_INFO(?CONNECTED)),
+  iec60870_lib:update_diagnostics(Diagnostics, stm, {state, ?CONNECTED}),
   ?LOGDEBUG("client ~p connection ~p: entering CONNECTED state", [Name, CurrentConnection]),
   keep_state_and_data;
 
@@ -513,7 +512,7 @@ handle_event(
     #rc{state = confirm, type = Type, ioa = IOA, value = Value} = State,
     #data{connection = Connection, asdu = ASDUSettings, diagnostics = Diagnostics}
 ) ->
-  ets:insert(Diagnostics, ?STATE_INFO(State)),
+  iec60870_lib:update_diagnostics(Diagnostics, stm, {state, State}),
   [ASDU] = iec60870_asdu:build(#asdu{
     type = Type,
     pn = ?POSITIVE_PN,
@@ -556,7 +555,7 @@ handle_event(
     #rc{state = run} = State,
     #data{diagnostics = Diagnostics}
 ) ->
-  ets:insert(Diagnostics, ?STATE_INFO(State)),
+  iec60870_lib:update_diagnostics(Diagnostics, stm, {state, State}),
   {keep_state_and_data, [{state_timeout, ?RC_TIMEOUT, timeout}]};
 
 %% Remote control command termination
@@ -783,20 +782,6 @@ update_value(Name, Storage, ID, InValue) ->
   esubscribe:notify(Name, update, {ID, NewValue}),
   % Only address notification
   esubscribe:notify(Name, ID, NewValue).
-
-update_group_timeouts(Diagnostics, GroupId, State) ->
-  case ets:lookup(Diagnostics, {group, GroupId}) of
-    [{Key, OldMap}] ->
-      ets:insert(Diagnostics, {Key, OldMap#{State=>erlang:system_time(millisecond)}})
-  end.
-
-update_group_errors(Diagnostics, GroupId, NewError) ->
-  case ets:lookup(Diagnostics, {group, GroupId}) of
-    [{Key, OldMap}] ->
-      ets:insert(Diagnostics, {Key, OldMap#{error=>NewError}});
-    [] ->
-      ets:insert(Diagnostics, {})
-  end.
 
 %% Alternating between connections
 switch_connection(_Connection = main) -> redundant;

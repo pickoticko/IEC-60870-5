@@ -208,10 +208,12 @@ init_server(Owner, #{
       {ok, PID} -> PID;
       {error, EsubscribeReason} -> exit(EsubscribeReason)
     end,
+  Diagnostics = maps:get(diagnostics, Settings),
   Ref = #?MODULE{
     pid = self(),
     storage = Storage,
-    name = Name
+    name = Name,
+    diagnostics = Diagnostics
   },
   ConnectionSettings = #{
     name => Name,
@@ -219,7 +221,8 @@ init_server(Owner, #{
     root => Ref,
     groups => maps:get(groups, Settings),
     command_handler => Handler,
-    asdu => iec60870_asdu:get_settings(maps:with(maps:keys(?DEFAULT_ASDU_SETTINGS), Settings))
+    asdu => iec60870_asdu:get_settings(maps:with(maps:keys(?DEFAULT_ASDU_SETTINGS), Settings)),
+    diagnostics => Diagnostics
   },
   Owner ! {ready, self(), Ref},
   await_connection(#state{

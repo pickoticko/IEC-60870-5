@@ -30,7 +30,8 @@
   root,
   groups,
   settings,
-  connection
+  connection,
+  diagnostics
 }).
 
 %% States
@@ -82,15 +83,18 @@ handle_event(info, {asdu, Connection, ASDU}, _AnyState, #data{
     name := Name,
     asdu := ASDUSettings
   },
-  connection = Connection
+  connection = Connection,
+  diagnostics = Diagnostics
 } = Data)->
   try
     ParsedASDU = iec60870_asdu:parse(ASDU, ASDUSettings),
     % TODO. Diagnostics. STM. Received parsed ASDU with its type and timestamp
+    iec60870_lib:update_diagnostics(Diagnostics, stm, {parsed_asdu, ParsedASDU}),
     handle_asdu(ParsedASDU, Data)
   catch
     _Exception:Error ->
       % TODO. Diagnostics. STM. Received invalid ASDU with timestamp
+      iec60870_lib:update_diagnostics(Diagnostics, stm, {invalid_asdu, ASDU}),
       ?LOGERROR("~p server received invalid ASDU. ASDU: ~p, Error: ~p", [Name, ASDU, Error]),
       keep_state_and_data
   end;
@@ -234,9 +238,11 @@ handle_asdu(#asdu{
     asdu := ASDUSettings,
     root := Root
   },
-  connection = Connection
+  connection = Connection,
+  diagnostics = Diagnostics
 }) ->
-  % TODO. Diagnostics. STM. General interrogation timestamp and group ID
+  % TODO. Diagnostics. STM. General interrogation timestamp and group
+  iec60870_lib:update_diagnostics(Diagnostics, GroupID, gen_interrogation),
   % +-------------[ Send initialization ]-------------+
   [Confirmation] = iec60870_asdu:build(#asdu{
     type = ?C_IC_NA_1,

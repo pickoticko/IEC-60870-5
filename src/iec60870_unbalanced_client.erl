@@ -111,7 +111,8 @@ loop(#data{
   name = Name,
   owner = Owner,
   port = Port,
-  cycle = Cycle
+  cycle = Cycle,
+  diagnostics = Diagnostics
 } = Data) ->
   receive
     {update, Self} when Self =:= self() ->
@@ -125,6 +126,7 @@ loop(#data{
       loop(NewData);
     {asdu, Owner, ASDU} ->
       % TODO. Diagnostics. Connection. Sent ASDU from the connection w/ timestamp
+      iec60870_lib:update_diagnostics(Diagnostics, connection, {sent_asdu, ASDU}),
       NewData = send_asdu(ASDU, Data),
       loop(NewData);
     {'DOWN', _, process, Owner, Reason} ->
@@ -177,13 +179,13 @@ send_asdu(ASDU, #data{
       %% TO_BE_REVIEWED: Diagnostics. send_asdu, {error, timeout}
       % TODO. Diagnostics. It is necessary to separate the stored value
       % TODO. in order to know that there was a timeout error
-      ets:insert(Diagnostics, {send_asdu, ASDU}),
+      iec60870_lib:update_diagnostics(Diagnostics, send_asdu, {error, timeout}),
       ?LOGERROR("~p unbalanced failed to send ASDU", [Name]),
       Owner ! {send_error, self(), timeout},
       Data;
     NewState ->
       %% TO_BE_REVIEWED: Diagnostics. send_asdu, ok
-      ets:insert(Diagnostics, {send_asdu, ASDU}),
+      iec60870_lib:update_diagnostics(Diagnostics, send_asdu, {asdu, ASDU}),
       ?LOGDEBUG("~p unbalanced send ASDU is OK", [Name]),
       Data#data{state = NewState}
   end.
@@ -213,7 +215,7 @@ init_port(Client, #{port := #{name := PortName}} = Options) ->
           init_client(Client, Options)
       end;
     true ->
-      case catch iec60870_ft12:start_link(maps:with([port, address_size], Options)) of
+      case catch iec60870_ft12:start_link(maps:with([port, address_size, diagnostics], Options)) of
         {'EXIT', _} ->
           Client ! {error, self(), serial_port_init_fail};
         PortFT12 ->

@@ -59,12 +59,11 @@
   fcb,
   portFT12,
   timeout,
-  on_request
+  on_request,
+  diagnostics
 }).
 
 -define(UPDATE_FCB(State, Request), State#state{fcb = Request#frame.control_field#control_field_request.fcb}).
-
--define(STATE_INFO(State), {connection, #{state=>State, timestamp=>erlang:system_time(millisecond)}}).
 
 %%% +--------------------------------------------------------------+
 %%% |                    Server API implementation                 |
@@ -113,7 +112,8 @@ connect(#{
   direction := Direction,
   portFT12 := PortFT12,
   timeout := Timeout,
-  on_request := OnRequest
+  on_request := OnRequest,
+  diagnostics := Diagnostics
 }) ->
   connect(#state{
     address = Address,
@@ -122,7 +122,8 @@ connect(#{
     fcb = undefined,
     portFT12 = PortFT12,
     timeout = Timeout,
-    on_request = OnRequest
+    on_request = OnRequest,
+    diagnostics = Diagnostics
   });
 
 %% Connection transmission procedure
@@ -132,32 +133,38 @@ connect(#{
 connect(#state{attempts = Attempts} = State) ->
   connect(Attempts, State).
 connect(Attempts, #state{
-  address = Address
+  address = Address,
+  diagnostics = Diagnostics
 } = StateIn) when Attempts > 0 ->
   case reset_link(StateIn) of
     error ->
       % TODO. Diagnostics. Connection. Failed RESET LINK w/ timestamp
-
+      iec60870_lib:update_diagnostics(Diagnostics, connection, {reset_link, error}),
       ?LOGERROR("RESET LINK is ERROR. Address: ~p", [Address]),
       error;
     StateReset ->
       % TODO. Diagnostics. Connection. Successful RESET LINK w/ timestamp
+      iec60870_lib:update_diagnostics(Diagnostics, connection, reset_link),
       ?LOGDEBUG("RESET LINK is OK. Address: ~p", [Address]),
       case request_status_link(StateReset) of
         error ->
           % TODO. Diagnostics. Connection. Failed request status link w/ timestamp
+          iec60870_lib:update_diagnostics(Diagnostics, connection, {request_status_link, error}),
           ?LOGWARNING("REQUEST STATUS LINK is ERROR. Address: ~p", [Address]),
           connect(Attempts - 1, StateIn);
         StateOut ->
           % TODO. Diagnostics. Connection. Successful request status w/ link
+          iec60870_lib:update_diagnostics(Diagnostics, connection, request_status_link),
           ?LOGDEBUG("REQUEST STATUS LINK is OK. Address: ~p", [Address]),
           StateOut
       end
   end;
 connect(_Attempts = 0, #state{
-  address = Address
+  address = Address,
+  diagnostics = Diagnostics
 }) ->
   % TODO. Diagnostics. Connection. Failed connect w/ timestamp
+  iec60870_lib:update_diagnostics(Diagnostics, connection, error),
   ?LOGERROR("CONNECT ERROR. Address: ~p", [Address]),
   error.
 
@@ -280,14 +287,12 @@ wait_response(Response1, Response2, #state{
     {data, PortFT12, #frame{
       control_field = #control_field_response{function_code = ResponseCode}
     } = Response} when ResponseCode =:= Response1; ResponseCode =:= Response2 ->
-      % TODO: Diagnostic. ASDU
       {ok, Response};
     {data, PortFT12, #frame{control_field = #control_field_request{}} = Frame} when is_function(OnRequest) ->
       ?LOGDEBUG("~p received request while waiting for response, request: ~p", [Address, Frame]),
       OnRequest(Frame),
       wait_response(Response1, Response2, State);
     {data, PortFT12, UnexpectedFrame} ->
-      % TODO: Diagnostic. PortFT12, UnexpectedFrame
       ?LOGWARNING("~p received unexpected frame: ~p", [Address, UnexpectedFrame]),
       wait_response(Response1, Response2, State)
   after

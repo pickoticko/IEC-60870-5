@@ -14,7 +14,7 @@
 %%% +--------------------------------------------------------------+
 
 -export([
-  check_options/1,
+  check_settings/1,
   start_link/1,
   send/2,
   stop/1
@@ -56,7 +56,7 @@
 
 start_link(InOptions) ->
   Options = maps:merge(?DEFAULT_OPTIONS, InOptions),
-  check_options(Options),
+  check_settings(Options),
   Self = self(),
   PID = spawn_link(fun() -> init(Self, Options) end),
   receive
@@ -162,7 +162,7 @@ parse_frame(<<
           case parse_control_field(<<ControlField>>) of
             error ->
               ?LOGERROR("invalid control field: ~p", [ControlField]),
-              {LastFrame, Tail};
+              parse_frame(Tail, AddressSize, LastFrame);
             CFRec ->
               parse_frame(Tail, AddressSize, #frame{
                 address = Address,
@@ -172,7 +172,7 @@ parse_frame(<<
           end;
         Sum ->
           ?LOGERROR("invalid control sum: ~p", [Sum]),
-          {LastFrame, Tail}
+          parse_frame(Tail, AddressSize, LastFrame)
       end;
     _ ->
       if
@@ -199,7 +199,7 @@ parse_frame(<<
           case parse_control_field(<<ControlField>>) of
             error ->
               ?LOGERROR("invalid control field ~p", [ControlField]),
-              {LastFrame, Tail};
+              parse_frame(Tail, AddressSize, LastFrame);
             CF ->
               parse_frame(Tail, AddressSize, #frame{
                 address = Address,
@@ -209,7 +209,7 @@ parse_frame(<<
           end;
         _ ->
           ?LOGERROR("invalid control sum"),
-          {LastFrame, Tail}
+          parse_frame(Tail, AddressSize, LastFrame)
       end;
     _ ->
       if
@@ -298,14 +298,25 @@ drop_data(Port) ->
     0 -> ok
   end.
 
-check_options(#{port := PortSettings}) ->
-  [check_option(Option) || Option <- maps:to_list(PortSettings)],
+check_settings(#{port := PortSettings}) ->
+  [check_setting(Setting) || Setting <- maps:to_list(PortSettings)],
   ok.
 
-check_option({baudrate, Baudrate}) when is_integer(Baudrate) -> ok;
-check_option({bytesize, Bytesize}) when is_integer(Bytesize) -> ok;
-check_option({name, Name}) when is_list(Name) -> ok;
-check_option({parity, Parity}) when is_integer(Parity) -> ok;
-check_option({stopbits, Stopbits}) when is_integer(Stopbits) -> ok;
-check_option(Option) -> throw({invalid_setting, Option}).
+check_setting({baudrate, Baudrate})
+  when is_integer(Baudrate) -> ok;
+
+check_setting({bytesize, Bytesize})
+  when is_integer(Bytesize) -> ok;
+
+check_setting({name, Name})
+  when is_list(Name) -> ok;
+
+check_setting({parity, Parity})
+  when is_integer(Parity) -> ok;
+
+check_setting({stopbits, Stopbits})
+  when is_integer(Stopbits) -> ok;
+
+check_setting(Option) ->
+  throw({invalid_setting, Option}).
 

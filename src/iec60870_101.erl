@@ -45,11 +45,6 @@
   cycle => ?DEFAULT_CYCLE
 }).
 
--define(UNBALANCED_SERVER_SETTINGS, #{
-  max_message_queue => ?DEFAULT_MAX_MESSAGE_QUEUE,
-  max_idle_time => ?DEFAULT_IDLE_TIMEOUT
-}).
-
 -define(DEFAULT_SETTINGS, #{
   balanced => ?REQUIRED,
   address => ?REQUIRED,
@@ -78,13 +73,13 @@
 %%% |                    Server API implementation                 |
 %%% +--------------------------------------------------------------+
 
-start_server(InSettings) ->
-  {Module, Settings} =
-    case InSettings of
+start_server(Settings) ->
+  Module =
+    case Settings of
       #{balanced := false} ->
-        {iec60870_unbalanced_server, maps:merge(?UNBALANCED_SERVER_SETTINGS, InSettings)};
+        iec60870_unbalanced_server;
       _Other ->
-        {iec60870_balanced_server, InSettings}
+        iec60870_balanced_server
     end,
   OutSettings = check_settings(maps:merge(?DEFAULT_SETTINGS, Settings)),
   Root = self(),
@@ -367,12 +362,6 @@ check_setting({address_size, DataLinkAddressSize})
 
 check_setting({cycle, Cycle})
   when is_integer(Cycle) -> ok;
-
-check_setting({max_idle_time, Milliseconds})
-  when is_integer(Milliseconds) -> ok;
-
-check_setting({max_message_queue, QueueLimit})
-  when is_integer(QueueLimit) -> ok;
 
 check_setting({attempts, Attempts})
   when is_integer(Attempts) -> ok;

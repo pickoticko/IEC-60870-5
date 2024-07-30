@@ -24,7 +24,6 @@
 %%% +--------------------------------------------------------------+
 
 -define(CONNECTION_TIMEOUT, 300000).
--define(CURRENT_TIME, erlang:system_time(millisecond)).
 
 -define(ACKNOWLEDGE_FRAME(Address), #frame{
   address = Address,
@@ -43,10 +42,7 @@
   switch,
   fcb,
   sent_frame,
-  connection,
-  last_active_time,
-  max_message_queue,
-  max_idle_time
+  connection
 }).
 
 %% +--------------------------------------------------------------+
@@ -72,9 +68,7 @@ stop(PID) ->
 
 init(Root, #{
   port := #{name := PortName},
-  address := Address,
-  max_message_queue := QueueLimit,
-  max_idle_time := MaxIdleTime
+  address := Address
 } = Options) ->
   Switch = iec60870_switch:start(Options),
   iec60870_switch:add_server(Switch, Address),
@@ -86,10 +80,7 @@ init(Root, #{
     address = Address,
     switch = Switch,
     connection = Connection,
-    fcb = undefined,
-    max_message_queue = QueueLimit,
-    max_idle_time = MaxIdleTime,
-    last_active_time = ?CURRENT_TIME
+    fcb = undefined
   }).
 
 start_connection(Root) ->
@@ -108,10 +99,8 @@ loop(#data{
   address = Address,
   fcb = FCB,
   sent_frame = SentFrame,
-  connection = Connection,
-  last_active_time = LastActiveTime
-} = DataIn) ->
-  Data = is_connection_active(DataIn),
+  connection = Connection
+} = Data) ->
   receive
     {data, Switch, #frame{address = ReqAddress}} when ReqAddress =/= Address ->
       ?LOGWARNING("server w/ link address ~p received unexpected link address: ~p", [Address, ReqAddress]),
@@ -133,8 +122,6 @@ loop(#data{
           end,
           loop(Data)
       end;
-    {asdu, _Connection, _Data} when LastActiveTime =:= timeout ->
-      loop(Data);
     {'DOWN', _, process, Connection, _Error} ->
       ?LOGWARNING("~p server w/ link address ~p is down", [Name, Address]),
       NewConnection = start_connection( Root ),
@@ -145,9 +132,8 @@ loop(#data{
     {stop, Root} ->
       ?LOGWARNING("server w/ link address ~p has been terminated by the owner", [Address])
   after
-    ?CONNECTION_TIMEOUT->
+    ?CONNECTION_TIMEOUT ->
       ?LOGDEBUG("server ~p w/ address ~p: connection timeout!", [Name, Address]),
-      drop_queue(),
       loop(Data)
   end.
 
@@ -240,8 +226,7 @@ handle_request(RequestData, _UserData, #data{
   switch = Switch,
   address = Address,
   connection = Connection,
-  name = Name,
-  max_message_queue = MaxMessages
+  name = Name
 } = Data)
   when RequestData =:= ?REQUEST_DATA_CLASS_1;
        RequestData =:= ?REQUEST_DATA_CLASS_2 ->
@@ -249,7 +234,6 @@ handle_request(RequestData, _UserData, #data{
     case check_data(Connection) of
       {ok, ConnectionData} ->
         ?LOGDEBUG("server ~p w/ address ~p: message queue: ~p", [Name, Address, element(2,erlang:process_info(self(), message_queue_len))]),
-        check_message_queue(Name, MaxMessages),
         #frame{
           address = Address,
           control_field = #control_field_response{
@@ -274,7 +258,6 @@ handle_request(RequestData, _UserData, #data{
     end,
   ?LOGDEBUG("server ~p w/ address ~p: received DATA CLASS REQUEST, our RESPONSE: ~p", [Name, Address, Response]),
   Data#data{
-    last_active_time = ?CURRENT_TIME,
     sent_frame = send_response(Switch, Response)
   };
 
@@ -288,60 +271,18 @@ send_response(Switch, Frame) ->
 
 check_data(Connection) ->
   receive
-    {asdu, Connection, Data} -> {ok, Data}
+    {asdu, Connection, Reference, Data} ->
+      Connection ! {confirm, Reference},
+      {ok, Data}
   after
     0 -> undefined
   end.
 
 drop_asdu() ->
   receive
-    {asdu, _Connection, _Data} -> drop_asdu()
+    {asdu, Connection, Reference, _Data} ->
+      Connection ! {confirm, Reference},
+      drop_asdu()
   after
     0 -> ok
-  end.
-
-drop_queue() ->
-  receive
-    _Any -> drop_queue()
-  after
-    0 -> ok
-  end.
-
-%% Checking if the message queue length has exceeded the limit.
-%% If the mailbox is full of ASDU messages, then clear it until the required limit is met,
-%% Otherwise, stop and continue the work.
-check_message_queue(Name, MaxMessages) ->
-  check_message_queue(Name, MaxMessages, _DeletedMessages = 0).
-
-check_message_queue(Name, MaxMessages, DeletedMessages) ->
-  {message_queue_len, MessageQueue} = erlang:process_info(self(), message_queue_len),
-  if
-    MessageQueue >= MaxMessages ->
-      receive
-        {asdu, _Connection, _Data} -> check_message_queue(Name, MaxMessages, DeletedMessages + 1)
-      after
-        0 -> ok
-      end;
-    true ->
-      ok
-  end,
-  if
-    DeletedMessages > 0 ->
-      ?LOGWARNING("server ~p deleted messages count: ~p", [Name, DeletedMessages]);
-    true ->
-      ok
-  end.
-
-%% Checking the time elapsed since the last data class request was received.
-%% If the elapsed time (delta time) exceeds the specified limit, set the timeout flag
-%% which allows for a process to ignore ASDU messages.
-is_connection_active(#data{last_active_time = timeout} = Data) ->
-  Data;
-is_connection_active(#data{last_active_time = StartTime, max_idle_time = MaxIdleTime} = Data) ->
-  DeltaTime = ?CURRENT_TIME - StartTime,
-  if
-    DeltaTime > MaxIdleTime ->
-      Data#data{last_active_time = timeout};
-    true ->
-      Data
   end.

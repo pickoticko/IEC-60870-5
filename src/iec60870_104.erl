@@ -198,11 +198,19 @@ loop(#state{
       State2 = check_t3(State1),
       loop(State2#state{buffer = TailBuffer});
 
-  % A packet is received from the connection
-  % It is crucial to note that we need to compare the sent packets
-  % with K since we are awaiting confirmation (S-packet)
-  % Sending additional packets may lead to a disruption in the connection
-  % as it could surpass the maximum threshold (K) of unconfirmed packets
+    % Server ASDU messages
+    % A packet is received from the connection
+    % It is crucial to note that we need to compare the sent packets
+    % with K since we are awaiting confirmation (S-packet)
+    % Sending additional packets may lead to a disruption in the connection
+    % as it could surpass the maximum threshold (K) of unconfirmed packets
+    {asdu, Connection, Reference, ASDU} when length(Sent) =< K ->
+      Connection ! {confirm, Reference},
+      State1 = send_i_packet(ASDU, State),
+      State2 = check_t1(State1),
+      loop(State2);
+
+    % Client ASDU messages
     {asdu, Connection, ASDU} when length(Sent) =< K ->
       State1 = send_i_packet(ASDU, State),
       State2 = check_t1(State1),

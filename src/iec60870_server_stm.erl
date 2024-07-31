@@ -48,7 +48,7 @@ callback_mode() -> [
 ].
 
 init({Root, Connection, #{name := Name, groups := Groups} = Settings}) ->
-  ?LOGINFO("~p server initiating incoming connection...", [Name]),
+  ?LOGINFO("server ~p: initiating incoming connection...", [Name]),
   esubscribe:subscribe(Name, update, self()),
   process_flag(trap_exit, true),
   erlang:monitor(process, Root),
@@ -228,9 +228,11 @@ handle_asdu(#asdu{
 }, #data{
   settings = #{
     asdu := ASDUSettings,
-    root := Root
+    root := Root,
+    name := Name
   }
 } = Data) ->
+  ?LOGDEBUG("server ~p: received GI to group ~p", [Name, GroupID]),
   % +-------------[ Send initialization ]-------------+
   [Confirmation] = iec60870_asdu:build(#asdu{
     type = ?C_IC_NA_1,
@@ -311,7 +313,8 @@ handle_asdu(#asdu{
 
 send_items(Items, COT, #data{
   settings = #{
-    asdu := ASDUSettings
+    asdu := ASDUSettings,
+    name := Name
   }
 } = Data) ->
   ByTypes = group_by_types(Items),
@@ -322,6 +325,7 @@ send_items(Items, COT, #data{
        cot = COT,
        objects = Objects
      }, ASDUSettings),
+     ?LOGDEBUG("server ~p: sending packets: ~p", [Name, ListASDU]),
      [send_asdu(ASDU, Data) || ASDU <- ListASDU]
    end || {Type, Objects} <- ByTypes].
 

@@ -48,7 +48,7 @@ callback_mode() -> [
 ].
 
 init({Root, Connection, #{name := Name, groups := Groups} = Settings}) ->
-  ?LOGINFO("~p server initiating incoming connection...", [Name]),
+  ?LOGINFO("server ~p: initiating incoming connection...", [Name]),
   esubscribe:subscribe(Name, update, self()),
   process_flag(trap_exit, true),
   erlang:monitor(process, Root),
@@ -62,18 +62,15 @@ init({Root, Connection, #{name := Name, groups := Groups} = Settings}) ->
 handle_event(enter, _PrevState, ?RUNNING, _Data) ->
   keep_state_and_data;
 
-%% Event from esubscribe
-handle_event(info, {Name, update, {IOA, Value}, _, Actor}, ?RUNNING, #data{
+handle_event(info, {Name, update, {IOA, DataObject}, _, Actor}, ?RUNNING, #data{
   settings = #{
-    name := Name,
-    asdu := ASDUSettings
-  },
-  connection = Connection
-}) when Actor =/= self() ->
+    name := Name
+  }
+} = Data) when Actor =/= self() ->
   % Getting all updates
   Items = [Object ||
     {Object, _Node, A} <- esubscribe:wait(Name, update, ?ESUBSCRIBE_DELAY), A =/= self()],
-  send_items([{IOA, Value} | Items], Connection, ?COT_SPONT, ASDUSettings),
+  send_items([{IOA, DataObject} | Items], ?COT_SPONT, Data),
   keep_state_and_data;
 
 %% From the connection
@@ -99,14 +96,12 @@ handle_event(info, {_Scope, update, _, _, _Self}, _AnyState, _Data) ->
 
 handle_event(info, {update_group, GroupID, Timer}, ?RUNNING, #data{
   settings = #{
-    root := Root,
-    asdu := ASDUSettings
-  },
-  connection = Connection
-}) ->
+    root := Root
+  }
+} = Data) ->
   timer:send_after(Timer, {update_group, GroupID, Timer}),
   Items = iec60870_server:find_group_items(Root, GroupID),
-  send_items(Items, Connection, ?COT_PER, ASDUSettings),
+  send_items(Items, ?COT_PER, Data),
   keep_state_and_data;
 
 %% The connection is down
@@ -185,41 +180,44 @@ handle_asdu(#asdu{
   type = Type,
   objects = Objects
 }, #data{
-  connection = Connection,
   settings = #{
     command_handler := Handler,
     asdu := ASDUSettings,
     root := ServerRef
   }
-})
+} = Data)
   when (Type >= ?C_SC_NA_1 andalso Type =< ?C_BO_NA_1)
     orelse (Type >= ?C_SC_TA_1 andalso Type =< ?C_BO_TA_1) ->
   if
     is_function(Handler) ->
-      Self = self(),
       try
         [{IOA, Value}] = Objects,
         case Handler(ServerRef, Type, IOA, Value) of
           {error, HandlerError} ->
             ?LOGERROR("remote control handler returned error: ~p", [HandlerError]),
             %% +-------[ Negative activation confirmation ]---------+
-            build_and_send(Self, Type, Objects, ?COT_ACTCON, ?NEGATIVE_PN, Connection, ASDUSettings);
+            NegativeConfirmation = build_asdu(Type, ?COT_ACTCON, ?NEGATIVE_PN, Objects, ASDUSettings),
+            send_asdu(NegativeConfirmation, Data);
           ok ->
             %% +------------[ Activation confirmation ]-------------+
-            build_and_send(Self, Type, Objects, ?COT_ACTCON, ?POSITIVE_PN, Connection, ASDUSettings),
+            Confirmation = build_asdu(Type, ?COT_ACTCON, ?POSITIVE_PN, Objects, ASDUSettings),
+            send_asdu(Confirmation, Data),
             %% +------------[ Activation termination ]--------------+
-            build_and_send(Self, Type, Objects, ?COT_ACTTERM, ?POSITIVE_PN, Connection, ASDUSettings)
+            Termination = build_asdu(Type, ?COT_ACTTERM, ?POSITIVE_PN, Objects, ASDUSettings),
+            send_asdu(Termination, Data)
         end
       catch
         _Exception:Reason ->
           ?LOGERROR("remote control handler failed. Reason: ~p", [Reason]),
           %% +-------[ Negative activation confirmation ]---------+
-          build_and_send(Self, Type, Objects, ?COT_ACTCON, ?NEGATIVE_PN, Connection, ASDUSettings)
+          ExceptionConfirmation = build_asdu(Type, ?COT_ACTCON, ?NEGATIVE_PN, Objects, ASDUSettings),
+          send_asdu(ExceptionConfirmation, Data)
       end;
     true ->
       %% +-------[ Negative activation confirmation ]---------+
       ?LOGWARNING("remote control request accepted but no handler is defined"),
-      build_and_send(self(), Type, Objects, ?COT_ACTCON, ?NEGATIVE_PN, Connection, ASDUSettings)
+      NegativeConfirmation = build_asdu(Type, ?COT_ACTCON, ?NEGATIVE_PN, Objects, ASDUSettings),
+      send_asdu(NegativeConfirmation, Data)
   end,
   keep_state_and_data;
 
@@ -230,10 +228,11 @@ handle_asdu(#asdu{
 }, #data{
   settings = #{
     asdu := ASDUSettings,
-    root := Root
-  },
-  connection = Connection
-}) ->
+    root := Root,
+    name := Name
+  }
+} = Data) ->
+  ?LOGDEBUG("server ~p: received GI to group ~p", [Name, GroupID]),
   % +-------------[ Send initialization ]-------------+
   [Confirmation] = iec60870_asdu:build(#asdu{
     type = ?C_IC_NA_1,
@@ -241,10 +240,10 @@ handle_asdu(#asdu{
     cot = ?COT_ACTCON,
     objects = [{IOA, GroupID}]
   }, ASDUSettings),
-  send_asdu(Connection, Confirmation),
+  send_asdu(Confirmation, Data),
   % +----------------[ Sending items ]----------------+
   Items = iec60870_server:find_group_items(Root, GroupID),
-  send_items(Items, Connection, ?COT_GROUP(GroupID), ASDUSettings),
+  send_items(Items, ?COT_GROUP(GroupID), Data),
   % +---------------[ Send termination ]--------------+
   [Termination] = iec60870_asdu:build(#asdu{
     type = ?C_IC_NA_1,
@@ -252,7 +251,7 @@ handle_asdu(#asdu{
     cot = ?COT_ACTTERM,
     objects = [{IOA, GroupID}]
   }, ASDUSettings),
-  send_asdu(Connection, Termination),
+  send_asdu(Termination, Data),
   keep_state_and_data;
 
 %% Counter Interrogation Command
@@ -262,9 +261,8 @@ handle_asdu(#asdu{
 }, #data{
   settings = #{
     asdu := ASDUSettings
-  },
-  connection = Connection
-}) ->
+  }
+} = Data) ->
   % +-------------[ Send initialization ]-------------+
   [Confirmation] = iec60870_asdu:build(#asdu{
     type = ?C_CI_NA_1,
@@ -272,7 +270,7 @@ handle_asdu(#asdu{
     cot = ?COT_ACTCON,
     objects = [{IOA, GroupID}]
   }, ASDUSettings),
-  send_asdu(Connection, Confirmation),
+  send_asdu(Confirmation, Data),
   % --------------------------------------------
   % TODO: Counter interrogation is not supported
   % +---------------[ Send termination ]--------------+
@@ -282,7 +280,7 @@ handle_asdu(#asdu{
     cot = ?COT_ACTTERM,
     objects = [{IOA, GroupID}]
   }, ASDUSettings),
-  send_asdu(Connection, Termination),
+  send_asdu(Termination, Data),
   keep_state_and_data;
 
 %% Clock Synchronization Command
@@ -292,9 +290,8 @@ handle_asdu(#asdu{
 }, #data{
   settings = #{
     asdu := ASDUSettings
-  },
-  connection = Connection
-}) ->
+  }
+} = Data) ->
   % +-------------[ Send initialization ]-------------+
   [Confirmation] = iec60870_asdu:build(#asdu{
     type = ?C_CS_NA_1,
@@ -302,7 +299,7 @@ handle_asdu(#asdu{
     cot = ?COT_ACTCON,
     objects = Objects
   }, ASDUSettings),
-  send_asdu(Connection, Confirmation),
+  send_asdu(Confirmation, Data),
   keep_state_and_data;
 
 %% All other unexpected asdu types
@@ -314,10 +311,12 @@ handle_asdu(#asdu{
   ?LOGWARNING("~p server received unsupported ASDU type. Type: ~p", [Name, Type]),
   keep_state_and_data.
 
-send_asdu(Connection, ASDU) ->
-  Connection ! {asdu, self(), ASDU}, ok.
-
-send_items(Items, Connection, COT, ASDUSettings) ->
+send_items(Items, COT, #data{
+  settings = #{
+    asdu := ASDUSettings,
+    name := Name
+  }
+} = Data) ->
   ByTypes = group_by_types(Items),
   [begin
      ListASDU = iec60870_asdu:build(#asdu{
@@ -326,7 +325,8 @@ send_items(Items, Connection, COT, ASDUSettings) ->
        cot = COT,
        objects = Objects
      }, ASDUSettings),
-     [send_asdu(Connection, ASDU) || ASDU <- ListASDU]
+     ?LOGDEBUG("server ~p: sending packets: ~p", [Name, ListASDU]),
+     [send_asdu(ASDU, Data) || ASDU <- ListASDU]
    end || {Type, Objects} <- ByTypes].
 
 group_by_types(Objects) ->
@@ -338,11 +338,60 @@ group_by_types([{IOA, #{type := Type} = Value} | Rest], Acc) ->
 group_by_types([], Acc) ->
   [{Type, lists:sort(maps:to_list(Objects))} || {Type, Objects} <- maps:to_list(Acc)].
 
-build_and_send(Server, Type, Objects, COT, PN, Connection, Settings) ->
+build_asdu(Type, COT, PN, Objects, Settings) ->
   [Packet] = iec60870_asdu:build(#asdu{
     type = Type,
     cot = COT,
     pn = PN,
     objects = Objects
   }, Settings),
-  Connection ! {asdu, Server, Packet}.
+  Packet.
+
+send_asdu(ASDU, #data{
+  connection = Connection
+} = Data) ->
+  Reference = make_ref(),
+  Connection ! {asdu, self(), Reference, ASDU},
+  wait_confirmation(Reference, _Updates = #{}, Data).
+
+%% Waiting confirmation by unique reference from the connection
+wait_confirmation(Reference, Updates, #data{
+  connection = Connection,
+  root = Root,
+  settings = #{
+    name := Name
+  }
+} = Data) ->
+  receive
+    {'EXIT', Connection, Reason} ->
+      exit(Reason);
+    {'DOWN', _, process, Root, Reason} ->
+      exit(Reason);
+    {Name, update, {IOA, DataObject}, _, Actor} when Actor =/= self() ->
+      wait_confirmation(Reference, Updates#{IOA => DataObject}, Data);
+    {_, update, _, _, _} ->
+      wait_confirmation(Reference, Updates, Data);
+    {confirm, Reference} ->
+      if
+        map_size( Updates ) > 0 ->
+          send_delayed_updates( Updates, Data );
+        true ->
+          ignore
+      end,
+      ok
+  end.
+
+send_delayed_updates( Updates, #data{
+  settings = #{
+    name := Name
+  }
+} = Data )->
+  receive
+    {Name, update, {IOA, DataObject}, _, Actor} when Actor =/= self() ->
+      send_delayed_updates( Updates#{ IOA => DataObject }, Data )
+  after
+    0->
+      ?LOGDEBUG("server ~p: send delayed updates"),
+      [self() ! {Name, update, UpdateMessage, none, none} || UpdateMessage <- maps:to_list(Updates)],
+      ok
+  end.

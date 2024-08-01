@@ -8,7 +8,7 @@
 
 -include("iec60870.hrl").
 -include("ft12.hrl").
--include("balanced.hrl").
+-include("function_codes.hrl").
 
 %%% +--------------------------------------------------------------+
 %%% |                            API                               |
@@ -69,33 +69,38 @@ init(Owner, Direction, #{
   timeout := Timeout,
   attempts := Attempts
 } = Options) ->
-  Port = iec60870_ft12:start_link(maps:with([port, port_options, address_size], Options)),
+  PortFT12 = iec60870_ft12:start_link(maps:with([port, address_size], Options)),
   Owner ! {ready, self()},
   Data = #data{
     owner = Owner,
     address = Address,
     direction = Direction,
-    port = Port
+    port = PortFT12
   },
-  SendReceive = fun(Request) -> send_receive(Data, Request, Timeout) end,
-  case iec60870_101:connect(Address, Direction, SendReceive, Attempts) of
-    {ok, State} ->
+  case iec60870_101:connect(#{
+    address => Address,
+    timeout => Timeout,
+    portFT12 => PortFT12,
+    direction => Direction,
+    attempts => Attempts,
+    on_request =>
+      fun(#frame{control_field = #control_field_request{function_code = FC}, data = UserData}) ->
+        handle_request(FC, UserData, Data)
+      end
+  }) of
+    error ->
+      exit({error, connect_fail});
+    State ->
       Owner ! {connected, self()},
       Connection =
         receive
           {connection, Owner, _Connection} -> _Connection
         end,
       send_delayed_asdu(Connection),
-      loop(#data{
-        owner = Owner,
-        address = Address,
-        direction = Direction,
+      loop(Data#data{
         state = State,
-        port = Port,
         connection = Connection
-      });
-    {error, Error} ->
-      exit(Error)
+      })
   end.
 
 send_delayed_asdu(Connection) ->
@@ -134,54 +139,25 @@ loop(#data{
           end,
           loop(Data)
       end;
-    {asdu, Connection, ASDU} ->
-      OnResponse =
-        fun(Response) ->
-          case Response of
-            #frame{control_field = #control_field_response{function_code = ?ACKNOWLEDGE}} ->
-              ok;
-            _ ->
-              error
-          end
+    {asdu, Connection, Reference, ASDU} ->
+      Owner ! {confirm, Reference},
+      NewState =
+        case iec60870_101:user_data_confirm(ASDU, State) of
+          error ->
+            ?LOGERROR("~p failed to send ASDU", [Address]),
+            Owner ! {send_error, self(), timeout},
+            State;
+          State1 ->
+            ?LOGDEBUG("~p balanced send user ASDU", [Address]),
+            State1
         end,
-      case iec60870_101:transaction(?USER_DATA_CONFIRM, ASDU, OnResponse, State) of
-        {ok, State1} ->
-          loop(Data#data{state = State1});
-        {error, Error} ->
-          Owner ! {send_error, self(), Error},
-          loop(Data)
-      end;
+      loop(Data#data{state = NewState});
     {stop, Owner} ->
       iec60870_ft12:stop(Port);
     Unexpected ->
       ?LOGWARNING("unexpected message ~p", [Unexpected]),
       loop(Data)
   end.
-
-send_receive(#data{port = Port} = Data, Request, Timeout) ->
-  iec60870_ft12:send(Port, Request),
-  await_response(Timeout, Data).
-
-await_response(Timeout, #data{
-  port = Port,
-  address = Address
-} = Data) when Timeout > 0 ->
-  CurrentTime = ?TIMESTAMP,
-  receive
-    {data, Port, #frame{address = ReqAddress} = Unexpected} when ReqAddress =/= Address ->
-      ?LOGWARNING("unexpected address frame received ~p", [Unexpected]),
-      await_response(Timeout - ?DURATION(CurrentTime), Data);
-    {data, Port, #frame{control_field = #control_field_response{}} = Response} ->
-      {ok, Response};
-
-    {data, Port, #frame{control_field = #control_field_request{} = CF, data = UserData}} ->
-      handle_request(CF#control_field_request.function_code, UserData, Data),
-      await_response(Timeout - ?DURATION(CurrentTime), Data)
-  after
-    Timeout -> {error, Data}
-  end;
-await_response(_Timeout, _Data) ->
-  {error, timeout}.
 
 %% FCB - Frame count bit
 %% Alternated between 0 to 1 for successive SEND / CONFIRM or

@@ -22,6 +22,7 @@
   name => ?REQUIRED,
   type => ?REQUIRED,
   connection => ?REQUIRED,
+  redundant_connection => undefined,
   groups => []
 }, ?DEFAULT_ASDU_SETTINGS)).
 
@@ -122,7 +123,7 @@ write(_, _, _) ->
   throw(bad_arg).
 
 subscribe(#?MODULE{name = Name}, PID) when is_pid(PID) ->
-    esubscribe:subscribe(Name, update, PID);
+  esubscribe:subscribe(Name, update, PID);
 subscribe(_, _) ->
   throw(bad_arg).
 
@@ -132,7 +133,7 @@ subscribe(#?MODULE{name = Name}, PID, AddressList) when is_pid(PID), is_list(Add
    end || Address <- AddressList],
   ok;
 subscribe(#?MODULE{name = Name}, PID, Address) when is_pid(PID) ->
-    esubscribe:subscribe(Name, Address, PID);
+  esubscribe:subscribe(Name, Address, PID);
 subscribe(_, _, _) ->
   throw(bad_arg).
 
@@ -142,7 +143,7 @@ unsubscribe(#?MODULE{name = Name}, PID, AddressList) when is_list(AddressList), 
    end || Address <- AddressList],
   ok;
 unsubscribe(#?MODULE{name = Name}, PID, Address) when is_pid(PID) ->
-    esubscribe:unsubscribe(Name, Address, PID);
+  esubscribe:unsubscribe(Name, Address, PID);
 unsubscribe(_, _, _) ->
   throw(bad_arg).
 
@@ -199,6 +200,9 @@ check_setting(type, Type)
 check_setting(connection, Settings)
   when is_map(Settings) -> Settings;
 
+check_setting(redundant_connection, Settings)
+  when is_map(Settings) orelse Settings =:= undefined -> Settings;
+
 check_setting(groups, Groups) when is_list(Groups) ->
   [case Group of
      #{id := _ID} ->
@@ -228,7 +232,7 @@ check_setting(Key, _) ->
 
 is_remote_command(#{type := Type})->
   (Type >= ?C_SC_NA_1 andalso Type =< ?C_BO_NA_1) orelse
-  (Type >= ?C_SC_TA_1 andalso Type =< ?C_BO_TA_1).
+    (Type >= ?C_SC_TA_1 andalso Type =< ?C_BO_TA_1).
 
 %% The object data must contain a 'value' key
 check_value(#{value := Value} = ObjectData) when is_number(Value) ->

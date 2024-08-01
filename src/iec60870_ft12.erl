@@ -14,7 +14,7 @@
 %%% +--------------------------------------------------------------+
 
 -export([
-  check_options/1,
+  check_settings/1,
   start_link/1,
   send/2,
   stop/1
@@ -33,6 +33,7 @@
 }).
 
 -define(DEFAULT_PORT_OPTIONS, #{
+  name => undefined,
   mode => active,
   baudrate => 9600,
   parity => 0,
@@ -41,8 +42,7 @@
 }).
 
 -define(DEFAULT_OPTIONS, #{
-  port => required,
-  port_options => ?DEFAULT_PORT_OPTIONS,
+  port => ?DEFAULT_PORT_OPTIONS,
   address_size => 1
 }).
 
@@ -56,7 +56,7 @@
 
 start_link(InOptions) ->
   Options = maps:merge(?DEFAULT_OPTIONS, InOptions),
-  check_options(Options),
+  check_settings(Options),
   Self = self(),
   process_flag(trap_exit, true),
   PID = spawn_link(fun() -> init(Self, Options) end),
@@ -74,23 +74,18 @@ send(Port, Frame) ->
 stop(Port) ->
   Port ! {stop, self()}.
 
-check_options(#{port := Port} = _Options) when is_list(Port); is_binary(Port) ->
-  % TODO. validate other options
-  ok;
-check_options(_) ->
-  throw(invalid_options).
-
 %%% +--------------------------------------------------------------+
 %%% |                      Internal functions                      |
 %%% +--------------------------------------------------------------+
 
 init(Owner, #{
-  port := PortName,
-  port_options := PortOptions,
+  port := #{
+    name := PortName
+  } = PortOptions,
   address_size := AddressSize
 }) ->
   ?LOGDEBUG("FT12 port ~p trying to open eserial...", [PortName]),
-  case eserial:open(PortName, PortOptions) of
+  case eserial:open(PortName, maps:without([name], PortOptions)) of
     {ok, Port} ->
       ?LOGDEBUG("FT12 port ~p eserial is opened!", [PortName]),
       erlang:monitor(process, Port),
@@ -116,15 +111,17 @@ loop(#state{
 } = State) ->
   receive
     {Port, data, Data} ->
-      case parse_frame(<<Buffer/binary, Data/binary>>, AddressSize) of
-        {Frame, TailBuffer} ->
-          ?LOGDEBUG("FT12 port ~p received parsed data. frame: ~p, tailbuffer: ~p", [PortName, Frame, TailBuffer]),
-          Owner ! {data, self(), Frame},
-          loop(State#state{buffer = TailBuffer});
-        TailBuffer ->
-          ?LOGDEBUG("FT12 port ~p received data, no parse. tailbuffer: ~p", [PortName, TailBuffer]),
-          loop(State#state{buffer = TailBuffer})
-      end;
+      TailBuffer =
+        case parse_frame(<<Buffer/binary, Data/binary>>, AddressSize) of
+          {#frame{} = Frame, Tail} ->
+            ?LOGDEBUG("FT12 port ~p received frame: ~p", [PortName, Frame]),
+            Owner ! {data, self(), Frame},
+            Tail;
+          {_NoFrame, Tail} ->
+            Tail
+        end,
+      ?LOGDEBUG("FT12 port ~p tail buffer: ~p", [PortName, TailBuffer]),
+      loop(State#state{buffer = TailBuffer});
 
     {send, Owner, Frame} ->
       ?LOGDEBUG("FT12 port ~p sending frame: ~p", [PortName, Frame]),
@@ -154,10 +151,13 @@ loop(#state{
       exit(Reason)
   end.
 
+parse_frame(Buffer, AddressSize) ->
+  parse_frame(Buffer, AddressSize, none).
+
 parse_frame(<<
   ?START_CMD_CHAR,
   _/binary
->> = Buffer, AddressSize) ->
+>> = Buffer, AddressSize, LastFrame) ->
   case Buffer of
     <<?START_CMD_CHAR, ControlField, Address:AddressSize/little-integer, Checksum, ?END_CHAR, Tail/binary>> ->
       case control_sum(<<ControlField, Address:AddressSize/little-integer>>) of
@@ -165,36 +165,35 @@ parse_frame(<<
           case parse_control_field(<<ControlField>>) of
             error ->
               ?LOGERROR("invalid control field: ~p", [ControlField]),
-              Tail;
+              parse_frame(Tail, AddressSize, LastFrame);
             CFRec ->
-              {#frame{
+              parse_frame(Tail, AddressSize, #frame{
                 address = Address,
                 control_field = CFRec,
                 data = undefined
-              }, Tail}
+              })
           end;
         Sum ->
           ?LOGERROR("invalid control sum: ~p", [Sum]),
-          Tail
+          parse_frame(Tail, AddressSize, LastFrame)
       end;
     _ ->
       if
         % Frame length
         size(Buffer) < (4 + AddressSize) ->
-          Buffer;
+          {LastFrame, Buffer};
         true ->
           <<_, TailBuffer/binary>> = Buffer,
-          parse_frame(TailBuffer, AddressSize)
+          parse_frame(TailBuffer, AddressSize, LastFrame)
       end
   end;
-
 parse_frame(<<
   ?START_DATA_CHAR,
   LengthL:8,
   LengthL:8,
   ?START_DATA_CHAR,
   Body/binary
->> = Buffer, AddressSize) ->
+>> = Buffer, AddressSize, LastFrame) ->
   case Body of
     <<FrameData:LengthL/binary, Checksum, ?END_CHAR, Tail/binary>> ->
       case control_sum(FrameData) of
@@ -203,37 +202,34 @@ parse_frame(<<
           case parse_control_field(<<ControlField>>) of
             error ->
               ?LOGERROR("invalid control field ~p", [ControlField]),
-              Tail;
+              parse_frame(Tail, AddressSize, LastFrame);
             CF ->
-              {#frame{
+              parse_frame(Tail, AddressSize, #frame{
                 address = Address,
                 control_field = CF,
                 data = Data
-              }, Tail}
+              })
           end;
         _ ->
           ?LOGERROR("invalid control sum"),
-          Tail
+          parse_frame(Tail, AddressSize, LastFrame)
       end;
     _ ->
       if
         % Frame length
         size(Body) < (2 + LengthL) ->
-          Buffer;
+          {LastFrame, Buffer};
         true ->
           <<_, TailBuffer/binary>> = Buffer,
-          parse_frame(TailBuffer, AddressSize)
+          parse_frame(TailBuffer, AddressSize, LastFrame)
       end
   end;
-
-parse_frame(<<?START_DATA_CHAR, _/binary>> = Buffer, _AddressSize) when size(Buffer) < 4 ->
-  Buffer;
-
-parse_frame(<<_, Tail/binary>>, AddressSize) ->
-  parse_frame(Tail, AddressSize);
-
-parse_frame(<<>>, _AddressSize) ->
-  <<>>.
+parse_frame(<<?START_DATA_CHAR, _/binary>> = Buffer, _AddressSize, LastFrame) when size(Buffer) < 4 ->
+  {LastFrame, Buffer};
+parse_frame(<<_, Tail/binary>>, AddressSize, LastFrame) ->
+  parse_frame(Tail, AddressSize, LastFrame);
+parse_frame(<<>>, _AddressSize, LastFrame) ->
+  {LastFrame, <<>>}.
 
 parse_control_field(<<DIR:1, 1:1, FCB:1, FCV:1, FunctionCode:4>>) ->
   #control_field_request{
@@ -304,3 +300,26 @@ drop_data(Port) ->
   after
     0 -> ok
   end.
+
+check_settings(#{port := PortSettings}) ->
+  [check_setting(Setting) || Setting <- maps:to_list(PortSettings)],
+  ok.
+
+check_setting({baudrate, Baudrate})
+  when is_integer(Baudrate) -> ok;
+
+check_setting({bytesize, Bytesize})
+  when is_integer(Bytesize) -> ok;
+
+check_setting({name, Name})
+  when is_list(Name) -> ok;
+
+check_setting({parity, Parity})
+  when is_integer(Parity) -> ok;
+
+check_setting({stopbits, Stopbits})
+  when is_integer(Stopbits) -> ok;
+
+check_setting(Option) ->
+  throw({invalid_setting, Option}).
+

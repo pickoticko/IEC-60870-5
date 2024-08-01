@@ -4,12 +4,13 @@
 %%% | License can be found in the LICENSE file.                      |
 %%% +----------------------------------------------------------------+
 
--ifndef(iec60870_unbalanced).
--define(iec60870_unbalanced, 1).
+-ifndef(function_codes).
+-define(function_codes, 1).
 
 %% Function codes from PRIMARY to SECONDARY
 -define(RESET_REMOTE_LINK, 0).
 -define(RESET_USER_PROCESS, 1).
+-define(LINK_TEST, 2).
 -define(USER_DATA_CONFIRM, 3).
 -define(USER_DATA_NO_REPLY, 4).
 -define(ACCESS_DEMAND, 8).

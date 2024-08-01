@@ -8,7 +8,7 @@
 
 -include("iec60870.hrl").
 -include("ft12.hrl").
--include("unbalanced.hrl").
+-include("function_codes.hrl").
 
 %%% +--------------------------------------------------------------+
 %%% |                             API                              |
@@ -22,11 +22,6 @@
 %%% +--------------------------------------------------------------+
 %%% |                       Macros & Records                       |
 %%% +--------------------------------------------------------------+
-
--define(START_TIMEOUT, 1000).
--define(DEFAULT_CYCLE, 1000).
-
--define(NOT(X), abs(X - 1)).
 
 -define(RESPONSE(Address, FC, UserData), #frame{
   address = Address,
@@ -46,6 +41,7 @@
 }).
 
 -record(data, {
+  state,
   name,
   owner,
   port,
@@ -76,15 +72,15 @@ stop(Port) ->
 %%% |                      Internal functions                      |
 %%% +--------------------------------------------------------------+
 
-init_client(Owner, Options) ->
+init_client(Owner, #{cycle := Cycle, port := #{name := PortName}} = Options) ->
   Port = start_port(Options),
-  connect(Port, Options),
+  State = connect(Port, Options),
   erlang:monitor(process, Owner),
   Owner ! {connected, self()},
-  Cycle = maps:get(cycle, Options, ?DEFAULT_CYCLE),
-  timer:send_after(Cycle, {update, self()}),
+  self() ! {update, self()},
   loop(#data{
-    name = maps:get(port, Options),
+    state = State,
+    name = PortName,
     cycle = Cycle,
     owner = Owner,
     port = Port
@@ -94,7 +90,8 @@ connect(Port, Options) ->
   erlang:monitor(process, Port),
   Port ! {add_client, self(), Options},
   receive
-    {ok, Port} -> ok;
+    {ok, Port, ClientState} ->
+      ClientState;
     {error, Port, ConnectError} ->
       exit(ConnectError);
     {'DOWN', _, process, Port, Reason} ->
@@ -111,21 +108,16 @@ loop(#data{
     {update, Self} when Self =:= self() ->
       ?LOGDEBUG("client ~p: received update event from itself", [Name]),
       timer:send_after(Cycle, {update, Self}),
-      get_data(Data),
-      loop(Data);
+      NewData = get_data(Data),
+      loop(NewData);
     {access_demand, Self} when Self =:= self() ->
       ?LOGDEBUG("client ~p: received access_demand event from itself", [Name]),
-      get_data(Data),
-      loop(Data);
-    {asdu, Owner, ASDU} ->
-      case send_asdu(ASDU, Port, Name) of
-        ok ->
-          success;
-        {error, Error} ->
-          % Failed send errors are handled by client state machine
-          Owner ! {send_error, self(), Error}
-      end,
-      loop(Data);
+      NewData = get_data(Data),
+      loop(NewData);
+    {asdu, Owner, Reference, ASDU} ->
+      Owner!{confirm, Reference},
+      NewData = send_asdu(ASDU, Data),
+      loop(NewData);
     {'DOWN', _, process, Owner, Reason} ->
       ?LOGWARNING("~p client down because of the owner exit: ~p", [Name, Reason]),
       exit({down_port, Reason});
@@ -137,63 +129,49 @@ loop(#data{
       loop(Data)
   end.
 
-get_data(#data{
-  owner = Owner,
+get_data(Data) ->
+  NewData = send_data_class_request(?REQUEST_DATA_CLASS_1, Data),
+  send_data_class_request(?REQUEST_DATA_CLASS_2, NewData).
+
+send_data_class_request(DataClass, #data{
+  state = State,
   port = Port,
-  name = Name
-}) ->
-  Self = self(),
-  OnResponse =
-    fun(Response) ->
-      ?LOGDEBUG("client ~p: data class request RESPONSE: ~p", [Name, Response]),
-      case Response of
-        #frame{control_field = #control_field_response{function_code = ?USER_DATA, acd = ACD}, data = ASDUClass1} ->
-          Owner ! {asdu, Self, ASDUClass1},
-          % The server set the signal that it has data to send
-          if ACD =:= 1 -> Self ! {access_demand, Self}; true -> ignore end,
-          ok;
-        #frame{control_field = #control_field_response{function_code = ?NACK_DATA_NOT_AVAILABLE}} ->
-          ok;
-        _ ->
-          error
-      end
-    end,
-  ?LOGDEBUG("client ~p: sending DATA CLASS REQUEST 1!", [Name]),
-  %% +-----------[ Class 1 data request ]-----------+
-  case transaction(?REQUEST_DATA_CLASS_1, _Data1 = undefined, Port, OnResponse) of
-    ok -> ok;
-    {error, ErrorClass1} -> exit(ErrorClass1)
-  end,
-  ?LOGDEBUG("client ~p: sending DATA CLASS REQUEST 2!", [Name]),
-  %% +-----------[ Class 2 data request ]-----------+
-  case transaction(?REQUEST_DATA_CLASS_2, _Data2 = undefined, Port, OnResponse) of
-    ok -> ok;
-    {error, ErrorClass2} -> exit(ErrorClass2)
+  owner = Owner
+} = Data) ->
+  DataClassRequest = fun() -> iec60870_101:data_class(DataClass, State) end,
+  case send_request(Port, DataClassRequest) of
+    error ->
+      ?LOGERROR("~p failed to request data class 1", [Port]),
+      exit({error, {request_data_class, DataClass}});
+    {NewState, ACD, ASDU} ->
+      send_asdu_to_owner(Owner, ASDU),
+      check_access_demand(ACD),
+      Data#data{state = NewState}
   end.
 
-send_asdu(ASDU, Port, Name) ->
-  OnResponse =
-    fun(Response) ->
-      ?LOGDEBUG("client ~p: response to USER DATA CONFIRM: ~p", [Name, Response]),
-      case Response of
-        #frame{control_field = #control_field_response{function_code = ?ACKNOWLEDGE}} ->
-          ok;
-        _ ->
-          error
-      end
-    end,
-  ?LOGDEBUG("client ~p: sending user data confirm", [Name]),
-  case transaction(?USER_DATA_CONFIRM, ASDU, Port, OnResponse) of
-    ok -> ok;
-    {error, Error} -> {error, Error}
-  end.
-
-transaction(FC, Data, Port, OnResponse) ->
-  Port ! {request, self(), FC, Data, OnResponse},
+send_request(Port, Function) ->
+  Port ! {request, self(), Function},
   receive
-    {ok, Port} -> ok;
-    {error, Port, Error} -> {error, Error};
-    {'EXIT', Port, Reason} -> {error, {port_error, Reason}}
+    {Port, Result} -> Result
+  end.
+
+send_asdu(ASDU, #data{
+  state = State,
+  port = Port,
+  owner = Owner,
+  name = Name
+} = Data) ->
+  Request = fun() -> iec60870_101:user_data_confirm(ASDU, State) end,
+  case send_request(Port, Request) of
+    error ->
+      %% TODO: Diagnostics. send_asdu, {error, timeout}
+      ?LOGERROR("~p unbalanced failed to send ASDU", [Name]),
+      Owner ! {send_error, self(), timeout},
+      Data;
+    NewState ->
+      %% TODO: Diagnostics. send_asdu, ok
+      ?LOGDEBUG("~p unbalanced send ASDU is OK", [Name]),
+      Data#data{state = NewState}
   end.
 
 %%% +--------------------------------------------------------------+
@@ -210,7 +188,7 @@ start_port(Options) ->
       exit(InitError)
   end.
 
-init_port(Client, #{port := PortName} = Options) ->
+init_port(Client, #{port := #{name := PortName}} = Options) ->
   RegisterName = list_to_atom(PortName),
   case catch register(RegisterName, self()) of
     {'EXIT', _} ->
@@ -221,11 +199,11 @@ init_port(Client, #{port := PortName} = Options) ->
           init_client(Client, Options)
       end;
     true ->
-      case catch iec60870_ft12:start_link(maps:with([port, port_options, address_size], Options)) of
-        {error, Reason} ->
-          Client ! {error, self(), {serial_port_init_fail, Reason}};
+      case catch iec60870_ft12:start_link(maps:with([port, address_size], Options)) of
+        {'EXIT', _} ->
+          Client ! {error, self(), serial_port_init_fail};
         PortFT12 ->
-          ?LOGDEBUG("shared port ~p start",[PortName]),
+          ?LOGDEBUG("shared port ~p is started", [PortName]),
           erlang:monitor(process, PortFT12),
           Client ! {ready, self(), self()},
           port_loop(#port_state{port_ft12 = PortFT12, clients = #{}, name = PortName})
@@ -234,81 +212,68 @@ init_port(Client, #{port := PortName} = Options) ->
 
 port_loop(#port_state{port_ft12 = PortFT12, clients = Clients, name = Name} = SharedState) ->
   receive
-    {request, From, FC, Data, OnResponse} ->
+    {request, From, Function} ->
       case Clients of
-        #{From := ClientState} ->
-          case iec60870_101:transaction(FC, Data, OnResponse, ClientState) of
-            {ok, NewClientState} ->
-              From ! {ok, self()},
-              port_loop(SharedState#port_state{
-                clients = Clients#{
-                  From => NewClientState
-                }
-              });
-            {error, Error} ->
-              From ! {error, self(), Error},
-              port_loop(SharedState)
-          end;
+        #{From := true} ->
+          From ! {self(), Function()};
         _Unexpected ->
-          ?LOGWARNING("switch ignored a request from an undefined process: ~p", [From]),
-          port_loop(SharedState)
-      end;
+          ?LOGWARNING("switch ignored a request from an undefined process: ~p", [From])
+      end,
+      port_loop(SharedState);
 
     {add_client, Client, Options} ->
-      case start_client(PortFT12, Options) of
-        {ok, NewClientState} ->
-          ?LOGDEBUG("shared port ~p add client ~p", [Name, Client]),
+      case iec60870_101:connect(Options#{portFT12 => PortFT12, direction => 0}) of
+        error ->
+          ?LOGERROR("shared port ~p failed to add client: ~p", [Name, Client]),
+          Client ! {error, self(), timeout},
+          State1 = check_stop(SharedState),
+          port_loop(State1);
+        ClientState ->
+          ?LOGDEBUG("shared port ~p added a client ~p", [Name, Client]),
           erlang:monitor(process, Client),
-          Client ! {ok, self()},
-          port_loop(SharedState#port_state{
-            clients = Clients#{
-              Client => NewClientState
-            }
-          });
-        {error, Error} ->
-          ?LOGERROR("shared port ~p add client ~p error: ~p", [Name, Client, Error]),
-          Client ! {error, self(), Error},
-          State1 = check_stop( SharedState ),
-          port_loop( State1 )
+          Client ! {ok, self(), ClientState},
+          port_loop(SharedState#port_state{clients = Clients#{Client => true}})
       end;
+
+  % Port FT12 is down, transport level is unavailable
     {'DOWN', _, process, PortFT12, Reason} ->
-      ?LOGERROR("shared port ~p exit, ft12 transport error: ~p",[Name, Reason]),
+      ?LOGERROR("shared port ~p exit, ft12 transport error: ~p", [Name, Reason]),
       exit(Reason);
 
-    % Client is down due to some reason
+  % Client is down due to some reason
     {'DOWN', _, process, Client, Reason} ->
       ?LOGDEBUG("shared port ~p client ~p exit, reason ~p", [Name, Client, Reason]),
-      State1 = check_stop( SharedState#port_state{clients = maps:remove(Client, Clients)} ),
-      port_loop( State1 );
+      State1 = check_stop(SharedState#port_state{clients = maps:remove(Client, Clients)}),
+      port_loop(State1);
+
     Unexpected ->
       ?LOGWARNING("shared port received unexpected message: ~p", [Unexpected]),
       port_loop(SharedState)
-  end.
-
-start_client(PortFT12, #{
-  address := Address,
-  timeout := Timeout,
-  attempts := Attempts
-}) ->
-  SendReceive = fun(Request) -> iec60870_101:send_receive(PortFT12, Request, Timeout) end,
-  case iec60870_101:connect(Address, _Direction = 0, SendReceive, Attempts) of
-    {ok, State} ->
-      {ok, State};
-    Error ->
-      Error
   end.
 
 check_stop(#port_state{
   clients = Clients,
   port_ft12 = PortFT12,
   name = Name
-} = State)->
+} = State) ->
   if
   % No clients left, we should stop the shared port
-    map_size( Clients ) =:= 0 ->
+    map_size(Clients) =:= 0 ->
       ?LOGINFO("shared port ~p has been shutdown due to no clients remaining", [Name]),
-      iec60870_ft12:stop( PortFT12 ),
+      iec60870_ft12:stop(PortFT12),
       exit(normal);
     true ->
       State
   end.
+
+%% Send ASDU to the owner if it exists
+send_asdu_to_owner(_Owner, _ASDU = undefined) ->
+  ok;
+send_asdu_to_owner(Owner, ASDU) ->
+  Owner ! {asdu, self(), ASDU}.
+
+%% The server set the signal that it has data to send
+check_access_demand(_ACD = 1) ->
+  self() ! {access_demand, self()};
+check_access_demand(_ACD) ->
+  ok.

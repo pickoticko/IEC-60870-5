@@ -8,7 +8,7 @@
 
 -include("iec60870.hrl").
 -include("ft12.hrl").
--include("unbalanced.hrl").
+-include("function_codes.hrl").
 
 %%% +--------------------------------------------------------------+
 %%% |                             API                              |
@@ -23,7 +23,7 @@
 %%% |                       Macros & Records                       |
 %%% +--------------------------------------------------------------+
 
--define(CONNECTION_TIMEOUT, 300000). % 1 min
+-define(CONNECTION_TIMEOUT, 300000).
 
 -define(ACKNOWLEDGE_FRAME(Address), #frame{
   address = Address,
@@ -67,16 +67,15 @@ stop(PID) ->
 %%% +--------------------------------------------------------------+
 
 init(Root, #{
+  port := #{name := PortName},
   address := Address
 } = Options) ->
   Switch = iec60870_switch:start(Options),
   iec60870_switch:add_server(Switch, Address),
-
   Root ! {ready, self()},
   Connection = start_connection(Root),
-
   loop(#data{
-    name = maps:get(port, Options),
+    name = PortName,
     root = Root,
     address = Address,
     switch = Switch,
@@ -133,9 +132,8 @@ loop(#data{
     {stop, Root} ->
       ?LOGWARNING("server w/ link address ~p has been terminated by the owner", [Address])
   after
-    ?CONNECTION_TIMEOUT->
-      ?LOGDEBUG("server ~p w/ address ~p: connection timeout!", [Name, Address]),
-      drop_queue(),
+    ?CONNECTION_TIMEOUT ->
+      ?LOGWARNING("server ~p w/ address ~p: connection timeout!", [Name, Address]),
       loop(Data)
   end.
 
@@ -152,7 +150,6 @@ handle_request(?RESET_REMOTE_LINK, _UserData, #data{
   name = Name
 } = Data) ->
   ?LOGDEBUG("server ~p w/ address ~p: received RESET LINK", [Name, Address]),
-  drop_asdu(),
   Data#data{
     sent_frame = send_response(Switch, ?ACKNOWLEDGE_FRAME(Address))
   };
@@ -163,7 +160,7 @@ handle_request(?RESET_USER_PROCESS, _UserData, #data{
   name = Name
 } = Data) ->
   ?LOGDEBUG("server ~p w/ address ~p: received RESET USER PROCESS", [Name, Address]),
-  % TODO. Do we need to do anything? May be restart connection?
+  drop_asdu(),
   Data#data{
     sent_frame = send_response(Switch, ?ACKNOWLEDGE_FRAME(Address))
   };
@@ -236,7 +233,7 @@ handle_request(RequestData, _UserData, #data{
   Response =
     case check_data(Connection) of
       {ok, ConnectionData} ->
-        ?LOGINFO("DEBUG: server ~p message queue: ~p", [Name, element(2,erlang:process_info(self(), message_queue_len))]),
+        ?LOGDEBUG("server ~p w/ address ~p: message queue: ~p", [Name, Address, element(2,erlang:process_info(self(), message_queue_len))]),
         #frame{
           address = Address,
           control_field = #control_field_response{
@@ -274,21 +271,18 @@ send_response(Switch, Frame) ->
 
 check_data(Connection) ->
   receive
-    {asdu, Connection, Data} -> {ok, Data}
+    {asdu, Connection, Reference, Data} ->
+      Connection ! {confirm, Reference},
+      {ok, Data}
   after
     0 -> undefined
   end.
 
 drop_asdu() ->
   receive
-    {asdu, _Connection, _Data} -> drop_asdu()
-  after
-    0 -> ok
-  end.
-
-drop_queue() ->
-  receive
-    _Any -> drop_queue()
+    {asdu, Connection, Reference, _Data} ->
+      Connection ! {confirm, Reference},
+      drop_asdu()
   after
     0 -> ok
   end.

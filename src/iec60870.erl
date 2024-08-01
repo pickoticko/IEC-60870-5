@@ -18,8 +18,7 @@
   unsubscribe/2, unsubscribe/3,
   read/1, read/2,
   get_pid/1,
-  write/3,
-  get_info/1, get_info/2
+  write/3
 ]).
 
 start_server(ConnectionSettings) ->
@@ -63,11 +62,3 @@ read(ClientOrServer, Address) ->
 get_pid(ClientOrServer)->
   Module = element(1, ClientOrServer),
   Module:get_pid(ClientOrServer).
-
-get_info(ClientOrServer) ->
-  Module = element(1, ClientOrServer),
-  Module:get_info(ClientOrServer).
-
-get_info(ClientOrServer, Key) ->
-  Module = element(1, ClientOrServer),
-  Module:get_info(ClientOrServer, Key).

@@ -392,6 +392,13 @@ send_delayed_updates(Updates, #data{
   after
     0 ->
       ?LOGDEBUG("server ~p: send delayed updates"),
-      [self() ! {Name, update, UpdateMessage, none, none} || UpdateMessage <- maps:to_list(Updates)],
+      ServerPID = self(),
+      spawn(
+        fun() ->
+          maps:foreach(
+            fun(Key, Value) ->
+              ServerPID ! {Name, update, {Key, Value}, none, none}
+            end, Updates)
+        end),
       ok
   end.

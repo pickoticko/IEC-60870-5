@@ -381,16 +381,16 @@ wait_confirmation(Reference, Updates, #data{
       ok
   end.
 
-send_delayed_updates( Updates, #data{
+send_delayed_updates(Updates, #data{
   settings = #{
     name := Name
   }
-} = Data )->
+} = Data) ->
   receive
     {Name, update, {IOA, DataObject}, _, Actor} when Actor =/= self() ->
-      send_delayed_updates( Updates#{ IOA => DataObject }, Data )
+      send_delayed_updates(Updates#{IOA => DataObject}, Data)
   after
-    0->
+    0 ->
       ?LOGDEBUG("server ~p: send delayed updates"),
       [self() ! {Name, update, UpdateMessage, none, none} || UpdateMessage <- maps:to_list(Updates)],
       ok

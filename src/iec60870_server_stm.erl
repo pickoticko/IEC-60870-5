@@ -62,6 +62,36 @@ init({Root, Connection, #{name := Name, groups := Groups} = Settings}) ->
 handle_event(enter, _PrevState, ?RUNNING, _Data) ->
   keep_state_and_data;
 
+handle_event(info, {delayed_update, InUpdates}, ?RUNNING, #data{
+  settings = #{
+    name := Name,
+    asdu := ASDUSettings
+  }
+} = Data) ->
+  OutUpdates = collect_delayed_updates(InUpdates),
+  ByTypesIn =
+    maps:fold(
+      fun(IOA, #{type := Type} = DataObject, AccIn) ->
+        TypeAcc = maps:get(Type, AccIn, #{}),
+        AccIn#{Type => TypeAcc#{IOA => DataObject}}
+      end, #{}, OutUpdates),
+  % Getting all updates
+  Items = [Object ||
+    {Object, _Node, A} <- esubscribe:wait(Name, update, ?ESUBSCRIBE_DELAY), A =/= self()],
+  ByTypesOut =
+    group_by_types(Items, ByTypesIn),
+  [begin
+     ListASDU = iec60870_asdu:build(#asdu{
+       type = Type,
+       pn = ?POSITIVE_PN,
+       cot = ?COT_SPONT,
+       objects = Objects
+     }, ASDUSettings),
+     ?LOGDEBUG("server ~p: sending packets: ~p", [Name, ListASDU]),
+     [send_asdu(ASDU, Data) || ASDU <- ListASDU]
+   end || {Type, Objects} <- ByTypesOut],
+  keep_state_and_data;
+
 handle_event(info, {Name, update, {IOA, DataObject}, _, Actor}, ?RUNNING, #data{
   settings = #{
     name := Name
@@ -118,9 +148,9 @@ handle_event(info, {'DOWN', _, process, Root, Reason}, _AnyState, #data{
   ?LOGWARNING("incoming server connection terminated. Reason: ~p", [Reason]),
   {stop, Reason};
 
-handle_event(EventType, EventContent, _AnyState, _Data) ->
-  ?LOGWARNING("incoming server connection received unexpected event type. Event: ~p, Content: ~p", [
-    EventType, EventContent
+handle_event(EventType, EventContent, State, _Data) ->
+  ?LOGWARNING("incoming server connection received unexpected event type. State: ~p, Event: ~p, Content: ~p", [
+    State, EventType, EventContent
   ]),
   keep_state_and_data.
 
@@ -374,27 +404,17 @@ wait_confirmation(Reference, Updates, #data{
     {confirm, Reference} ->
       if
         map_size(Updates) > 0 ->
-          send_delayed_updates(Updates, Data);
+          self() ! {delayed_update, Updates};
         true ->
           ignore
       end,
       ok
   end.
 
-send_delayed_updates(Updates, #data{
-  settings = #{
-    name := Name
-  }
-} = Data) ->
+collect_delayed_updates(UpdatesAcc) ->
   receive
-    {Name, update, {IOA, DataObject}, _, Actor} when Actor =/= self() ->
-      send_delayed_updates(Updates#{IOA => DataObject}, Data)
-  after
-    0 ->
-      ?LOGDEBUG("server ~p: send delayed updates"),
-      maps:foreach(
-        fun(Key, Value) ->
-          self() ! {Name, update, {Key, Value}, none, none}
-        end, Updates),
-      ok
+    {delayed_update, Updates} ->
+      collect_delayed_updates(maps:merge(UpdatesAcc, Updates))
+  after 0 ->
+    UpdatesAcc
   end.

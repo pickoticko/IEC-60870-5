@@ -373,8 +373,8 @@ wait_confirmation(Reference, Updates, #data{
       wait_confirmation(Reference, Updates, Data);
     {confirm, Reference} ->
       if
-        map_size( Updates ) > 0 ->
-          send_delayed_updates( Updates, Data );
+        map_size(Updates) > 0 ->
+          send_delayed_updates(Updates, Data);
         true ->
           ignore
       end,
@@ -392,13 +392,9 @@ send_delayed_updates(Updates, #data{
   after
     0 ->
       ?LOGDEBUG("server ~p: send delayed updates"),
-      ServerPID = self(),
-      spawn(
-        fun() ->
-          maps:foreach(
-            fun(Key, Value) ->
-              ServerPID ! {Name, update, {Key, Value}, none, none}
-            end, Updates)
-        end),
+      maps:foreach(
+        fun(Key, Value) ->
+          self() ! {Name, update, {Key, Value}, none, none}
+        end, Updates),
       ok
   end.

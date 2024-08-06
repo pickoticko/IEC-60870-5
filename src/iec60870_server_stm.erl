@@ -83,6 +83,7 @@ handle_event(info, {asdu, Connection, ASDU}, _AnyState, #data{
 } = Data)->
   try
     ParsedASDU = iec60870_asdu:parse(ASDU, ASDUSettings),
+    check_duplicates(ParsedASDU, ASDU),
     handle_asdu(ParsedASDU, Data)
   catch
     _Exception:Error ->
@@ -310,6 +311,19 @@ handle_asdu(#asdu{
 }) ->
   ?LOGWARNING("~p server received unsupported ASDU type. Type: ~p", [Name, Type]),
   keep_state_and_data.
+
+check_duplicates(#asdu{type = Type}, _BinaryPacket)
+  when Type >= ?C_SC_NA_1 andalso ?C_BO_TA_1 =< Type ->
+    ok;
+check_duplicates(_ASDU, BinaryPacket) ->
+  drop_duplicates(BinaryPacket).
+
+drop_duplicates(BinaryPacket) ->
+  receive
+    {asdu, _Connection, BinaryPacket} -> drop_duplicates(BinaryPacket)
+  after
+    0 -> ok
+  end.
 
 send_items(Items, COT, #data{
   settings = #{

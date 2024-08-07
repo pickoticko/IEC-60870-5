@@ -70,7 +70,9 @@ handle_event(info, {Name, update, {IOA, DataObject}, _, Actor}, ?RUNNING, #data{
   % Getting all updates
   Items = [Object ||
     {Object, _Node, A} <- esubscribe:wait(Name, update, ?ESUBSCRIBE_DELAY), A =/= self()],
+  TimerStart = erlang:system_time(millisecond),
   send_items([{IOA, DataObject} | Items], ?COT_SPONT, Data),
+  ?LOGDEBUG("server ~p: update send items duration: ~p", [Name, erlang:system_time(millisecond) - TimerStart]),
   keep_state_and_data;
 
 %% From the connection
@@ -244,7 +246,9 @@ handle_asdu(#asdu{
   send_asdu(Confirmation, Data),
   % +----------------[ Sending items ]----------------+
   Items = iec60870_server:find_group_items(Root, GroupID),
+  TimerStart = erlang:system_time(millisecond),
   send_items(Items, ?COT_GROUP(GroupID), Data),
+  ?LOGDEBUG("server ~p: GI send items duration: ~p", [Name, erlang:system_time(millisecond) - TimerStart]),
   % +---------------[ Send termination ]--------------+
   [Termination] = iec60870_asdu:build(#asdu{
     type = ?C_IC_NA_1,
@@ -316,19 +320,20 @@ check_duplicates(#asdu{type = Type}, _BinaryPacket)
   when Type >= ?C_SC_NA_1 andalso ?C_BO_TA_1 =< Type ->
     ok;
 check_duplicates(_ASDU, BinaryPacket) ->
-  drop_duplicates(BinaryPacket).
+  drop_duplicates(BinaryPacket, 0).
 
-drop_duplicates(BinaryPacket) ->
+drop_duplicates(BinaryPacket, Count) ->
   receive
-    {asdu, _Connection, BinaryPacket} -> drop_duplicates(BinaryPacket)
+    {asdu, _Connection, BinaryPacket} -> drop_duplicates(BinaryPacket, Count + 1)
   after
-    0 -> ok
+    0 ->
+      ?LOGDEBUG("server deleted ~p duplicate ~p packets! ", [Count, BinaryPacket]),
+      ok
   end.
 
 send_items(Items, COT, #data{
   settings = #{
-    asdu := ASDUSettings,
-    name := Name
+    asdu := ASDUSettings
   }
 } = Data) ->
   ByTypes = group_by_types(Items),
@@ -339,7 +344,6 @@ send_items(Items, COT, #data{
        cot = COT,
        objects = Objects
      }, ASDUSettings),
-     ?LOGDEBUG("server ~p: sending packets: ~p", [Name, ListASDU]),
      [send_asdu(ASDU, Data) || ASDU <- ListASDU]
    end || {Type, Objects} <- ByTypes].
 
@@ -366,7 +370,9 @@ send_asdu(ASDU, #data{
 } = Data) ->
   Reference = make_ref(),
   Connection ! {asdu, self(), Reference, ASDU},
-  wait_confirmation(Reference, _Updates = #{}, Data).
+  TimerStart = erlang:system_time(millisecond),
+  wait_confirmation(Reference, _Updates = #{}, Data),
+  ?LOGDEBUG("server wait confirmation duration: ~p", [erlang:system_time(millisecond) - TimerStart]).
 
 %% Waiting confirmation by unique reference from the connection
 wait_confirmation(Reference, Updates, #data{
@@ -405,7 +411,7 @@ send_delayed_updates(Updates, #data{
       send_delayed_updates(Updates#{IOA => DataObject}, Data)
   after
     0 ->
-      ?LOGDEBUG("server ~p: send delayed updates"),
+      ?LOGDEBUG("server ~p: send delayed updates", [Name]),
       maps:foreach(
         fun(Key, Value) ->
           self() ! {Name, update, {Key, Value}, none, none}

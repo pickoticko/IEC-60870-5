@@ -317,7 +317,7 @@ handle_asdu(#asdu{
   keep_state_and_data.
 
 check_duplicates(#asdu{type = Type}, _BinaryPacket)
-  when Type >= ?C_SC_NA_1 andalso ?C_BO_TA_1 =< Type ->
+  when Type >= ?C_SC_NA_1 andalso Type =< ?C_BO_TA_1  ->
     ok;
 check_duplicates(_ASDU, BinaryPacket) ->
   drop_duplicates(BinaryPacket, 0).

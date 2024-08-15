@@ -466,7 +466,7 @@ collect(#update_state{
             type = ?C_IC_NA_1,
             pn = ?POSITIVE_PN,
             cot = ?COT_ACTTERM,
-            objects = [{_IOA = 0, COT - ?COT_GROUP_MIN}]
+            objects = [{_IOA = 0, LastCOT - ?COT_GROUP_MIN}]
           }, ASDUSettings),
           send_update(SendQueuePID, ?COMMAND_PRIORITY, Termination);
         false ->

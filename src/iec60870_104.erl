@@ -205,8 +205,8 @@ loop(#state{
     % with K since we are awaiting confirmation (S-packet)
     % Sending additional packets may lead to a disruption in the connection
     % as it could surpass the maximum threshold (K) of unconfirmed packets
-    {asdu, Connection, Reference, ASDU} when length(Sent) =< K ->
-      Connection ! {confirm, Reference},
+    {asdu, From, Reference, ASDU} when length(Sent) =< K ->
+      From ! {confirm, Reference},
       State1 = send_i_packet(ASDU, State),
       State2 = check_t1(State1),
       loop(State2);

@@ -101,9 +101,9 @@ init({Root, Connection, #{
   storage := Storage
 } = Settings}) ->
   ?LOGINFO("server ~p: initiating incoming connection...", [Name]),
-  SendQueue = init_send_queue(Name, Connection),
-  UpdateQueue = init_update_queue(Name, Storage, SendQueue),
-  SendQueue ! {ok, self(), UpdateQueue},
+  {ok, SendQueue} = start_link_send_queue(Name, Connection),
+  {ok, UpdateQueue} = start_link_update_queue(Name, Storage, SendQueue),
+  SendQueue ! {ready, self(), UpdateQueue},
   process_flag(trap_exit, true),
   erlang:monitor(process, Root),
   init_group_requests(Groups),
@@ -339,10 +339,16 @@ build_asdu(Type, COT, PN, Objects, Settings) ->
 %%% +--------------------------------------------------------------+
 %%% |                     Update Queue Process                     |
 %%% +--------------------------------------------------------------+
+%%% | Description: update queue process is responsible only for    |
+%%% | the incoming updates from the esubscribe and handling GI     |
+%%% | requests from the server state machine process               |
+%%% +--------------------------------------------------------------+
+%%% | Update queue ETS format: {Priority, Type, IOA} => COT        |
+%%% +--------------------------------------------------------------+
 
-init_update_queue(Name, Storage, SendQueue) ->
+start_link_update_queue(Name, Storage, SendQueue) ->
   Owner = self(),
-  spawn_link(
+  {ok, spawn_link(
     fun() ->
       esubscribe:subscribe(Name, update, self()),
       UpdateQueue = ets:new(update_queue, [
@@ -359,7 +365,7 @@ init_update_queue(Name, Storage, SendQueue) ->
         send_queue_pid = SendQueue,
         tickets = #{}
       })
-    end).
+    end)}.
 
 update_queue(#update_state{
   name = Name,
@@ -479,31 +485,35 @@ save_update(UpdateQueue, Priority, COT, Type) ->
 %%% +--------------------------------------------------------------+
 %%% |                      Send Queue Process                      |
 %%% +--------------------------------------------------------------+
+%%% | Description: send queue process is ONLY responsible for      |
+%%% | sending data from state machine process to the connection    |
+%%% | process (i.e. transport level).                              |
+%%% +--------------------------------------------------------------+
+%%% | Send queue ETS format: {Priority, Ref} => ASDU               |
+%%% +--------------------------------------------------------------+
 
-init_send_queue(Name, Connection) ->
+start_link_send_queue(Name, Connection) ->
   Owner = self(),
-  PID =
-    spawn_link(
-      fun() ->
-        UpdateQueue =
-          receive
-            {ok, Owner, UpdateQueuePID} -> UpdateQueuePID
-          end,
-        SendQueue = ets:new(send_queue, [
-          ordered_set,
-          private,
-          {read_concurrency, true},
-          {write_concurrency, auto}
-        ]),
-        send_queue(#send_state{
-          owner = Owner,
-          name = Name,
-          send_queue = SendQueue,
-          update_queue_pid = UpdateQueue,
-          connection = Connection
-        })
-      end),
-  PID.
+  {ok, spawn_link(
+    fun() ->
+      UpdateQueue =
+        receive
+          {ready, Owner, UpdateQueuePID} -> UpdateQueuePID
+        end,
+      SendQueue = ets:new(send_queue, [
+        ordered_set,
+        private,
+        {read_concurrency, true},
+        {write_concurrency, auto}
+      ]),
+      send_queue(#send_state{
+        owner = Owner,
+        name = Name,
+        send_queue = SendQueue,
+        update_queue_pid = UpdateQueue,
+        connection = Connection
+      })
+    end)}.
 
 send_queue(#send_state{
   update_queue_pid = UpdateQueuePID,

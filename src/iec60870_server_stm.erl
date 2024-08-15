@@ -62,12 +62,14 @@
   update_queue,
   send_queue_pid,
   asdu_settings,
+  pointer,
   storage
 }).
 
 -record(send_state, {
   owner,
   name,
+  tickets,
   update_queue_pid,
   send_queue,
   connection
@@ -103,7 +105,6 @@ init({Root, Connection, #{
   ?LOGINFO("server ~p: initiating incoming connection...", [Name]),
   {ok, SendQueue} = start_link_send_queue(Name, Connection),
   {ok, UpdateQueue} = start_link_update_queue(Name, Storage, SendQueue),
-  SendQueue ! {ready, self(), UpdateQueue}, % ??? Why do we need that
   process_flag(trap_exit, true),
   erlang:monitor(process, Root),
   init_group_requests(Groups),
@@ -354,7 +355,6 @@ start_link_update_queue(Name, Storage, SendQueue) ->
       UpdateQueue = ets:new(update_queue, [
         ordered_set,
         private,
-        {read_concurrency, true},
         {write_concurrency, auto}
       ]),
       update_queue(#update_state{
@@ -363,6 +363,7 @@ start_link_update_queue(Name, Storage, SendQueue) ->
         storage = Storage,
         update_queue = UpdateQueue,
         send_queue_pid = SendQueue,
+        pointer = ets:first(UpdateQueue),
         tickets = #{}
       })
     end)}.
@@ -372,18 +373,16 @@ update_queue(#update_state{
   owner = Owner,
   tickets = Tickets,
   storage = Storage,
-  update_queue = UpdateQueue
+  update_queue = UpdateQueue,
+  send_queue_pid = SendQueuePID,
+  asdu_settings = ASDUSettings
 } = InState) ->
   State =
     receive
       {confirm, TicketRef} ->
         InState#update_state{tickets = maps:remove(TicketRef, Tickets)};
       {Name, update, Update, _, Actor} when Actor =/= self() ->
-        % ??? We don't need to collect updates here, because the are going to be handled on the next loop cycle
-        Updates = [Object || {Object, _Node, A} <- esubscribe:wait(Name, update, ?ESUBSCRIBE_DELAY), A =/= self()],
         save_update(UpdateQueue, ?UPDATE_PRIORITY, ?COT_SPONT, Update),
-        [save_update(UpdateQueue, ?UPDATE_PRIORITY, ?COT_SPONT, DataObject)
-          || DataObject <- Updates],
         InState;
       {general_interrogation, Owner, {update_group, GroupID}} ->
         GroupUpdates = collect_group_updates(GroupID, UpdateQueue, Storage),
@@ -392,14 +391,15 @@ update_queue(#update_state{
         InState;
       {general_interrogation, Owner, GroupID} ->
         GroupUpdates = collect_group_updates(GroupID, UpdateQueue, Storage),
-
-        %??? We can send confirmation not queueing it
-        save_update(UpdateQueue, ?COMMAND_PRIORITY, ?COT_ACTCON, ?C_IC_NA_1),
+        [Confirmation] = iec60870_asdu:build(#asdu{
+          type = ?C_IC_NA_1,
+          pn = ?POSITIVE_PN,
+          cot = ?COT_ACTCON,
+          objects = [{_IOA = 0, GroupID}]
+        }, ASDUSettings),
+        send_update(SendQueuePID, ?COMMAND_PRIORITY, Confirmation),
         [save_update(UpdateQueue, ?COMMAND_PRIORITY, ?COT_GROUP(GroupID), {IOA, DataObject})
           || {IOA, DataObject} <- GroupUpdates],
-
-        % ??? Termination is going to settle in the queue before the group updates. It's wrong
-        save_update(UpdateQueue, ?COMMAND_PRIORITY, ?COT_ACTTERM, ?C_IC_NA_1),
         InState;
       Unexpected ->
         ?LOGWARNING("update queue ~p: received unexpected message: ~p", [Name, Unexpected]),
@@ -408,13 +408,16 @@ update_queue(#update_state{
   OutState = check_tickets(Tickets, State),
   update_queue(OutState).
 
+%%% +--------------------------------------------------------------+
+%%% |                      Helper functions                        |
+%%% +--------------------------------------------------------------+
+
 check_tickets(Tickets, #update_state{
-  update_queue = UpdateQueue,
-  storage = Storage,
   asdu_settings = ASDUSettings,
-  send_queue_pid = SendQueuePID
+  send_queue_pid = SendQueuePID,
+  pointer = Pointer
 } = State) when map_size(Tickets) =:= 0 ->
-  case collect_updates(UpdateQueue, Storage) of
+  case init_collect(State, Pointer) of
     {[{_IOA, #{type := Type}} | _Rest] = TypeUpdates, Priority, COT} ->
       ListASDU = iec60870_asdu:build(#asdu{
         type = Type,
@@ -434,38 +437,48 @@ check_tickets(Tickets, #update_state{
 check_tickets(_Tickets, _State) ->
   ok.
 
-% ??? We cannot iterate with ets:first because we may never send types with a higher number.
-% We should use some kind of cursor that should be stored in the state
-collect_updates(UpdateQueue, Storage) ->
-  case ets:first(UpdateQueue) of
+init_collect(#update_state{
+  update_queue = UpdateQueue
+} = State, {'$end_of_table', _COT}) ->
+  StartPointer = ets:first(UpdateQueue),
+  case StartPointer of
     '$end_of_table' ->
-      none;
-    {Priority, Type, _IOA} = Key ->
-      COT = ets:lookup(UpdateQueue, Key),
-      Updates = collect_updates(UpdateQueue, Storage, Priority, Type, COT, []),
-      {Updates, Priority, COT}
+      table_empty;
+    {Priority, Type, _IOA} ->
+      collect(State, Priority, Type, StartPointer, [])
   end.
 
-collect_updates(UpdateQueue, Storage, Priority, Type, COT, AccIn) ->
-  case ets:first(UpdateQueue) of
-    '$end_of_table' ->
-      AccIn;
-    {Priority, Type, IOA} = Key ->
-      case ets:lookup(UpdateQueue, Key) of
-        [] ->
-          AccIn;
-        [COT] ->
-          Acc =
-            case ets:lookup(Storage, IOA) of
-              [] -> AccIn;
-              [DataObject] -> [{IOA, DataObject} | AccIn]
-            end,
-          ets:delete(UpdateQueue, Key),
-          collect_updates(UpdateQueue, Storage, Priority, Type, COT, Acc);
-        [_OtherCOT] ->
-          AccIn
-      end;
-    _OtherKey ->
+collect(_State, _Priority, _Type, {'$end_of_table', _COT}, Acc) ->
+  Acc;
+collect(#update_state{
+  update_queue = UpdateQueue,
+  send_queue_pid = SendQueuePID,
+  storage = Storage,
+  asdu_settings = ASDUSettings
+} = State, Priority, Type, {LastKey, LastCOT} = Pointer, AccIn) ->
+  case ets:lookup(UpdateQueue, LastKey) of
+    [] ->
+      {Pointer, AccIn};
+    [{{Priority, Type, IOA} = Key, COT}] ->
+      case is_gi_termination(LastCOT, COT) of
+        true ->
+          [Termination] = iec60870_asdu:build(#asdu{
+            type = ?C_IC_NA_1,
+            pn = ?POSITIVE_PN,
+            cot = ?COT_ACTTERM,
+            objects = [{_IOA = 0, COT - ?COT_GROUP_MIN}]
+          }, ASDUSettings),
+          send_update(SendQueuePID, ?COMMAND_PRIORITY, Termination);
+        false ->
+          ok
+      end,
+      AccOut =
+        case ets:lookup(Storage, IOA) of
+          [] -> AccIn;
+          [DataObject] -> [{IOA, DataObject} | AccIn]
+        end,
+      collect(State, Priority, Type, {ets:next(UpdateQueue, Key), COT}, AccOut);
+    _Other ->
       AccIn
   end.
 
@@ -484,14 +497,33 @@ send_update(SendQueue, Priority, ASDU) ->
   SendQueue ! {send_confirm, self(), Priority, ASDU},
   receive {confirm, TicketRef} -> TicketRef end.
 
-% ??? We should insert update if:
-% 1. IOA is absent in the queue
-% 2. IOA in the queue has lower priority, we should delete it with a lower priority
-% If there is already IOA in the queue, but with a higher priority we shouldn't add it again with a lower priority
+is_gi_termination(LastCOT, CurrentCOT)
+  when (LastCOT >= ?GLOBAL_GROUP andalso LastCOT =< ?END_GROUP)
+  andalso (CurrentCOT < ?GLOBAL_GROUP andalso CurrentCOT > ?END_GROUP) ->
+    true;
+is_gi_termination(_LastCOT, _CurrentCOT) ->
+  false.
+
+%% Updating the ETS table
+%% Search description: we are looking for the existing IOA
+%% - If it’s not found, insert the new update;
+%% - If it is found, replace the existing data only if the
+%%   new update has equal or lower priority;
+%% - If it is found and current update has lower priority,
+%%   then do nothing.
 save_update(UpdateQueue, Priority, COT, {IOA, #{type := Type}}) ->
-  ets:insert(UpdateQueue, {{Priority, Type, IOA}, COT});
-save_update(UpdateQueue, Priority, COT, Type) ->
-  ets:insert(UpdateQueue, {{Priority, Type, 0}, COT}).
+  case ets:select(UpdateQueue, [{{{'_', '_', IOA}, '_'}, [], ['$_']}]) of
+    [] ->
+      ets:insert(UpdateQueue, {{Priority, Type, IOA}, COT});
+    [{{SelectPriority, _Type, _IOA} = Key, _COT}] ->
+      case Priority >= SelectPriority of
+        true ->
+          ets:delete(UpdateQueue, Key),
+          ets:insert(UpdateQueue, {{Priority, Type, IOA}, COT});
+        false ->
+          ignore
+      end
+  end.
 
 %%% +--------------------------------------------------------------+
 %%% |                      Send Queue Process                      |
@@ -507,72 +539,76 @@ start_link_send_queue(Name, Connection) ->
   Owner = self(),
   {ok, spawn_link(
     fun() ->
-      UpdateQueue =
-        receive
-          {ready, Owner, UpdateQueuePID} -> UpdateQueuePID  % ??? Why do we need that
-        end,
       SendQueue = ets:new(send_queue, [
         ordered_set,
         private,
-        {read_concurrency, true}, % ??? Concurrency doesn't matter for private ets
         {write_concurrency, auto}
       ]),
       send_queue(#send_state{
         owner = Owner,
         name = Name,
         send_queue = SendQueue,
-        update_queue_pid = UpdateQueue,
         connection = Connection
       })
     end)}.
 
 send_queue(#send_state{
-  update_queue_pid = UpdateQueuePID,
   send_queue = SendQueue,
-  owner = Owner
-} = State) ->
-  receive
-    {send_confirm, UpdateQueuePID, Priority, ASDU} ->
-      Reference = make_ref(),
-      return_confirm(confirm, UpdateQueuePID, Reference),
-      ets:insert(SendQueue, {{Priority, Reference}, {confirm, ASDU}});
-    {send_no_confirm, Owner, Priority, ASDU} ->
-      ets:insert(SendQueue, {{Priority, make_ref()}, {no_confirm, ASDU}})
-  end,
-
-  % ??? We should trigger send ASDU to connection in the next cases:
-  % 1. send_confirm or send_no_confirm is received and no response from the connection is in waiting state
-  % 2. confirm from the Connection is received and there is the next ASDU in the queue
-
+  owner = Owner,
+  tickets = Tickets
+} = InState) ->
+  State =
+    receive
+      {confirm, Reference} ->
+        return_confirmation(Tickets, Reference),
+        InState#send_state{tickets = maps:remove(Reference, Tickets)};
+      {send_confirm, Sender, Priority, ASDU} ->
+        Reference = make_ref(),
+        Sender ! {confirm, Reference},
+        ets:insert(SendQueue, {{Priority, Reference}, {Sender, ASDU}}),
+        InState;
+      {send_no_confirm, Owner, Priority, ASDU} ->
+        ets:insert(SendQueue, {{Priority, make_ref()}, ASDU}),
+        InState
+    end,
   OutState = check_send_queue(State),
   send_queue(OutState).
 
 check_send_queue(#send_state{
   send_queue = SendQueue,
-  update_queue_pid = UpdateQueuePID,
-  connection = Connection
-} = State) ->
+  connection = Connection,
+  tickets = Tickets
+} = InState) ->
   case ets:first(SendQueue) of
     '$end_of_table' ->
-      State;
+      InState;
     {_Priority, Reference} = Key ->
-      case ets:lookup(SendQueue, Key) of
-        [] ->
-          ok;
-        [{Mode, ASDU}] ->
-          SendReference = make_ref(),
-          Connection ! {asdu, self(), SendReference, ASDU},
-
-          % ??? We must not block here. Handle confirm in the common loop
-          receive {confirm, SendReference} -> ok end,
-          return_confirm(Mode, UpdateQueuePID, Reference)
-      end,
+      % We save the ticket to wait for confirmation for this process
+      State =
+        case ets:lookup(SendQueue, Key) of
+          [] ->
+            InState;
+          % Ticket with confirmation, we must return confirmation to the sender
+          [{_Key, {Sender, ASDU}}] ->
+            send_to_connection(Connection, Reference, ASDU),
+            State#send_state{tickets = Tickets#{Reference => Sender}};
+          % Ticket without confirmation, we just send it to the connection
+          [{_Key, ASDU}] ->
+            send_to_connection(Connection, Reference, ASDU),
+            State#send_state{tickets = Tickets#{Reference => no_confirm}}
+        end,
       ets:delete(SendQueue, Key),
       State
   end.
 
-% ??? Why do we need that
-return_confirm(confirm, PID, Reference) ->
-  PID ! {confirm, Reference};
-return_confirm(no_confirm, _PID, _Reference) ->
-  ok.
+%%% +--------------------------------------------------------------+
+%%% |                      Helper functions                        |
+%%% +--------------------------------------------------------------+
+
+return_confirmation(#{Reference := no_confirm}, Reference) ->
+  ok;
+return_confirmation(#{Reference := Sender}, Reference) when is_pid(Sender) ->
+  Sender ! {confirm, Reference}.
+
+send_to_connection(Connection, Reference, ASDU) ->
+  Connection ! {asdu, self(), Reference, ASDU}.

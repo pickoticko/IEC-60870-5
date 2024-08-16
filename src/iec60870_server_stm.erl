@@ -417,8 +417,10 @@ check_tickets(Tickets, #update_state{
   send_queue_pid = SendQueuePID,
   pointer = Pointer
 } = State) when map_size(Tickets) =:= 0 ->
-  case init_collect(State, Pointer) of
-    {[{_IOA, #{type := Type}} | _Rest] = TypeUpdates, Priority, COT} ->
+  case start_collect(State, Pointer) of
+    empty ->
+      State;
+    {NextPointer, Priority, COT, [[{_IOA, #{type := Type}} | _Rest] = TypeUpdates]} ->
       ListASDU = iec60870_asdu:build(#asdu{
         type = Type,
         cot = COT,
@@ -430,37 +432,70 @@ check_tickets(Tickets, #update_state{
           Ticket = send_update(SendQueuePID, Priority, ASDU),
           AccIn#{Ticket => wait}
         end, #{}, ListASDU),
-      State#update_state{tickets = Tickets};
-    _ ->
-      State
+      State#update_state{
+        tickets = Tickets,
+        pointer = NextPointer
+      }
   end;
 check_tickets(_Tickets, _State) ->
   ok.
 
-init_collect(#update_state{
+start_collect(#update_state{
   update_queue = UpdateQueue
-} = State, {'$end_of_table', _COT}) ->
+} = State, '$end_of_table') ->
   StartPointer = ets:first(UpdateQueue),
   case StartPointer of
     '$end_of_table' ->
-      table_empty;
+      empty;
     {Priority, Type, _IOA} ->
-      collect(State, Priority, Type, StartPointer, [])
+      case ets:lookup(UpdateQueue, StartPointer) of
+        [] ->
+          ets:delete(UpdateQueue, StartPointer),
+          empty;
+        [{_Key, COT}] ->
+          {NextPointer, Updates} = collect(State, Priority, Type, COT, StartPointer, []),
+          {NextPointer, Priority, COT, Updates}
+      end
+  end;
+start_collect(#update_state{
+  update_queue = UpdateQueue
+} = State, Pointer) ->
+  case ets:lookup(UpdateQueue, Pointer) of
+    [] ->
+      empty;
+    [{{Priority, Type, _IOA}, COT}] ->
+      case ets:lookup(UpdateQueue, Pointer) of
+        [] ->
+          ets:delete(UpdateQueue, Pointer),
+          empty;
+        [{_Key, COT}] ->
+          {NextPointer, Updates} = collect(State, Priority, Type, COT, Pointer, []),
+          {NextPointer, Priority, COT, Updates}
+      end
   end.
 
-collect(_State, _Priority, _Type, {'$end_of_table', _COT}, Acc) ->
-  Acc;
+collect(_State, _Priority, _Type, _COT, '$end_of_table' = Pointer, Acc) ->
+  {Pointer, Acc};
 collect(#update_state{
   update_queue = UpdateQueue,
   send_queue_pid = SendQueuePID,
   storage = Storage,
   asdu_settings = ASDUSettings
-} = State, Priority, Type, {LastKey, LastCOT} = Pointer, AccIn) ->
+} = State, Priority, Type, InCOT, {LastKey, LastCOT} = Pointer, AccIn) ->
   case ets:lookup(UpdateQueue, LastKey) of
     [] ->
       {Pointer, AccIn};
-    [{{Priority, Type, IOA} = Key, COT}] ->
-      case is_gi_termination(LastCOT, COT) of
+    [{{Priority, Type, IOA} = Key, InCOT}] ->
+      AccOut =
+        case ets:lookup(Storage, IOA) of
+          [] ->
+            {Pointer, AccIn};
+          [DataObject] ->
+            [{IOA, DataObject} | AccIn]
+        end,
+      collect(State, Priority, Type, InCOT, get_next_pointer(UpdateQueue, Key), AccOut);
+    [{_OtherKey, OtherCOT}] ->
+      case is_gi_termination(LastCOT, OtherCOT) of
         true ->
           [Termination] = iec60870_asdu:build(#asdu{
             type = ?C_IC_NA_1,
@@ -472,14 +507,14 @@ collect(#update_state{
         false ->
           ok
       end,
-      AccOut =
-        case ets:lookup(Storage, IOA) of
-          [] -> AccIn;
-          [DataObject] -> [{IOA, DataObject} | AccIn]
-        end,
-      collect(State, Priority, Type, {ets:next(UpdateQueue, Key), COT}, AccOut);
-    _Other ->
-      AccIn
+      {Pointer, AccIn}
+  end.
+
+get_next_pointer(Table, Key) ->
+  NextKey = ets:next(Table, Key),
+  case ets:lookup(Table, NextKey) of
+    [] -> '$end_of_table';
+    [{_Key, COT}] -> {NextKey, COT}
   end.
 
 collect_group_updates(GroupID, UpdateQueue, Storage) ->
@@ -591,11 +626,11 @@ check_send_queue(#send_state{
           % Ticket with confirmation, we must return confirmation to the sender
           [{_Key, {Sender, ASDU}}] ->
             send_to_connection(Connection, Reference, ASDU),
-            State#send_state{tickets = Tickets#{Reference => Sender}};
+            InState#send_state{tickets = Tickets#{Reference => Sender}};
           % Ticket without confirmation, we just send it to the connection
           [{_Key, ASDU}] ->
             send_to_connection(Connection, Reference, ASDU),
-            State#send_state{tickets = Tickets#{Reference => no_confirm}}
+            InState#send_state{tickets = Tickets#{Reference => no_confirm}}
         end,
       ets:delete(SendQueue, Key),
       State
@@ -605,10 +640,15 @@ check_send_queue(#send_state{
 %%% |                      Helper functions                        |
 %%% +--------------------------------------------------------------+
 
-return_confirmation(#{Reference := no_confirm}, Reference) ->
-  ok;
-return_confirmation(#{Reference := Sender}, Reference) when is_pid(Sender) ->
-  Sender ! {confirm, Reference}.
+return_confirmation(Tickets, Reference) ->
+  case Tickets of
+    #{Reference := no_confirm} ->
+      ok;
+    #{Reference := Sender} ->
+      Sender ! {confirm, Reference};
+    _Other ->
+      ok
+  end.
 
 send_to_connection(Connection, Reference, ASDU) ->
   Connection ! {asdu, self(), Reference, ASDU}.

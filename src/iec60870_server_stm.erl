@@ -450,26 +450,16 @@ start_collect(#update_state{
     '$end_of_table' ->
       empty;
     {Priority, Type, _IOA} ->
-      case ets:lookup(UpdateQueue, StartPointer) of
-        [] ->
-          ets:delete(UpdateQueue, StartPointer),
-          empty;
-        [{_Key, COT}] ->
-          {NextPointer, Updates} = collect(State, Priority, Type, COT, {StartPointer, COT}, []),
-          {NextPointer, Priority, COT, Updates}
-      end
+      [{_Key, COT}] = ets:lookup(UpdateQueue, StartPointer),
+      {NextPointer, Updates} = collect(State, Priority, Type, COT, {StartPointer, COT}, []),
+      {NextPointer, Priority, COT, Updates}
   end;
 start_collect(#update_state{
   update_queue = UpdateQueue
 } = State, Pointer) ->
-  case ets:lookup(UpdateQueue, Pointer) of
-    [] ->
-      ets:delete(UpdateQueue, Pointer),
-      empty;
-    [{{Priority, Type, _IOA}, COT}] ->
-      {NextPointer, Updates} = collect(State, Priority, Type, COT, {Pointer, COT}, []),
-      {NextPointer, Priority, COT, Updates}
-  end.
+  [{{Priority, Type, _IOA}, COT}] = ets:lookup(UpdateQueue, Pointer),
+  {NextPointer, Updates} = collect(State, Priority, Type, COT, {Pointer, COT}, []),
+  {NextPointer, Priority, COT, Updates}.
 
 collect(_State, _Priority, _Type, _COT, '$end_of_table', Acc) ->
   {'$end_of_table', Acc};
@@ -480,8 +470,6 @@ collect(#update_state{
   asdu_settings = ASDUSettings
 } = State, Priority, Type, InCOT, {LastKey, LastCOT} = Pointer, AccIn) ->
   case ets:lookup(UpdateQueue, LastKey) of
-    [] ->
-      {Pointer, AccIn};
     [{{Priority, Type, IOA} = Key, InCOT}] ->
       AccOut =
         case ets:lookup(Storage, IOA) of
@@ -508,10 +496,12 @@ collect(#update_state{
   end.
 
 get_next_pointer(Table, Key) ->
-  NextKey = ets:next(Table, Key),
-  case ets:lookup(Table, NextKey) of
-    [] -> '$end_of_table';
-    [{_Key, COT}] -> {NextKey, COT}
+  case ets:next(Table, Key) of
+    '$end_of_table' ->
+      '$end_of_table';
+    NextKey ->
+      [{_Key, COT}] = ets:lookup(Table, NextKey),
+      {NextKey, COT}
   end.
 
 collect_group_updates(GroupID, UpdateQueue, Storage) ->
@@ -531,8 +521,8 @@ send_update(SendQueue, Priority, ASDU) ->
 
 is_gi_termination(LastCOT, CurrentCOT)
   when (LastCOT >= ?GLOBAL_GROUP andalso LastCOT =< ?END_GROUP)
-  andalso (CurrentCOT < ?GLOBAL_GROUP andalso CurrentCOT > ?END_GROUP) ->
-    true;
+    andalso (CurrentCOT < ?GLOBAL_GROUP andalso CurrentCOT > ?END_GROUP) ->
+      true;
 is_gi_termination(_LastCOT, _CurrentCOT) ->
   false.
 
@@ -601,7 +591,7 @@ send_queue(#send_state{
         ets:insert(SendQueue, {{Priority, Reference}, {Sender, ASDU}}),
         InState;
       {send_no_confirm, Owner, Priority, ASDU} ->
-        ets:insert(SendQueue, {{Priority, make_ref()}, ASDU}),
+        ets:insert(SendQueue, {{Priority, make_ref()}, {none, ASDU}}),
         InState
     end,
   OutState = check_send_queue(State),
@@ -611,28 +601,24 @@ check_send_queue(#send_state{
   send_queue = SendQueue,
   connection = Connection,
   tickets = Tickets
-} = InState) ->
+} = InState) when map_size(Tickets) =:= 0 ->
   case ets:first(SendQueue) of
     '$end_of_table' ->
       InState;
     {_Priority, Reference} = Key ->
       % We save the ticket to wait for confirmation for this process
-      State =
-        case ets:lookup(SendQueue, Key) of
-          [] ->
-            InState;
-          % Ticket with confirmation, we must return confirmation to the sender
-          [{_Key, {Sender, ASDU}}] ->
-            send_to_connection(Connection, Reference, ASDU),
-            InState#send_state{tickets = Tickets#{Reference => Sender}};
-          % Ticket without confirmation, we just send it to the connection
-          [{_Key, ASDU}] ->
-            send_to_connection(Connection, Reference, ASDU),
-            InState#send_state{tickets = Tickets#{Reference => no_confirm}}
-        end,
+      [{_Key, {Sender, ASDU}}] = ets:lookup(SendQueue, Key),
+      send_to_connection(Connection, Reference, ASDU),
       ets:delete(SendQueue, Key),
-      State
-  end.
+      case Sender of
+        % Ticket with confirmation, we must return confirmation to the sender
+        none -> InState#send_state{tickets = Tickets#{Reference => no_confirm}};
+        % Ticket without confirmation, we just send it to the connection
+        _PID -> InState#send_state{tickets = Tickets#{Reference => Sender}}
+      end
+  end;
+check_send_queue(#send_state{} = State) ->
+  State.
 
 %%% +--------------------------------------------------------------+
 %%% |                      Helper functions                        |
@@ -640,9 +626,7 @@ check_send_queue(#send_state{
 
 return_confirmation(Tickets, Reference) ->
   case Tickets of
-    #{Reference := no_confirm} ->
-      ok;
-    #{Reference := Sender} ->
+    #{Reference := Sender} when is_pid(Sender) ->
       Sender ! {confirm, Reference};
     _Other ->
       ok

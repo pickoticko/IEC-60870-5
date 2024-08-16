@@ -178,6 +178,7 @@ handle_event(EventType, EventContent, _AnyState, _Data) ->
   ]),
   keep_state_and_data.
 
+% ??? We have to exit SendQueue and UpdateQueue if the reason is normal
 terminate(Reason, _, _State) when Reason =:= normal; Reason =:= shutdown ->
   ?LOGWARNING("incoming server connection is terminated normally. Reason: ~p", [Reason]),
   ok;
@@ -601,7 +602,7 @@ send_queue(#send_state{
         ets:insert(SendQueue, {{Priority, Reference}, {Sender, ASDU}}),
         InState;
       {send_no_confirm, Owner, Priority, ASDU} ->
-        ets:insert(SendQueue, {{Priority, make_ref()}, ASDU}),
+        ets:insert(SendQueue, {{Priority, make_ref()}, {none,ASDU}}),
         InState
     end,
   OutState = check_send_queue(State),
@@ -612,6 +613,7 @@ check_send_queue(#send_state{
   connection = Connection,
   tickets = Tickets
 } = InState) ->
+  % ??? We cannot send another ASDU if the previous one is not confirmed yet
   case ets:first(SendQueue) of
     '$end_of_table' ->
       InState;
@@ -640,9 +642,7 @@ check_send_queue(#send_state{
 
 return_confirmation(Tickets, Reference) ->
   case Tickets of
-    #{Reference := no_confirm} ->
-      ok;
-    #{Reference := Sender} ->
+    #{Reference := Sender} when is_pid( Sender )->
       Sender ! {confirm, Reference};
     _Other ->
       ok

@@ -369,7 +369,7 @@ start_link_update_queue(Name, Storage, SendQueue, ASDUSettings) ->
         set,
         private
       ]),
-
+      ?LOGINFO("DEBUG. Starting update queue"),
       update_queue(#update_state{
         owner = Owner,
         name = Name,
@@ -426,6 +426,7 @@ update_queue(#update_state{
           || {IOA, DataObject} <- GroupUpdates],
         InState;
       {general_interrogation, Owner, GroupID} ->
+        ?LOGINFO("DEBUG. general_interrogation: ~p", [GroupID]),
 
         [Confirmation] = iec60870_asdu:build(#asdu{
           type = ?C_IC_NA_1,
@@ -437,6 +438,8 @@ update_queue(#update_state{
 
         % Enqueue group updates
         GroupUpdates = collect_group_updates(GroupID, Storage),
+
+
         [enqueue_update(?COMMAND_PRIORITY, ?COT_GROUP(GroupID), {IOA, DataObject}, InState)
           || {IOA, DataObject} <- GroupUpdates],
 
@@ -448,7 +451,13 @@ update_queue(#update_state{
           objects = [{0, GroupID}]  % _IOA = 0
         }, ASDUSettings),
 
-        InState#update_state{ gi_termination = Termination };
+        case GroupUpdates of
+          [] ->
+            SendQueuePID ! {send_no_confirm, self(), ?COMMAND_PRIORITY, Termination},
+            InState;
+          _ ->
+            InState#update_state{ gi_termination = Termination }
+        end;
 %%-----------------------------------------------------------------------------------
       Unexpected ->
         ?LOGWARNING("update queue ~p: received unexpected message: ~p", [Name, Unexpected]),
@@ -467,14 +476,14 @@ check_tickets( #update_state{
   tickets = Tickets
 } = State ) when map_size(Tickets) > 0->
   State;
-check_tickets( InState )->
-  case next_queue( InState ) of
+check_tickets(InState) ->
+  NextPointer = next_queue(InState),
+  State = check_gi_termination(NextPointer, InState),
+  case NextPointer of
     '$end_of_table' ->
-      InState;
-    NextPointer->
-      State = check_gi_termination(NextPointer, InState),
-      Updates = get_pointer_updates( NextPointer, State ),
-
+      State;
+    NextPointer ->
+      Updates = get_pointer_updates(NextPointer, State),
       send_updates(Updates, NextPointer, State)
   end.
 
@@ -498,17 +507,18 @@ next_queue(#update_state{
       next_queue( State#update_state{ pointer = '$end_of_table'  } )
   end.
 
-check_gi_termination(#pointer{
-  cot = NextCOT
-}, #update_state{
+check_gi_termination(NextPointer, #update_state{
   pointer = #pointer{ cot = COT },
   gi_termination = GI_Termination,
   send_queue_pid = SendQueuePID
-}= State) when
-  (COT >= ?COT_GROUP_MIN andalso COT =< ?COT_GROUP_MAX) andalso NextCOT =/= COT ->
-
+}= State)
+  when (is_binary(GI_Termination) andalso COT >= ?COT_GROUP_MIN andalso COT =< ?COT_GROUP_MAX)
+    andalso (NextPointer =:= '$end_of_table') orelse (NextPointer#pointer.cot =/= COT) ->
   SendQueuePID ! {send_no_confirm, self(), ?COMMAND_PRIORITY, GI_Termination},
-  State#update_state{ gi_termination = undefined }.
+  State#update_state{ gi_termination = undefined };
+check_gi_termination(_Pointer, State) ->
+  ?LOGINFO("DEBUG. check_gi_termination. Pointer: ~p, State Pointer: ~p", [_Pointer, State#update_state.pointer]),
+  State.
 
 get_pointer_updates(NextPointer, #update_state{
   update_queue_ets = UpdateQueue
@@ -631,7 +641,7 @@ start_link_send_queue(Name, Connection) ->
 
 send_queue(#send_state{
   send_queue = SendQueue,
-  owner = Owner,
+  name = Name,
   tickets = Tickets
 } = InState) ->
   State =
@@ -644,8 +654,11 @@ send_queue(#send_state{
         Sender ! {accepted, Reference},
         ets:insert(SendQueue, {{Priority, Reference}, {Sender, ASDU}}),
         InState;
-      {send_no_confirm, Owner, Priority, ASDU} ->
+      {send_no_confirm, _Sender, Priority, ASDU} ->
         ets:insert(SendQueue, {{Priority, make_ref()}, {none, ASDU}}),
+        InState;
+      Unexpected ->
+        ?LOGWARNING("send queue ~p process received unexpected message: ~p", [Name, Unexpected]),
         InState
     end,
   OutState = check_send_queue(State),
@@ -662,6 +675,7 @@ check_send_queue(#send_state{
     {_Priority, Reference} = Key ->
       % We save the ticket to wait for confirmation for this process
       [{_Key, {Sender, ASDU}}] = ets:take(SendQueue, Key),
+      ?LOGINFO("DEBUG. Send to connection. ASDU: ~p", [ASDU]),
       send_to_connection(Connection, Reference, ASDU),
       InState#send_state{tickets = Tickets#{Reference => Sender}}
   end;

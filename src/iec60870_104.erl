@@ -125,10 +125,10 @@ wait_connection(ListenSocket, #{port := Port} = Settings, Root) ->
     % Handle the ListenSocket to the next process
     unlink(Root),
     wait_connection(ListenSocket, Settings, Root),
-    ?LOGDEBUG("server on port ~p: received START ACTIVATE", [Port]),
+    ?LOGDEBUG("server on port ~p: accepted an incoming connection, waiting for START ACTIVATE", [Port]),
     case wait_activate(Socket, ?START_DT_ACTIVATE, <<>>) of
       {ok, Buffer} ->
-        ?LOGDEBUG("server on port ~p: sending START CONFIRM", [Port]),
+        ?LOGDEBUG("server on port ~p: START ACTIVATE received, reply with START CONFIRM", [Port]),
         socket_send(Socket, create_u_packet(?START_DT_CONFIRM)),
         case iec60870_server:start_connection(Root, ListenSocket, self()) of
           {ok, Connection} ->

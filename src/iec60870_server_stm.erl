@@ -100,11 +100,12 @@ callback_mode() -> [
 init({Root, Connection, #{
   name := Name,
   groups := Groups,
-  storage := Storage
+  storage := Storage,
+  asdu := ASDUSettings
 } = Settings}) ->
   ?LOGINFO("server ~p: initiating incoming connection...", [Name]),
   {ok, SendQueue} = start_link_send_queue(Name, Connection),
-  {ok, UpdateQueue} = start_link_update_queue(Name, Storage, SendQueue),
+  {ok, UpdateQueue} = start_link_update_queue(Name, Storage, SendQueue, ASDUSettings),
   process_flag(trap_exit, true),
   erlang:monitor(process, Root),
   init_group_requests(Groups),
@@ -347,7 +348,7 @@ build_asdu(Type, COT, PN, Objects, Settings) ->
 %%% | Update queue ETS format: {Priority, Type, IOA} => COT        |
 %%% +--------------------------------------------------------------+
 
-start_link_update_queue(Name, Storage, SendQueue) ->
+start_link_update_queue(Name, Storage, SendQueue, ASDUSettings) ->
   Owner = self(),
   {ok, spawn_link(
     fun() ->
@@ -363,6 +364,7 @@ start_link_update_queue(Name, Storage, SendQueue) ->
         storage = Storage,
         update_queue = UpdateQueue,
         send_queue_pid = SendQueue,
+        asdu_settings = ASDUSettings,
         pointer = ets:first(UpdateQueue),
         tickets = #{}
       })
@@ -420,25 +422,25 @@ check_tickets(Tickets, #update_state{
   case start_collect(State, Pointer) of
     empty ->
       State;
-    {NextPointer, Priority, COT, [[{_IOA, #{type := Type}} | _Rest] = TypeUpdates]} ->
+    {NextPointer, Priority, COT, [{_IOA, #{type := Type}} | _Rest] = TypeUpdates} ->
       ListASDU = iec60870_asdu:build(#asdu{
         type = Type,
         cot = COT,
         pn = ?POSITIVE_PN,
         objects = TypeUpdates
       }, ASDUSettings),
-      Tickets = lists:foldl(
+      NewTickets = lists:foldl(
         fun(ASDU, AccIn) ->
           Ticket = send_update(SendQueuePID, Priority, ASDU),
           AccIn#{Ticket => wait}
         end, #{}, ListASDU),
       State#update_state{
-        tickets = Tickets,
+        tickets = NewTickets,
         pointer = NextPointer
       }
   end;
-check_tickets(_Tickets, _State) ->
-  ok.
+check_tickets(_Tickets, State) ->
+  State.
 
 start_collect(#update_state{
   update_queue = UpdateQueue
@@ -453,7 +455,7 @@ start_collect(#update_state{
           ets:delete(UpdateQueue, StartPointer),
           empty;
         [{_Key, COT}] ->
-          {NextPointer, Updates} = collect(State, Priority, Type, COT, StartPointer, []),
+          {NextPointer, Updates} = collect(State, Priority, Type, COT, {StartPointer, COT}, []),
           {NextPointer, Priority, COT, Updates}
       end
   end;
@@ -462,20 +464,15 @@ start_collect(#update_state{
 } = State, Pointer) ->
   case ets:lookup(UpdateQueue, Pointer) of
     [] ->
+      ets:delete(UpdateQueue, Pointer),
       empty;
     [{{Priority, Type, _IOA}, COT}] ->
-      case ets:lookup(UpdateQueue, Pointer) of
-        [] ->
-          ets:delete(UpdateQueue, Pointer),
-          empty;
-        [{_Key, COT}] ->
-          {NextPointer, Updates} = collect(State, Priority, Type, COT, Pointer, []),
-          {NextPointer, Priority, COT, Updates}
-      end
+      {NextPointer, Updates} = collect(State, Priority, Type, COT, {Pointer, COT}, []),
+      {NextPointer, Priority, COT, Updates}
   end.
 
-collect(_State, _Priority, _Type, _COT, '$end_of_table' = Pointer, Acc) ->
-  {Pointer, Acc};
+collect(_State, _Priority, _Type, _COT, '$end_of_table', Acc) ->
+  {'$end_of_table', Acc};
 collect(#update_state{
   update_queue = UpdateQueue,
   send_queue_pid = SendQueuePID,
@@ -489,9 +486,9 @@ collect(#update_state{
       AccOut =
         case ets:lookup(Storage, IOA) of
           [] ->
-            {Pointer, AccIn};
+            [];
           [DataObject] ->
-            [{IOA, DataObject} | AccIn]
+            [DataObject | AccIn]
         end,
       collect(State, Priority, Type, InCOT, get_next_pointer(UpdateQueue, Key), AccOut);
     [{_OtherKey, OtherCOT}] ->
@@ -583,7 +580,8 @@ start_link_send_queue(Name, Connection) ->
         owner = Owner,
         name = Name,
         send_queue = SendQueue,
-        connection = Connection
+        connection = Connection,
+        tickets = #{}
       })
     end)}.
 

@@ -597,7 +597,7 @@ check_t2(#state{
   t2 = Timer,
   settings = #{t2 := T2}
 } = State) ->
-  reset_timer(t1, Timer),
+  reset_timer(t2, Timer),
   {ok, NewTimer} = timer:send_after(T2, {self(), t2}),
   State#state{
     t2 = NewTimer

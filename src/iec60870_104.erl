@@ -208,6 +208,8 @@ loop(#state{
     {asdu, From, Reference, ASDU} when length(Sent) =< K ->
       From ! {confirm, Reference},
       State1 = send_i_packet(ASDU, State),
+
+      % ??? Do we need to reset t1 here? may be t2?
       State2 = check_t1(State1),
       loop(State2);
 
@@ -486,6 +488,7 @@ handle_packet(i, {SendCounter, ReceiveCounter, ASDU}, #state{
 } = State) when SendCounter =:= VR ->
   Connection ! {asdu, self(), ASDU},
   reset_timer(t1, T1),
+  % ??? Do we need to reset t2 here? We still should send the confirmation
   NewState = check_t2(State),
   % When control field of received packets
   % is overflowed we should reset its value.

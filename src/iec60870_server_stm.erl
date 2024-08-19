@@ -681,7 +681,7 @@ check_send_queue(#send_state{} = State) ->
 
 return_confirmation(Tickets, Reference) ->
   case Tickets of
-    #{Reference := Sender} when is_pid(Sender) ->
+    #{Reference := Sender} when is_integer(Sender) ->
       Sender ! {confirm, Reference};
     _Other ->
       ok

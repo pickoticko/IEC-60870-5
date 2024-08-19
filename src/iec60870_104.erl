@@ -177,7 +177,7 @@ init_loop(#state{
 } = State0) ->
   process_flag(trap_exit, true),
   link(Connection),
-  State = check_t3(State0),
+  State = start_t3(State0),
   loop(State#state{
     vs = 0,
     vr = 0,
@@ -197,7 +197,7 @@ loop(#state{
     {tcp, Socket, Data}->
       {Packets, TailBuffer} = split_into_packets(<<Buffer/binary, Data/binary>>),
       State1 = handle_packets(Packets, State),
-      State2 = check_t3(State1),
+      State2 = start_t3(State1),
       loop(State2#state{buffer = TailBuffer});
 
     % A packet is received from the connection
@@ -209,8 +209,7 @@ loop(#state{
       From ! {confirm, Reference},
       State1 = send_i_packet(ASDU, State),
 
-      % ??? Do we need to reset t1 here? may be t2?
-      State2 = check_t1(State1),
+      State2 = start_t1(State1),
       loop(State2);
 
   % Commands that were sent to self and others are ignored and unexpected
@@ -296,27 +295,20 @@ handle_command(t1, _State) ->
   exit(confirm_timeout);
 
 %% T2 - Acknowledge timeout
-handle_command(t2, #state{
-  socket = Socket,
-  vr = VR,
-  settings = #{
-    w := W
-  }
-} = State) ->
-  UpdatedVR = create_s_packet(VR),
-  socket_send(Socket, UpdatedVR),
-  State#state{
-    vw = W
-  };
+handle_command(t2, State) ->
+  confirm_received_counter( State );
 
 %% T3 - Heartbeat timeout (Test frames)
 handle_command(t3, #state{
   t3 = {init, _Timer},
   socket = Socket,
-  settings = #{t3 := T3}
+  settings = #{t1 := T1}
 } = State) ->
   socket_send(Socket, create_u_packet(?TEST_FRAME_ACTIVATE)),
-  {ok, Timer} = timer:send_after(T3, {self(), t3}),
+  % We start the t3 timer with T1 duration because according to
+  % IEC 60870-5-104 the confirmation of test frame should be sent back
+  % within T1
+  Timer = init_timer( t3, T1 ),
   State#state{t3 = {confirm, Timer}};
 
 handle_command(t3, #state{
@@ -455,16 +447,8 @@ handle_packet(u, _Data, State)->
 %%% |                     S-type packet handle                     |
 %%% +--------------------------------------------------------------+
 
-handle_packet(s, ReceiveCounter, #state{
-  sent = Sent,
-  t1 = T1,
-  overflows = OverflowCount
-} = State) ->
-  reset_timer(t1, T1),
-  State#state{
-    t1 = undefined,
-    sent = [S || S <- Sent, (ReceiveCounter + (OverflowCount * ?MAX_COUNTER)) < S]
-  };
+handle_packet(s, ReceiveCounter, State) ->
+  confirm_sent_counter( ReceiveCounter, State );
 
 %%% +--------------------------------------------------------------+
 %%% |                     I-type packet handle                     |
@@ -476,20 +460,17 @@ handle_packet(i, Packet, #state{
   State1 = handle_packet(i, Packet, State#state{vw = 0}),
   % Sending an acknowledge because the number of
   % unacknowledged i-packets is reached its limit.
-  handle_command(t2, State1);
+  confirm_received_counter( State1 );
 
 handle_packet(i, {SendCounter, ReceiveCounter, ASDU}, #state{
   vr = VR,
   vw = VW,
-  sent = Sent,
-  overflows = OverflowCount,
-  connection = Connection,
-  t1 = T1
+  connection = Connection
 } = State) when SendCounter =:= VR ->
+
   Connection ! {asdu, self(), ASDU},
-  reset_timer(t1, T1),
-  % ??? Do we need to reset t2 here? We still should send the confirmation
-  NewState = check_t2(State),
+
+  NewState = start_t2(State),
   % When control field of received packets
   % is overflowed we should reset its value.
   NewVR =
@@ -497,11 +478,11 @@ handle_packet(i, {SendCounter, ReceiveCounter, ASDU}, #state{
       true  -> 0;
       false -> VR + 1
     end,
-  NewState#state{
+
+  confirm_sent_counter( ReceiveCounter, NewState#state{
     vr = NewVR,
-    vw = VW - 1,
-    sent = [S || S <- Sent, (ReceiveCounter + (OverflowCount * ?MAX_COUNTER)) < S]
-  };
+    vw = VW - 1
+  });
 
 %% When the quantity of transmitted packets does not match
 %% the number of packets received by the client.
@@ -585,56 +566,109 @@ check_setting(Key, Value)->
 %% +--------------------------------------------------------------+
 %% |                       Helper functions                       |
 %% +--------------------------------------------------------------+
+confirm_sent_counter(ReceiveCounter, #state{
+  sent = Sent,
+  t1 = T1,
+  overflows = OverflowCount
+} = State)->
 
-check_t1(#state{
-  t1 = Timer,
+  reset_timer(t1, T1),
+  Unconfirmed = [S || S <- Sent, (ReceiveCounter + (OverflowCount * ?MAX_COUNTER)) < S],
+
+  % ATTENTION. According to the IEC 60870-5-104 we have to start timer from the point
+  % of the first unconfirmed packet, but for the simplicity of implementation we start if
+  % from the point of the last confirmation. This means that the actual time of waiting for
+  % the confirmation may be longer than the T1 setting
+  Timer =
+    if
+      length( Unconfirmed ) > 0 -> init_timer( t1, T1 );
+      true -> undefined
+    end,
+
+  State#state{
+    t1 = Timer,
+    sent = Unconfirmed
+  }.
+
+confirm_received_counter(#state{
+  t2 = Timer,
+  socket = Socket,
+  vr = VR,
+  settings = #{
+    w := W
+  }
+} = State)->
+
+  UpdatedVR = create_s_packet(VR),
+  socket_send(Socket, UpdatedVR),
+  reset_timer( t2, Timer ),
+
+  State#state{
+    vw = W,
+    t2 = undefined
+  }.
+
+
+start_t1(#state{
+  t1 = Timer
+} = State) when is_reference( Timer ) ->
+  State;
+start_t1(#state{
   settings = #{t1 := T1}
 } = State) ->
-  reset_timer(t1, Timer),
-  {ok, NewTimer} = timer:send_after(T1, {self(), t1}),
   State#state{
-    t1 = NewTimer
+    t1 = init_timer( t1, T1 )
   }.
 
-check_t2(#state{
-  t2 = Timer,
+start_t2(#state{
+  t2 = Timer
+} = State) when is_reference( Timer ) ->
+  State;
+start_t2(#state{
   settings = #{t2 := T2}
 } = State) ->
-  reset_timer(t2, Timer),
-  {ok, NewTimer} = timer:send_after(T2, {self(), t2}),
   State#state{
-    t2 = NewTimer
+    t2 = init_timer( t2, T2 )
   }.
 
-check_t3(#state{
+start_t3(#state{
   t3 = {confirm, _}
 } = State) ->
   State;
 
-check_t3(#state{
-  t3 = Heartbeat,
+start_t3(#state{
+  t3 = {_, PrevTimer},
   settings = #{t3 := T3}
 } = State) ->
-  case Heartbeat of
-    {_, Timer} ->
-      reset_timer(t3, Timer);
-    _ ->
-      ignore
-  end,
-  {ok, NewTimer} = timer:send_after(T3, {self(), t3}),
+  Timer = restart_timer( t3, T3, PrevTimer ),
   State#state{
-    t3 = {init, NewTimer}
+    t3 = {init, Timer}
+  };
+
+start_t3(#state{
+  settings = #{t3 := T3}
+} = State) ->
+  Timer = init_timer( t3, T3),
+  State#state{
+    t3 = {init, Timer}
   }.
 
-reset_timer(Type, Timer) ->
-  if
-    Timer =/= undefined ->
-      timer:cancel(Timer),
-      clear_timer(Type);
-    true ->
-      ignore
-  end,
+
+init_timer(Type, Duration)->
+  Self = self(),
+  erlang:send_after( Duration, Self, { Self, Type }).
+
+restart_timer( Type, Duration, Timer )->
+  reset_timer( Type, Timer ),
+  init_timer( Type, Duration).
+
+
+reset_timer(Type, Timer) when is_reference( Timer )->
+  erlang:cancel_timer( Timer ),
+  clear_timer(Type);
+reset_timer(_Type, _Timer)->
   ok.
+
 
 %% Clearing the mailbox from timer messages
 clear_timer(Type) ->

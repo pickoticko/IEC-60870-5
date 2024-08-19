@@ -74,7 +74,8 @@ parse(ASDU, #{
 build(#asdu{
   type = Type,
   cot = COT,
-  objects = DataObjects
+  objects = DataObjects,
+  pn = PN
 }, #{
   org := ORG,
   coa := COA,
@@ -104,7 +105,7 @@ build(#asdu{
     <<Type:8                         /integer,
       ?SQ_DISCONTINUOUS:1            /integer,
       (length(InformationObjects)):7 /integer,
-      0:1, 0:1, COT:6                /little-integer,
+      0:1, PN:1, COT:6               /little-integer,
       ORG:ORGBitSize                 /little-integer,
       COA:COABitSize                 /little-integer,
       (create_information_objects(Type, InformationObjects, IOABitSize))/binary>>

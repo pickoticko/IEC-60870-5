@@ -193,7 +193,7 @@ loop(#state{
   sent = Sent
 } = State) ->
   receive
-  % Data is received from the transport level (TCP)
+    % Data is received from the transport level (TCP)
     {tcp, Socket, Data}->
       {Packets, TailBuffer} = split_into_packets(<<Buffer/binary, Data/binary>>),
       State1 = handle_packets(Packets, State),
@@ -212,12 +212,12 @@ loop(#state{
       State2 = start_t1(State1),
       loop(State2);
 
-  % Commands that were sent to self and others are ignored and unexpected
+    % Commands that were sent to self and others are ignored and unexpected
     {Self, Command} when Self =:= self() ->
       State1 = handle_command(Command, State),
       loop(State1);
 
-  % Errors from TCP
+    % Errors from TCP
     {tcp_closed, Socket} ->
       exit(closed);
     {tcp_error, Socket, Reason} ->
@@ -225,14 +225,14 @@ loop(#state{
     {tcp_passive, Socket} ->
       exit(tcp_passive);
 
-  % Connection exit signal
+    % Connection exit signal
     {'EXIT', Connection, Reason} ->
       ?LOGERROR("connection is down due to a reason: ~p", [Reason]),
       gen_tcp:close(Socket),
       exit(Reason);
 
-  % If an ASDU packet isn't accepted because we are waiting for confirmation,
-  % we should compare the sent packets with K to avoid ignoring other ASDUs
+    % If an ASDU packet isn't accepted because we are waiting for confirmation,
+    % we should compare the sent packets with K to avoid ignoring other ASDUs
     Unexpected when length(Sent) =< K ->
       ?LOGWARNING("unexpected message received ~p", [Unexpected]),
       loop(State)
@@ -253,7 +253,7 @@ init_client(Owner, #{
           ?LOGDEBUG("client ~p: START CONFIRM", [Host]),
           % The confirmation has been received and the client is ready to work
           Owner ! {ready, self()},
-          init_loop( #state{
+          init_loop(#state{
             socket = Socket,
             connection = Owner,
             settings = Settings,
@@ -566,13 +566,14 @@ check_setting(Key, Value)->
 %% +--------------------------------------------------------------+
 %% |                       Helper functions                       |
 %% +--------------------------------------------------------------+
+
 confirm_sent_counter(ReceiveCounter, #state{
   sent = Sent,
-  t1 = T1,
-  overflows = OverflowCount
-} = State)->
-
-  reset_timer(t1, T1),
+  t1 = PrevTimer,
+  overflows = OverflowCount,
+  settings = #{t1 := T1}
+} = State) ->
+  reset_timer(t1, PrevTimer),
   Unconfirmed = [S || S <- Sent, (ReceiveCounter + (OverflowCount * ?MAX_COUNTER)) < S],
 
   % ATTENTION. According to the IEC 60870-5-104 we have to start timer from the point
@@ -581,7 +582,7 @@ confirm_sent_counter(ReceiveCounter, #state{
   % the confirmation may be longer than the T1 setting
   Timer =
     if
-      length( Unconfirmed ) > 0 -> init_timer( t1, T1 );
+      length(Unconfirmed) > 0 -> init_timer(t1, T1);
       true -> undefined
     end,
 
@@ -597,38 +598,35 @@ confirm_received_counter(#state{
   settings = #{
     w := W
   }
-} = State)->
-
+} = State) ->
   UpdatedVR = create_s_packet(VR),
   socket_send(Socket, UpdatedVR),
-  reset_timer( t2, Timer ),
-
+  reset_timer(t2, Timer),
   State#state{
     vw = W,
     t2 = undefined
   }.
 
-
 start_t1(#state{
   t1 = Timer
-} = State) when is_reference( Timer ) ->
+} = State) when is_reference(Timer) ->
   State;
 start_t1(#state{
   settings = #{t1 := T1}
 } = State) ->
   State#state{
-    t1 = init_timer( t1, T1 )
+    t1 = init_timer(t1, T1)
   }.
 
 start_t2(#state{
   t2 = Timer
-} = State) when is_reference( Timer ) ->
+} = State) when is_reference(Timer) ->
   State;
 start_t2(#state{
   settings = #{t2 := T2}
 } = State) ->
   State#state{
-    t2 = init_timer( t2, T2 )
+    t2 = init_timer(t2, T2)
   }.
 
 start_t3(#state{
@@ -640,7 +638,7 @@ start_t3(#state{
   t3 = {_, PrevTimer},
   settings = #{t3 := T3}
 } = State) ->
-  Timer = restart_timer( t3, T3, PrevTimer ),
+  Timer = restart_timer(t3, T3, PrevTimer),
   State#state{
     t3 = {init, Timer}
   };
@@ -648,27 +646,24 @@ start_t3(#state{
 start_t3(#state{
   settings = #{t3 := T3}
 } = State) ->
-  Timer = init_timer( t3, T3),
+  Timer = init_timer(t3, T3),
   State#state{
     t3 = {init, Timer}
   }.
 
-
-init_timer(Type, Duration)->
+init_timer(Type, Duration) ->
   Self = self(),
-  erlang:send_after( Duration, Self, { Self, Type }).
+  erlang:send_after(Duration, Self, {Self, Type}).
 
-restart_timer( Type, Duration, Timer )->
-  reset_timer( Type, Timer ),
-  init_timer( Type, Duration).
+restart_timer(Type, Duration, Timer) ->
+  reset_timer(Type, Timer),
+  init_timer(Type, Duration).
 
-
-reset_timer(Type, Timer) when is_reference( Timer )->
-  erlang:cancel_timer( Timer ),
+reset_timer(Type, Timer) when is_reference(Timer) ->
+  erlang:cancel_timer(Timer),
   clear_timer(Type);
-reset_timer(_Type, _Timer)->
+reset_timer(_Type, _Timer) ->
   ok.
-
 
 %% Clearing the mailbox from timer messages
 clear_timer(Type) ->

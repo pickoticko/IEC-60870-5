@@ -62,7 +62,8 @@
   tickets,
   update_queue_pid,
   send_queue,
-  connection
+  connection,
+  counter
 }).
 
 -define(REMOTE_CONTROL_PRIORITY, 0).
@@ -270,12 +271,8 @@ handle_asdu(#asdu{
   type = ?C_IC_NA_1,
   objects = [{_IOA, GroupID}]
 }, #state{
-  update_queue = UpdateQueue,
-  settings = #{
-    name := Name
-  }
+  update_queue = UpdateQueue
 }) ->
-  ?LOGDEBUG("server ~p: received GI to group ~p", [Name, GroupID]),
   UpdateQueue ! {general_interrogation, self(), GroupID},
   keep_state_and_data;
 
@@ -336,13 +333,7 @@ build_asdu(Type, COT, PN, Objects, Settings) ->
 %%% | the incoming updates from the esubscribe and handling GI     |
 %%% | requests from the server state machine process               |
 %%% +--------------------------------------------------------------+
-%%% | Update queue ETS format: {Priority, Type, IOA} => COT        |
-%%% +--------------------------------------------------------------+
 
-% order ets:
-% { { pointer, ioa }, true }
-
-% #pointer{ priority, type, cot }
 -record(update_state, {
   owner,
   name,
@@ -353,7 +344,7 @@ build_asdu(Type, COT, PN, Objects, Settings) ->
   asdu_settings,
   pointer,
   storage,
-  gi_termination
+  group
 }).
 
 start_link_update_queue(Name, Storage, SendQueue, ASDUSettings) ->
@@ -365,22 +356,21 @@ start_link_update_queue(Name, Storage, SendQueue, ASDUSettings) ->
         ordered_set,
         private
       ]),
-      IOA_Index = ets:new(io_index, [
+      IndexIOA = ets:new(io_index, [
         set,
         private
       ]),
-      ?LOGINFO("DEBUG. Starting update queue"),
       update_queue(#update_state{
         owner = Owner,
         name = Name,
         storage = Storage,
         update_queue_ets = UpdateQueue,
-        ioa_index = IOA_Index,
+        ioa_index = IndexIOA,
         send_queue_pid = SendQueue,
         asdu_settings = ASDUSettings,
-        pointer = ets:first(UpdateQueue), % ???
+        pointer = ets:first(UpdateQueue),
         tickets = #{},
-        gi_termination = undefined
+        group = undefined
       })
     end)}.
 
@@ -391,156 +381,157 @@ update_queue(#update_state{
   storage = Storage,
   send_queue_pid = SendQueuePID,
   asdu_settings = ASDUSettings,
-  gi_termination = GI_Termination
+  group = CurrentGroup
 } = InState) ->
   State =
     receive
-%%--------------REAL-TIME updates-------------------------------------------------------
+      % Real-time updates from esubscribe
       {Name, update, Update, _, Actor} when Actor =/= Owner ->
         enqueue_update(?UPDATE_PRIORITY, ?COT_SPONT, Update, InState),
         InState;
 
-%%--------------ASDU sent confirmation-------------------------------------------------------
+      % Confirmation of the ticket reference from
       {confirm, TicketRef} ->
         InState#update_state{tickets = maps:remove(TicketRef, Tickets)};
 
-%%----------GROUP INTERROGATION----------------------------------------------------------
-      {general_interrogation, Owner, {update_group, _GroupID}} when is_binary(GI_Termination) ->
-        % Ignore request
+      % Ignoring group update event from STM
+      {general_interrogation, Owner, {update_group, Group}} when is_integer(CurrentGroup) ->
         InState;
-      {general_interrogation, Owner, GroupID} when is_binary(GI_Termination)->
-        % Reject GI request
-        [Reject] = iec60870_asdu:build(#asdu{
-          type = ?C_IC_NA_1,
-          pn = ?NEGATIVE_PN,
-          cot = ?COT_ACTCON,
-          objects = [{_IOA = 0, GroupID}]
-        }, ASDUSettings),
 
-        SendQueuePID ! {send_no_confirm, self(), ?COMMAND_PRIORITY, Reject},
+      % Response to the general interrogation while being in the state of general interrogation
+      {general_interrogation, Owner, Group} when is_integer(CurrentGroup) ->
+        % If the group is the same, then GI is confirmed.
+        % Otherwise, it is rejected.
+        PN =
+          case Group of
+            CurrentGroup -> ?POSITIVE_PN;
+            _Other -> ?NEGATIVE_PN
+          end,
+        ?LOGDEBUG("received GI to group ~p while handling other GI group ~p, PN: ~p", [Group, CurrentGroup, PN]),
+        [Confirmation] = iec60870_asdu:build(#asdu{
+          type = ?C_IC_NA_1,
+          pn = PN,
+          cot = ?COT_ACTCON,
+          objects = [{_IOA = 0, Group}]
+        }, ASDUSettings),
+        SendQueuePID ! {send_no_confirm, self(), ?COMMAND_PRIORITY, Confirmation},
         InState;
-      {general_interrogation, Owner, {update_group, GroupID}} ->
-        GroupUpdates = collect_group_updates(GroupID, Storage),
-        % ??? ets:insert(UpdateQueue, [{{Priority, Type, IOA}, COT}]);
+
+      % Handling general update event from the STM
+      {general_interrogation, Owner, {update_group, Group}} ->
+        GroupUpdates = collect_group_updates(Group, Storage),
         [enqueue_update(?COMMAND_PRIORITY, ?COT_SPONT, {IOA, DataObject}, InState)
           || {IOA, DataObject} <- GroupUpdates],
         InState;
-      {general_interrogation, Owner, GroupID} ->
-        ?LOGINFO("DEBUG. general_interrogation: ~p", [GroupID]),
 
+      % Handling general interrogation from the connection
+      {general_interrogation, Owner, Group} ->
+        ?LOGDEBUG("received GI to group: ~p", [Group]),
         [Confirmation] = iec60870_asdu:build(#asdu{
           type = ?C_IC_NA_1,
           pn = ?POSITIVE_PN,
           cot = ?COT_ACTCON,
-          objects = [{_IOA = 0, GroupID}]
+          objects = [{_IOA = 0, Group}]
         }, ASDUSettings),
         SendQueuePID ! {send_no_confirm, self(), ?COMMAND_PRIORITY, Confirmation},
-
-        % Enqueue group updates
-        GroupUpdates = collect_group_updates(GroupID, Storage),
-
-
-        [enqueue_update(?COMMAND_PRIORITY, ?COT_GROUP(GroupID), {IOA, DataObject}, InState)
+        GroupUpdates = collect_group_updates(Group, Storage),
+        [enqueue_update(?COMMAND_PRIORITY, ?COT_GROUP(Group), {IOA, DataObject}, InState)
           || {IOA, DataObject} <- GroupUpdates],
-
-        % Keep the termination
-        [Termination] = iec60870_asdu:build(#asdu{
-          type = ?C_IC_NA_1,
-          pn = ?POSITIVE_PN,
-          cot = ?COT_ACTTERM,
-          objects = [{0, GroupID}]  % _IOA = 0
-        }, ASDUSettings),
-
         case GroupUpdates of
           [] ->
+            Termination = build_termination(Group, ASDUSettings),
             SendQueuePID ! {send_no_confirm, self(), ?COMMAND_PRIORITY, Termination},
             InState;
           _ ->
-            InState#update_state{ gi_termination = Termination }
+            InState#update_state{group = Group}
         end;
-%%-----------------------------------------------------------------------------------
+
+      % All other unexpected messages
       Unexpected ->
         ?LOGWARNING("update queue ~p: received unexpected message: ~p", [Name, Unexpected]),
         InState
     end,
-  OutState = check_tickets( State ),
+  OutState = check_tickets(State),
   update_queue(OutState).
 
 %%% +--------------------------------------------------------------+
 %%% |                      Helper functions                        |
 %%% +--------------------------------------------------------------+
--record(pointer,{priority, cot, type}).
--record(order, {pointer, ioa }).
 
-check_tickets( #update_state{
+-record(pointer, {priority, cot, type}).
+-record(order, {pointer, ioa}).
+
+check_tickets(#update_state{
   tickets = Tickets
-} = State ) when map_size(Tickets) > 0->
+} = State) when map_size(Tickets) > 0 ->
   State;
 check_tickets(InState) ->
   NextPointer = next_queue(InState),
-  State = check_gi_termination(NextPointer, InState),
   case NextPointer of
     '$end_of_table' ->
-      State;
+      InState;
     NextPointer ->
-      Updates = get_pointer_updates(NextPointer, State),
-      send_updates(Updates, NextPointer, State)
+      Updates = get_pointer_updates(NextPointer, InState),
+      State = send_updates(Updates, NextPointer, InState),
+      check_gi_termination(State)
   end.
 
 next_queue(#update_state{
   pointer = '$end_of_table',
   update_queue_ets = UpdateQueue
-})->
-  case ets:first( UpdateQueue ) of
-    #order{ pointer = Pointer }-> Pointer;
-    _-> '$end_of_table'
+}) ->
+  case ets:first(UpdateQueue) of
+    #order{pointer = Pointer} -> Pointer;
+    _ -> '$end_of_table'
   end;
 next_queue(#update_state{
   pointer = #pointer{} = Pointer,
   update_queue_ets = UpdateQueue
-} = State)->
-  case ets:next( UpdateQueue, #order{ pointer = Pointer, ioa = max_ioa } ) of
-    #order{ pointer = NextPointer }->
+} = State) ->
+  case ets:next(UpdateQueue, #order{pointer = Pointer, ioa = max_ioa}) of
+    #order{pointer = NextPointer} ->
       NextPointer;
-    _->
+    _Other ->
       % Start from the beginning
-      next_queue( State#update_state{ pointer = '$end_of_table'  } )
+      next_queue(State#update_state{pointer = '$end_of_table'})
   end.
 
-check_gi_termination(NextPointer, #update_state{
-  pointer = #pointer{ cot = COT },
-  gi_termination = GI_Termination,
-  send_queue_pid = SendQueuePID
-}= State)
-  when (is_binary(GI_Termination) andalso COT >= ?COT_GROUP_MIN andalso COT =< ?COT_GROUP_MAX)
-    andalso (NextPointer =:= '$end_of_table') orelse (NextPointer#pointer.cot =/= COT) ->
-  SendQueuePID ! {send_no_confirm, self(), ?COMMAND_PRIORITY, GI_Termination},
-  State#update_state{ gi_termination = undefined };
-check_gi_termination(_Pointer, State) ->
-  ?LOGINFO("DEBUG. check_gi_termination. Pointer: ~p, State Pointer: ~p", [_Pointer, State#update_state.pointer]),
+check_gi_termination(#update_state{
+  pointer = #pointer{cot = COT},
+  group = GroupID,
+  send_queue_pid = SendQueuePID,
+  asdu_settings = ASDUSettings
+} = State) when (COT >= ?COT_GROUP_MIN andalso COT =< ?COT_GROUP_MAX) ->
+  case next_queue(State) of
+    #pointer{cot = COT} ->
+      State;
+    _Other ->
+      Termination = build_termination(GroupID, ASDUSettings),
+      SendQueuePID ! {send_no_confirm, self(), ?COMMAND_PRIORITY, Termination},
+      State#update_state{group = undefined}
+  end;
+check_gi_termination(State) ->
   State.
 
 get_pointer_updates(NextPointer, #update_state{
   update_queue_ets = UpdateQueue
-}= State)->
-  get_pointer_updates(ets:next( UpdateQueue, #order{ pointer = NextPointer, ioa = -1 } ),  NextPointer, State).
+} = State) ->
+  get_pointer_updates(ets:next(UpdateQueue, #order{pointer = NextPointer, ioa = -1}), NextPointer, State).
 
-get_pointer_updates(#order{ pointer = NextPointer, ioa = IOA} = Order, NextPointer, #update_state{
+get_pointer_updates(#order{pointer = NextPointer, ioa = IOA} = Order, NextPointer, #update_state{
   update_queue_ets = UpdateQueue,
-  ioa_index = IOA_Index,
+  ioa_index = IndexIOA,
   storage = Storage
-} =State)->
-
-  ets:delete( UpdateQueue, Order ),
-  ets:delete( IOA_Index, IOA ),
-
-  case ets:lookup( Storage, IOA ) of
-    [ Update ] ->
-      [Update|get_pointer_updates(ets:next( UpdateQueue, Order),  NextPointer, State)];
-    []->
-      get_pointer_updates(ets:next( UpdateQueue, Order),  NextPointer, State)
+} = State) ->
+  ets:delete(UpdateQueue, Order),
+  ets:delete(IndexIOA, IOA),
+  case ets:lookup(Storage, IOA) of
+    [Update] ->
+      [Update | get_pointer_updates(ets:next(UpdateQueue, Order), NextPointer, State)];
+    [] ->
+      get_pointer_updates(ets:next(UpdateQueue, Order), NextPointer, State)
   end;
-get_pointer_updates(_NextKey, _NextPointer, _State)->
+get_pointer_updates(_NextKey, _NextPointer, _State) ->
   [].
 
 send_updates(Updates, #pointer{
@@ -550,21 +541,18 @@ send_updates(Updates, #pointer{
 } = Pointer, #update_state{
   asdu_settings = ASDUSettings,
   send_queue_pid = SendQueuePID
-} =State)->
-
+} = State) ->
   ListASDU = iec60870_asdu:build(#asdu{
     type = Type,
     cot = COT,
     pn = ?POSITIVE_PN,
     objects = Updates
   }, ASDUSettings),
-
   Tickets = lists:foldl(
     fun(ASDU, AccIn) ->
       Ticket = send_update(SendQueuePID, Priority, ASDU),
       AccIn#{Ticket => wait}
     end, #{}, ListASDU),
-
   State#update_state{
     tickets = Tickets,
     pointer = Pointer
@@ -584,33 +572,29 @@ send_update(SendQueue, Priority, ASDU) ->
   SendQueue ! {send_confirm, self(), Priority, ASDU},
   receive {accepted, TicketRef} -> TicketRef end.
 
-%% Updating the ETS table
-%% Search description: we are looking for the existing IOA
-%% - If it’s not found, insert the new update;
-%% - If it is found, replace the existing data only if the
-%%   new update has equal or lower priority;
-%% - If it is found and current update has lower priority,
-%%   then do nothing.
 enqueue_update(Priority, COT, {IOA, #{type := Type}}, #update_state{
   ioa_index = IOA_Index,
   update_queue_ets = UpdateQueue
 }) ->
   Order = #order{
-    pointer = #pointer{ priority = Priority, cot = COT, type = Type },
+    pointer = #pointer{priority = Priority, cot = COT, type = Type},
     ioa = IOA
   },
-  case ets:lookup( IOA_Index, IOA ) of
+  case ets:lookup(IOA_Index, IOA) of
     [] ->
-      ets:insert( UpdateQueue, { Order, true } ),
-      ets:insert( IOA_Index, {IOA, Order} );
-    [{#order{ pointer = #pointer{ priority = HasPriority } },_}] when HasPriority < Priority->
+      ets:insert(UpdateQueue, {Order, true}),
+      ets:insert(IOA_Index, {IOA, Order});
+    [{#order{pointer = #pointer{priority = HasPriority}}, _}] when HasPriority < Priority ->
       % We cannot lower the existing priority
       ignore;
-    [{PrevOrder,_}]->
-      ets:delete( UpdateQueue, PrevOrder ),
-      ets:insert( UpdateQueue, { Order, true } ),
-      ets:insert( IOA_Index, {IOA, Order} )
+    [{PrevOrder, _}] ->
+      ets:delete(UpdateQueue, PrevOrder),
+      ets:insert(UpdateQueue, {Order, true}),
+      ets:insert(IOA_Index, {IOA, Order})
   end.
+
+build_termination(GroupID, ASDUSettings) ->
+  build_asdu(?C_IC_NA_1, ?COT_ACTTERM, ?POSITIVE_PN, [{0, GroupID}], ASDUSettings).
 
 %%% +--------------------------------------------------------------+
 %%% |                      Send Queue Process                      |
@@ -635,14 +619,16 @@ start_link_send_queue(Name, Connection) ->
         name = Name,
         send_queue = SendQueue,
         connection = Connection,
-        tickets = #{}
+        tickets = #{},
+        counter = 0
       })
     end)}.
 
 send_queue(#send_state{
   send_queue = SendQueue,
   name = Name,
-  tickets = Tickets
+  tickets = Tickets,
+  counter = Counter
 } = InState) ->
   State =
     receive
@@ -650,13 +636,12 @@ send_queue(#send_state{
         return_confirmation(Tickets, Reference),
         InState#send_state{tickets = maps:remove(Reference, Tickets)};
       {send_confirm, Sender, Priority, ASDU} ->
-        Reference = make_ref(),
-        Sender ! {accepted, Reference},
-        ets:insert(SendQueue, {{Priority, Reference}, {Sender, ASDU}}),
-        InState;
+        Sender ! {accepted, Counter},
+        ets:insert(SendQueue, {{Priority, Counter}, {Sender, ASDU}}),
+        InState#send_state{counter = Counter + 1};
       {send_no_confirm, _Sender, Priority, ASDU} ->
-        ets:insert(SendQueue, {{Priority, make_ref()}, {none, ASDU}}),
-        InState;
+        ets:insert(SendQueue, {{Priority, Counter}, {none, ASDU}}),
+        InState#send_state{counter = Counter + 1};
       Unexpected ->
         ?LOGWARNING("send queue ~p process received unexpected message: ~p", [Name, Unexpected]),
         InState
@@ -675,7 +660,6 @@ check_send_queue(#send_state{
     {_Priority, Reference} = Key ->
       % We save the ticket to wait for confirmation for this process
       [{_Key, {Sender, ASDU}}] = ets:take(SendQueue, Key),
-      ?LOGINFO("DEBUG. Send to connection. ASDU: ~p", [ASDU]),
       send_to_connection(Connection, Reference, ASDU),
       InState#send_state{tickets = Tickets#{Reference => Sender}}
   end;

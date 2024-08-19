@@ -573,24 +573,24 @@ send_update(SendQueue, Priority, ASDU) ->
   receive {accepted, TicketRef} -> TicketRef end.
 
 enqueue_update(Priority, COT, {IOA, #{type := Type}}, #update_state{
-  ioa_index = IOA_Index,
+  ioa_index = IndexIOA,
   update_queue_ets = UpdateQueue
 }) ->
   Order = #order{
     pointer = #pointer{priority = Priority, cot = COT, type = Type},
     ioa = IOA
   },
-  case ets:lookup(IOA_Index, IOA) of
+  case ets:lookup(IndexIOA, IOA) of
     [] ->
       ets:insert(UpdateQueue, {Order, true}),
-      ets:insert(IOA_Index, {IOA, Order});
+      ets:insert(IndexIOA, {IOA, Order});
     [{#order{pointer = #pointer{priority = HasPriority}}, _}] when HasPriority < Priority ->
       % We cannot lower the existing priority
       ignore;
     [{PrevOrder, _}] ->
       ets:delete(UpdateQueue, PrevOrder),
       ets:insert(UpdateQueue, {Order, true}),
-      ets:insert(IOA_Index, {IOA, Order})
+      ets:insert(IndexIOA, {IOA, Order})
   end.
 
 build_termination(GroupID, ASDUSettings) ->

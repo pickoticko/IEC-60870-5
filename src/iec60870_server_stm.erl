@@ -151,7 +151,7 @@ handle_event(info, {'EXIT', SendQueue, Reason}, _AnyState, #state{
 
 %% The update queue process is down
 handle_event(info, {'EXIT', UpdateQueue, Reason}, _AnyState, #state{
-  send_queue = UpdateQueue
+  update_queue = UpdateQueue
 }) ->
   ?LOGWARNING("server update queue process terminated. Reason: ~p", [Reason]),
   {stop, Reason};
@@ -169,9 +169,13 @@ handle_event(EventType, EventContent, _AnyState, _Data) ->
   ]),
   keep_state_and_data.
 
-% ??? We have to exit SendQueue and UpdateQueue if the reason is normal
-terminate(Reason, _, _State) when Reason =:= normal; Reason =:= shutdown ->
+terminate(Reason, _, #state{
+  update_queue = UpdateQueue,
+  send_queue = SendQueue
+}) when Reason =:= normal; Reason =:= shutdown ->
   ?LOGWARNING("incoming server connection is terminated normally. Reason: ~p", [Reason]),
+  exit(SendQueue, server_state_machine_terminated),
+  exit(UpdateQueue, server_state_machine_terminated),
   ok;
 terminate({connection_closed, Reason}, _, _State)->
   ?LOGWARNING("incoming server connection is closed. Reason: ~p", [Reason]),

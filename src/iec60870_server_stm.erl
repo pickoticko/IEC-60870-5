@@ -408,6 +408,7 @@ update_queue(#update_state{
             _Other -> ?NEGATIVE_PN
           end,
         ?LOGDEBUG("server ~p, update queue received GI to group ~p while handling other GI group ~p, PN: ~p", [
+          Name,
           Group,
           CurrentGroup,
           PN
@@ -430,7 +431,7 @@ update_queue(#update_state{
 
       % Handling general interrogation from the connection
       {general_interrogation, Owner, Group} ->
-        ?LOGDEBUG("server ~p, update queue received GI to group: ~p", [Group]),
+        ?LOGDEBUG("server ~p, update queue received GI to group: ~p", [Name, Group]),
         [Confirmation] = iec60870_asdu:build(#asdu{
           type = ?C_IC_NA_1,
           pn = ?POSITIVE_PN,

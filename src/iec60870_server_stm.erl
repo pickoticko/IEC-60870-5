@@ -426,7 +426,7 @@ update_queue(#update_state{
 
       % Handling general interrogation from the connection
       {general_interrogation, Owner, Group} ->
-        ?LOGDEBUG("received GI to group: ~p", [Group]),
+        ?LOGDEBUG("server ~p, update queue received GI to group: ~p", [Group]),
         [Confirmation] = iec60870_asdu:build(#asdu{
           type = ?C_IC_NA_1,
           pn = ?POSITIVE_PN,

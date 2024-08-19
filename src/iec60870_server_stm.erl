@@ -395,7 +395,7 @@ update_queue(#update_state{
         InState#update_state{tickets = maps:remove(TicketRef, Tickets)};
 
       % Ignoring group update event from STM
-      {general_interrogation, Owner, {update_group, Group}} when is_integer(CurrentGroup) ->
+      {general_interrogation, Owner, {update_group, _Group}} when is_integer(CurrentGroup) ->
         InState;
 
       % Response to the general interrogation while being in the state of general interrogation

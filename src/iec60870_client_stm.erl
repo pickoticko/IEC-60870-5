@@ -737,7 +737,14 @@ group_by_types([], Acc) ->
 send_asdu(Connection, ASDU) ->
   Ref = make_ref(),
   Connection ! {asdu, self(), Ref, ASDU},
-  receive {confirm, Ref} -> ok end.
+  receive
+    {confirm, Ref} ->
+      ok;
+    {'DOWN', _, process, Connection, Reason} = DownMessage ->
+      ?LOGWARNING("connection ~p is down w/ reason: ~p", [Connection, Reason]),
+      self() ! DownMessage,
+      ok
+  end.
 
 update_value(Name, Storage, ID, InValue) ->
   OldValue =

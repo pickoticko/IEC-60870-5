@@ -130,8 +130,17 @@ loop(#data{
   end.
 
 get_data(Data) ->
+  drop_access_demand(),
   NewData = send_data_class_request(?REQUEST_DATA_CLASS_1, Data),
   send_data_class_request(?REQUEST_DATA_CLASS_2, NewData).
+
+drop_access_demand() ->
+  receive
+    {access_demand, _AnyPID} ->
+      drop_access_demand()
+  after
+    0 -> ok
+  end.
 
 send_data_class_request(DataClass, #data{
   state = State,

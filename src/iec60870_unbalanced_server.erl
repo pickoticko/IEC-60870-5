@@ -67,7 +67,7 @@ stop(PID) ->
 %%% +--------------------------------------------------------------+
 
 init(Root, #{
-  port := #{name := PortName},
+  transport := #{name := PortName},
   address := Address
 } = Options) ->
   Switch = iec60870_switch:start(Options),

@@ -72,7 +72,7 @@ stop(Port) ->
 %%% |                      Internal functions                      |
 %%% +--------------------------------------------------------------+
 
-init_client(Owner, #{cycle := Cycle, port := #{name := PortName}} = Options) ->
+init_client(Owner, #{cycle := Cycle, transport := #{name := PortName}} = Options) ->
   Port = start_port(Options),
   State = connect(Port, Options),
   erlang:monitor(process, Owner),
@@ -197,8 +197,8 @@ start_port(Options) ->
       exit(InitError)
   end.
 
-init_port(Client, #{port := #{name := PortName}} = Options) ->
-  RegisterName = list_to_atom(PortName),
+init_port(Client, #{transport := #{name := Name}} = Options) ->
+  RegisterName = list_to_atom(Name),
   case catch register(RegisterName, self()) of
     {'EXIT', _} ->
       case whereis(RegisterName) of
@@ -208,14 +208,15 @@ init_port(Client, #{port := #{name := PortName}} = Options) ->
           init_client(Client, Options)
       end;
     true ->
-      case catch iec60870_ft12:start_link(maps:with([port, address_size], Options)) of
-        {'EXIT', _} ->
-          Client ! {error, self(), serial_port_init_fail};
+      case catch iec60870_ft12:start_link(maps:with([transport, address_size], Options)) of
+        {error, Error} ->
+          ?LOGERROR("shared port ~p failed to start transport, error: ~p", [Name, Error]),
+          Client ! {error, self(), transport_init_fail};
         PortFT12 ->
-          ?LOGDEBUG("shared port ~p is started", [PortName]),
+          ?LOGDEBUG("shared port ~p is started", [Name]),
           erlang:monitor(process, PortFT12),
           Client ! {ready, self(), self()},
-          port_loop(#port_state{port_ft12 = PortFT12, clients = #{}, name = PortName})
+          port_loop(#port_state{port_ft12 = PortFT12, clients = #{}, name = Name})
       end
   end.
 

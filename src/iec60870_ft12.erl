@@ -145,27 +145,12 @@ loop(#state{
 } = State) ->
   receive
     {tcp, Connection, Data} ->
-      TailBuffer =
-        case parse_frame(<<Buffer/binary, Data/binary>>, AddressSize) of
-          {#frame{} = Frame, Tail} ->
-            ?LOGDEBUG("FT12 ~p: received frame: ~p", [Name, Frame]),
-            Owner ! {data, self(), Frame},
-            Tail;
-          {_NoFrame, Tail} ->
-            Tail
-        end,
+      TailBuffer = parse(Owner, Name, <<Buffer/binary, Data/binary>>, AddressSize),
+      ?LOGDEBUG("FT12 ~p: tail buffer: ~p", [Name, TailBuffer]),
       loop(State#state{buffer = TailBuffer});
 
     {Connection, data, Data} ->
-      TailBuffer =
-        case parse_frame(<<Buffer/binary, Data/binary>>, AddressSize) of
-          {#frame{} = Frame, Tail} ->
-            ?LOGDEBUG("FT12 ~p: received frame: ~p", [Name, Frame]),
-            Owner ! {data, self(), Frame},
-            Tail;
-          {_NoFrame, Tail} ->
-            Tail
-        end,
+      TailBuffer = parse(Owner, Name, <<Buffer/binary, Data/binary>>, AddressSize),
       ?LOGDEBUG("FT12 ~p: tail buffer: ~p", [Name, TailBuffer]),
       loop(State#state{buffer = TailBuffer});
 
@@ -207,6 +192,16 @@ loop(#state{
     Unexpected ->
       ?LOGWARNING("FT12 ~p: unexpected message received ~p", [Name, Unexpected]),
       loop(State)
+  end.
+
+parse(Owner, Name, <<Buffer/binary, Data/binary>>, AddressSize) ->
+  case parse_frame(<<Buffer/binary, Data/binary>>, AddressSize) of
+    {#frame{} = Frame, Tail} ->
+      ?LOGDEBUG("FT12 ~p: received frame: ~p", [Name, Frame]),
+      Owner ! {data, self(), Frame},
+      Tail;
+    {_NoFrame, Tail} ->
+      Tail
   end.
 
 close_connection(tcp, Socket) ->

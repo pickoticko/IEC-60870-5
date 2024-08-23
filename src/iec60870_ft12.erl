@@ -204,8 +204,8 @@ send(tcp, Socket, Data) ->
 send(serial, SerialPort, Data) ->
   eserial:send(SerialPort, Data).
 
-parse(Owner, Name, <<Buffer/binary, Data/binary>>, AddressSize) ->
-  case parse_frame(<<Buffer/binary, Data/binary>>, AddressSize) of
+parse(Owner, Name, BinaryData, AddressSize) ->
+  case parse_frame(BinaryData, AddressSize) of
     {#frame{} = Frame, Tail} ->
       ?LOGDEBUG("FT12 ~p: received frame: ~p", [Name, Frame]),
       Owner ! {data, self(), Frame},

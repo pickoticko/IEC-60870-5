@@ -194,16 +194,6 @@ loop(#state{
       loop(State)
   end.
 
-parse(Owner, Name, <<Buffer/binary, Data/binary>>, AddressSize) ->
-  case parse_frame(<<Buffer/binary, Data/binary>>, AddressSize) of
-    {#frame{} = Frame, Tail} ->
-      ?LOGDEBUG("FT12 ~p: received frame: ~p", [Name, Frame]),
-      Owner ! {data, self(), Frame},
-      Tail;
-    {_NoFrame, Tail} ->
-      Tail
-  end.
-
 close_connection(tcp, Socket) ->
   gen_tcp:close(Socket);
 close_connection(serial, SerialPort) ->
@@ -213,6 +203,16 @@ send(tcp, Socket, Data) ->
   gen_tcp:send(Socket, Data);
 send(serial, SerialPort, Data) ->
   eserial:send(SerialPort, Data).
+
+parse(Owner, Name, <<Buffer/binary, Data/binary>>, AddressSize) ->
+  case parse_frame(<<Buffer/binary, Data/binary>>, AddressSize) of
+    {#frame{} = Frame, Tail} ->
+      ?LOGDEBUG("FT12 ~p: received frame: ~p", [Name, Frame]),
+      Owner ! {data, self(), Frame},
+      Tail;
+    {_NoFrame, Tail} ->
+      Tail
+  end.
 
 parse_frame(Buffer, AddressSize) ->
   parse_frame(Buffer, AddressSize, none).

@@ -116,7 +116,7 @@ start_connection(#{
       ?LOGDEBUG("FT12 ~p: socket ~p is opened!", [String, Socket]),
       {ok, Socket};
     {error, Error} ->
-      exit(Error)
+      {error, Error}
   end;
 
 start_connection(#{
@@ -132,7 +132,7 @@ start_connection(#{
       erlang:monitor(process, SerialPort),
       {ok, SerialPort};
     {error, Error} ->
-      exit(Error)
+      {error, Error}
   end.
 
 loop(#state{

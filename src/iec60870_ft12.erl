@@ -200,7 +200,13 @@ close_connection(serial, SerialPort) ->
   eserial:close(SerialPort).
 
 send(tcp, Socket, Data) ->
-  gen_tcp:send(Socket, Data);
+  case gen_tcp:send(Socket, Data) of
+    ok ->
+      ok;
+    {error, Error} ->
+      close_connection(tcp, Socket),
+      exit(Error)
+  end;
 send(serial, SerialPort, Data) ->
   eserial:send(SerialPort, Data).
 

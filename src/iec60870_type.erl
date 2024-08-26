@@ -588,11 +588,13 @@ parse_cp56(InvalidTimestamp) ->
   ?LOGWARNING("Invalid CP56 has been received: ~p", [InvalidTimestamp]),
   throw({invalid_object_ts, InvalidTimestamp}).
 
-get_cp16(undefined) -> get_cp16(0);
-get_cp16(Value) -> Value.
+get_cp16(Value) when is_integer(Value) ->
+  Value;
+get_cp16(Anything) ->
+  ?LOGWARNING("CP16 received invalid timestamp: ~p", [Anything]),
+  get_cp16(0).
 
-get_cp24(undefined) -> get_cp24(0);
-get_cp24(TotalMillis) ->
+get_cp24(TotalMillis) when is_integer(TotalMillis) ->
   try
     Remainder = TotalMillis rem ?MILLIS_IN_MINUTE,
     {Millis, Minutes} =
@@ -608,10 +610,12 @@ get_cp24(TotalMillis) ->
     _:Error ->
       ?LOGERROR("CP24 get error: ~p, timestamp: ~p", [Error, TotalMillis]),
       undefined
-  end.
+  end;
+get_cp24(Anything) ->
+  ?LOGWARNING("CP24 received invalid timestamp: ~p", [Anything]),
+  get_cp24(0).
 
-get_cp56(undefined) -> get_cp56(erlang:system_time(millisecond));
-get_cp56(PosixTimestamp) ->
+get_cp56(PosixTimestamp) when is_integer(PosixTimestamp) ->
   try
     GregorianSeconds = millis_to_seconds(PosixTimestamp) + ?UNIX_EPOCH_SECONDS,
     UTC = calendar:gregorian_seconds_to_datetime(GregorianSeconds),
@@ -633,7 +637,10 @@ get_cp56(PosixTimestamp) ->
     _:Error ->
       ?LOGERROR("CP56 get error: ~p, timestamp: ~p", [Error, PosixTimestamp]),
       undefined
-  end.
+  end;
+get_cp56(Anything) ->
+  ?LOGWARNING("CP56 received invalid timestamp: ~p", [Anything]),
+  get_cp56(erlang:system_time(millisecond)).
 
 millis_to_seconds(Millis) -> Millis div 1000.
 seconds_to_millis(Seconds) -> Seconds * 1000.

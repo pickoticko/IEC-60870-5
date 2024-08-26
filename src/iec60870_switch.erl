@@ -72,6 +72,7 @@ init_switch(ServerPID, #{transport := #{name := PortName}} = Options) ->
           ?LOGERROR("switch ~p failed to start transport, error: ~p", [PortName, Error]),
           ServerPID ! {error, self(), transport_init_fail};
         PortFT12 ->
+          erlang:monitor(process, PortFT12),
           ServerPID ! {ready, self(), self()},
           switch_loop(#switch_state{port_ft12 = PortFT12, servers = #{}, name = PortName})
       end
@@ -115,6 +116,11 @@ switch_loop(#switch_state{
         % Link addresses are associated with server PIDs
         servers = Servers#{LinkAddress => ServerPID}
       });
+
+  % Port FT12 is down, transport level is unavailable
+    {'DOWN', _, process, PortFT12, Reason} ->
+      ?LOGERROR("switch port ~p exit, ft12 transport error: ~p", [Name, Reason]),
+      exit(Reason);
 
     % Message from the server which has been shut down
     {'DOWN', _, process, DeadServer, _Reason} ->

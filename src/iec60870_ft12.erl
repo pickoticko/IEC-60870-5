@@ -70,8 +70,13 @@ start_link(InOptions) ->
   end.
 
 send(Port, Frame) ->
-  Port ! {send, self(), Frame},
-  ok.
+  case is_process_alive( Port ) of
+    true ->
+      Port ! {send, self(), Frame},
+      ok;
+    _->
+      throw( port_is_closed )
+  end.
 
 stop(Port) ->
   Port ! {stop, self()}.

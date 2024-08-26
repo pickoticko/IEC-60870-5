@@ -67,7 +67,7 @@ stop(PID) ->
 %%% +--------------------------------------------------------------+
 
 init(Root, #{
-  port := #{name := PortName},
+  transport := #{name := PortName},
   address := Address
 } = Options) ->
   Switch = iec60870_switch:start(Options),
@@ -225,13 +225,12 @@ handle_request(?REQUEST_STATUS_LINK, _UserData, #data{
 handle_request(RequestData, _UserData, #data{
   switch = Switch,
   address = Address,
-  connection = Connection,
   name = Name
 } = Data)
   when RequestData =:= ?REQUEST_DATA_CLASS_1;
        RequestData =:= ?REQUEST_DATA_CLASS_2 ->
   Response =
-    case check_data(Connection) of
+    case check_data() of
       {ok, ConnectionData} ->
         ?LOGDEBUG("server ~p w/ address ~p: message queue: ~p", [Name, Address, element(2,erlang:process_info(self(), message_queue_len))]),
         #frame{
@@ -269,10 +268,10 @@ send_response(Switch, Frame) ->
   Switch ! {send, self(), Frame},
   Frame.
 
-check_data(Connection) ->
+check_data() ->
   receive
-    {asdu, Connection, Reference, Data} ->
-      Connection ! {confirm, Reference},
+    {asdu, From, Reference, Data} ->
+      From ! {confirm, Reference},
       {ok, Data}
   after
     0 -> undefined
@@ -280,8 +279,8 @@ check_data(Connection) ->
 
 drop_asdu() ->
   receive
-    {asdu, Connection, Reference, _Data} ->
-      Connection ! {confirm, Reference},
+    {asdu, From, Reference, _Data} ->
+      From ! {confirm, Reference},
       drop_asdu()
   after
     0 -> ok

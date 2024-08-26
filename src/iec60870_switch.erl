@@ -53,7 +53,7 @@ add_server(Switch, Address) ->
 %%% |                      Internal functions                      |
 %%% +--------------------------------------------------------------+
 
-init_switch(ServerPID, #{port := #{name := PortName}} = Options) ->
+init_switch(ServerPID, #{transport := #{name := PortName}} = Options) ->
   RegisterName = list_to_atom(PortName),
   case catch register(RegisterName, self()) of
     % Probably already registered
@@ -67,9 +67,10 @@ init_switch(ServerPID, #{port := #{name := PortName}} = Options) ->
       end;
     % Succeeded to register port, start the switch
     true ->
-      case catch iec60870_ft12:start_link(maps:with([port, address_size], Options)) of
-        {'EXIT', _} ->
-          ServerPID ! {error, self(), serial_port_init_fail};
+      case catch iec60870_ft12:start_link(maps:with([transport, address_size], Options)) of
+        {error, Error} ->
+          ?LOGERROR("switch ~p failed to start transport, error: ~p", [PortName, Error]),
+          ServerPID ! {error, self(), transport_init_fail};
         PortFT12 ->
           ServerPID ! {ready, self(), self()},
           switch_loop(#switch_state{port_ft12 = PortFT12, servers = #{}, name = PortName})

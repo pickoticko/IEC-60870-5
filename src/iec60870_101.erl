@@ -50,7 +50,7 @@
   address => ?REQUIRED,
   address_size => ?REQUIRED,
   on_request => undefined,
-  port => #{
+  transport => #{
     name => undefined,
     baudrate => 9600,
     parity => 0,
@@ -187,7 +187,7 @@ reset_link(Attempts, #state{
     {ok, _} ->
       State#state{fcb = 0};
     error ->
-      ?LOGWARNING("FT12 port ~p, address ~p, no response received for RESET LINK", [PortFT12, Address]),
+      ?LOGWARNING("FT12 ~p, address ~p: no response received for RESET LINK", [PortFT12, Address]),
       reset_link(Attempts - 1, State)
   end.
 
@@ -205,7 +205,7 @@ request_status_link(#state{
     {ok, _} ->
       State#state{fcb = 0};
     error ->
-      ?LOGWARNING("FT12 port ~p, address ~p, no response received for REQUEST STATUS LINK", [PortFT12, Address]),
+      ?LOGWARNING("FT12 port ~p, address ~p: no response received for REQUEST STATUS LINK", [PortFT12, Address]),
       error
   end.
 
@@ -223,7 +223,7 @@ user_data_confirm(Attempts, ASDU, #state{
     {ok, _} ->
       ?UPDATE_FCB(State, Request);
     error ->
-      ?LOGWARNING("FT12 port ~p, address ~p, no response received for USER DATA CONFIRM", [
+      ?LOGWARNING("FT12 ~p, address ~p: no response received for USER DATA CONFIRM", [
         PortFT12,
         Address
       ]),
@@ -252,7 +252,7 @@ data_class(Attempts, DataClassCode, #state{
       NewState = ?UPDATE_FCB(State, Request),
       {NewState, ACD, undefined};
     error ->
-      ?LOGWARNING("FT12 port ~p, address ~p, no response received for DATA CLASS REQUEST", [
+      ?LOGWARNING("FT12 ~p, address ~p: no response received for DATA CLASS REQUEST", [
         PortFT12,
         Address
       ]),
@@ -372,27 +372,8 @@ check_setting({timeout, Timeout})
 check_setting({on_request, OnRequest})
   when is_function(OnRequest) orelse OnRequest =:= undefined -> ok;
 
-check_setting({port, PortSettings})
-  when is_map(PortSettings) ->
-    [check_port_settings(PortSetting) || PortSetting <- maps:to_list(PortSettings)];
+check_setting({transport, PortSettings})
+  when is_map(PortSettings) -> ok;
 
 check_setting(InvalidSetting) ->
   throw({invalid_setting, InvalidSetting}).
-
-check_port_settings({name, Name})
-  when is_list(Name) -> ok;
-
-check_port_settings({baudrate, Baudrate})
-  when is_integer(Baudrate) -> ok;
-
-check_port_settings({parity, Parity})
-  when is_integer(Parity) -> ok;
-
-check_port_settings({stopbits, Stopbits})
-  when is_integer(Stopbits) -> ok;
-
-check_port_settings({bytesize, Bytesize})
-  when is_integer(Bytesize) -> ok;
-
-check_port_settings(InvalidSetting) ->
-  throw({invalid_port_setting, InvalidSetting}).

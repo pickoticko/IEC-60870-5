@@ -27,7 +27,8 @@
 -record(state, {
   name,
   owner,
-  port,
+  connection,
+  type,
   buffer,
   address_size
 }).
@@ -42,10 +43,11 @@
 }).
 
 -define(DEFAULT_OPTIONS, #{
-  port => ?DEFAULT_PORT_OPTIONS,
+  transport => ?DEFAULT_PORT_OPTIONS,
   address_size => 1
 }).
 
+-define(CONNECT_TIMEOUT, 5000).
 -define(START_DATA_CHAR, 16#68).
 -define(START_CMD_CHAR, 16#10).
 -define(END_CHAR, 16#16).
@@ -79,76 +81,143 @@ stop(Port) ->
 %%% +--------------------------------------------------------------+
 
 init(Owner, #{
-  port := #{
-    name := PortName
-  } = PortOptions,
+  transport := #{
+    type := Type,
+    name := String
+  },
   address_size := AddressSize
-}) ->
-  ?LOGDEBUG("FT12 port ~p trying to open eserial...", [PortName]),
-  case eserial:open(PortName, maps:without([name], PortOptions)) of
-    {ok, Port} ->
-      ?LOGDEBUG("FT12 port ~p eserial is opened!", [PortName]),
-      erlang:monitor(process, Port),
+} = ConnectionSettings) ->
+  case start_connection(ConnectionSettings) of
+    {ok, Connection} ->
       erlang:monitor(process, Owner),
       Owner ! {ready, self()},
       loop(#state{
-        name = PortName,
+        name = String,
         owner = Owner,
-        port = Port,
+        type = Type,
+        connection = Connection,
         address_size = AddressSize * 8,
         buffer = <<>>
       });
+    {error, ConnectionError} ->
+      exit(ConnectionError)
+  end.
+
+start_connection(#{
+  transport := #{
+    type := tcp,
+    name := String
+  }
+}) ->
+  {ok, {Host, Port}} = parse_tcp_setting(String),
+  ?LOGDEBUG("FT12 ~p: trying to connect...", [String]),
+  case gen_tcp:connect(Host, Port, [binary, {active, true}, {packet, raw}], ?CONNECT_TIMEOUT) of
+    {ok, Socket} ->
+      ?LOGDEBUG("FT12 ~p: socket ~p is opened!", [String, Socket]),
+      {ok, Socket};
     {error, Error} ->
-      exit(Error)
+      {error, Error}
+  end;
+
+start_connection(#{
+  transport := #{
+    type := serial,
+    name := Name
+  } = PortOptions
+}) ->
+  ?LOGDEBUG("FT12 ~p: trying to open eserial...", [Name]),
+  case eserial:open(Name, maps:without([type, name], PortOptions)) of
+    {ok, SerialPort} ->
+      ?LOGDEBUG("FT12 ~p: eserial is opened!", [Name]),
+      erlang:monitor(process, SerialPort),
+      {ok, SerialPort};
+    {error, Error} ->
+      {error, Error}
   end.
 
 loop(#state{
-  port = Port,
-  name = PortName,
-  buffer = Buffer,
+  name = Name,
+  connection = Connection,
+  type = Type,
   owner = Owner,
+  buffer = Buffer,
   address_size = AddressSize
 } = State) ->
   receive
-    {Port, data, Data} ->
-      TailBuffer =
-        case parse_frame(<<Buffer/binary, Data/binary>>, AddressSize) of
-          {#frame{} = Frame, Tail} ->
-            ?LOGDEBUG("FT12 port ~p received frame: ~p", [PortName, Frame]),
-            Owner ! {data, self(), Frame},
-            Tail;
-          {_NoFrame, Tail} ->
-            Tail
-        end,
-      ?LOGDEBUG("FT12 port ~p tail buffer: ~p", [PortName, TailBuffer]),
+    {tcp, Connection, Data} ->
+      TailBuffer = parse(Owner, Name, <<Buffer/binary, Data/binary>>, AddressSize),
+      ?LOGDEBUG("FT12 ~p: tail buffer: ~p", [Name, TailBuffer]),
+      loop(State#state{buffer = TailBuffer});
+
+    {Connection, data, Data} ->
+      TailBuffer = parse(Owner, Name, <<Buffer/binary, Data/binary>>, AddressSize),
+      ?LOGDEBUG("FT12 ~p: tail buffer: ~p", [Name, TailBuffer]),
       loop(State#state{buffer = TailBuffer});
 
     {send, Owner, Frame} ->
-      ?LOGDEBUG("FT12 port ~p sending frame: ~p", [PortName, Frame]),
-      State1 =
+      OutState =
         case Frame#frame.control_field of
           % If the request is reset remote link then we delete all the data from the buffer
           #control_field_request{function_code = _ResetLink = 0} ->
             % TODO: ClearWindow should be calculated from the baudrate
             timer:sleep(_ClearWindow = 100),
-            drop_data(Port),
+            drop_data(Connection),
             State#state{buffer = <<>>};
           _ ->
             State
         end,
+      ?LOGDEBUG("FT12 ~p: sending frame: ~p", [Name, Frame]),
       Packet = build_frame(Frame, AddressSize),
-      eserial:send(Port, Packet),
-      loop(State1);
+      send(Type, Connection, Packet),
+      loop(OutState);
 
     {stop, Owner} ->
-      ?LOGDEBUG("FT12 port ~p closed by owner", [PortName]),
-      eserial:close(Port);
-    {'DOWN', _, process, Port, Reason} ->
-      ?LOGERROR("FT12 port ~p exit by port, reason: ~p",[PortName, Reason]),
-      exit(Reason);
+      ?LOGDEBUG("FT12 ~p: closed by owner", [Name]),
+      close_connection(Type, Connection);
+
     {'DOWN', _, process, Owner, Reason} ->
-      ?LOGERROR("FT12 port ~p exit by owner, reason: ~p",[PortName, Reason]),
-      exit(Reason)
+      ?LOGERROR("FT12 ~p: exit by owner, reason: ~p", [Name, Reason]),
+      exit(Reason);
+    {'DOWN', _, process, Connection, Reason} ->
+      ?LOGERROR("FT12 ~p: exit by port, reason: ~p", [Name, Reason]),
+      exit(Reason);
+
+    {tcp_closed, Connection} ->
+      exit(closed);
+    {tcp_error, Connection, Reason} ->
+      exit(Reason);
+    {tcp_passive, Connection} ->
+      exit(tcp_passive);
+
+    Unexpected ->
+      ?LOGWARNING("FT12 ~p: unexpected message received ~p", [Name, Unexpected]),
+      loop(State)
+  end.
+
+close_connection(tcp, Socket) ->
+  gen_tcp:close(Socket);
+close_connection(serial, SerialPort) ->
+  eserial:close(SerialPort).
+
+send(tcp, Socket, Data) ->
+  case gen_tcp:send(Socket, Data) of
+    ok ->
+      ok;
+    {error, Error} ->
+      close_connection(tcp, Socket),
+      exit(Error)
+  end;
+send(serial, SerialPort, Data) ->
+  eserial:send(SerialPort, Data).
+
+parse(Owner, Name, BinaryData, AddressSize) ->
+  case parse_frame(BinaryData, AddressSize) of
+    {#frame{} = Frame, Tail} ->
+      ?LOGDEBUG("FT12 ~p: received frame: ~p", [Name, Frame]),
+      Owner ! {data, self(), Frame},
+      Tail;
+    {_NoFrame, Tail} ->
+      Tail
   end.
 
 parse_frame(Buffer, AddressSize) ->
@@ -294,32 +363,45 @@ control_sum(<<>>, Sum) ->
   Sum rem 256.
 
 %% Clear the process mailbox of these messages
-drop_data(Port) ->
+drop_data(Connection) ->
   receive
-    {Port, data, _Data} -> drop_data(Port)
+    {tcp, Connection, _Data} -> drop_data(Connection);
+    {Connection, data, _Data} -> drop_data(Connection)
   after
     0 -> ok
   end.
 
-check_settings(#{port := PortSettings}) ->
-  [check_setting(Setting) || Setting <- maps:to_list(PortSettings)],
+check_settings(#{transport := TransportSettings}) ->
+  case TransportSettings of
+    #{type := Type} when (Type =:= tcp) orelse (Type =:= serial) ->
+      [check_setting(Type, Setting) || Setting <- maps:to_list(maps:without([type], TransportSettings))];
+    Other ->
+      throw({invalid_transport_type, Other})
+  end,
   ok.
 
-check_setting({baudrate, Baudrate})
-  when is_integer(Baudrate) -> ok;
+check_setting(tcp, {name, String})
+  when is_list(String) -> ok;
 
-check_setting({bytesize, Bytesize})
-  when is_integer(Bytesize) -> ok;
-
-check_setting({name, Name})
+check_setting(serial, {name, Name})
   when is_list(Name) -> ok;
 
-check_setting({parity, Parity})
+check_setting(serial, {baudrate, Baudrate})
+  when is_integer(Baudrate) -> ok;
+
+check_setting(serial, {parity, Parity})
   when is_integer(Parity) -> ok;
 
-check_setting({stopbits, Stopbits})
+check_setting(serial, {bytesize, Bytesize})
+  when is_integer(Bytesize) -> ok;
+
+check_setting(serial, {stopbits, Stopbits})
   when is_integer(Stopbits) -> ok;
 
-check_setting(Option) ->
-  throw({invalid_setting, Option}).
+check_setting(Type, Option) ->
+  throw({invalid_setting, Type, Option}).
 
+parse_tcp_setting(String) ->
+  [Host, Port] = string:split(String, ":"),
+  {ok, Address} = inet:parse_address(Host),
+  {ok, {Address, list_to_integer(Port)}}.

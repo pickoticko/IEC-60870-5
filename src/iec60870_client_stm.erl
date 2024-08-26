@@ -37,6 +37,7 @@
   connections,
   connection,
   current_connection,
+  confirm_timeout,
   asdu,
   state_acc
 }).
@@ -109,7 +110,8 @@ init({Owner, #{
   name := Name,
   type := Type,
   connection := ConnectionSettings,
-  groups := Groups
+  groups := Groups,
+  confirm_timeout := ConfirmTimeout
 } = Settings}) ->
   process_flag(trap_exit, true),
   Connections =
@@ -137,6 +139,7 @@ init({Owner, #{
     current_connection = main,
     connections = Connections,
     esubscribe = EsubscribePID,
+    confirm_timeout = ConfirmTimeout,
     owner = Owner,
     name = Name,
     storage = Storage,
@@ -251,7 +254,7 @@ handle_event(
     enter,
     _PrevState,
     #gi{state = confirm, id = ID},
-    #data{name = Name, asdu = ASDUSettings, connection = Connection, current_connection = CurrentConnection}
+    #data{name = Name, asdu = ASDUSettings, confirm_timeout = ConfirmTimeout, connection = Connection, current_connection = CurrentConnection}
 ) ->
   ?LOGDEBUG("client ~p connection ~p: sending GI REQUEST for group ~p", [Name, CurrentConnection, ID]),
   [GroupRequest] = iec60870_asdu:build(#asdu{
@@ -261,7 +264,7 @@ handle_event(
     objects = [{_IOA = 0, ID}]
   }, ASDUSettings),
   send_asdu(Connection, GroupRequest),
-  {keep_state_and_data, [{state_timeout, ?CONFIRM_TIMEOUT, timeout}]};
+  {keep_state_and_data, [{state_timeout, ConfirmTimeout, timeout}]};
 
 %% GI Confirm
 handle_event(
@@ -485,7 +488,7 @@ handle_event(
     enter,
     _PrevState,
     #rc{state = confirm, type = Type, ioa = IOA, value = Value},
-    #data{connection = Connection, asdu = ASDUSettings}
+    #data{connection = Connection, asdu = ASDUSettings, confirm_timeout = ConfirmTimeout}
 ) ->
   [ASDU] = iec60870_asdu:build(#asdu{
     type = Type,
@@ -494,7 +497,7 @@ handle_event(
     objects = [{IOA, Value}]
   }, ASDUSettings),
   send_asdu(Connection, ASDU),
-  {keep_state_and_data, [{state_timeout, ?CONFIRM_TIMEOUT, timeout}]};
+  {keep_state_and_data, [{state_timeout, ConfirmTimeout, timeout}]};
 
 %% Remote control command confirmation
 handle_event(

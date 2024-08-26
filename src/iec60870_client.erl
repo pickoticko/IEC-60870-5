@@ -17,12 +17,14 @@
 
 -define(GROUP_REQUEST_ATTEMPTS, 1).
 -define(GROUP_REQUEST_TIMEOUT, 60000).
+-define(DEFAULT_CONFIRM_TIMEOUT, 30000).
 
 -define(DEFAULT_SETTINGS, maps:merge(#{
   name => ?REQUIRED,
   type => ?REQUIRED,
   connection => ?REQUIRED,
   redundant_connection => undefined,
+  confirm_timeout => ?DEFAULT_CONFIRM_TIMEOUT,
   groups => []
 }, ?DEFAULT_ASDU_SETTINGS)).
 
@@ -196,6 +198,9 @@ check_setting(name, ConnectionName)
 
 check_setting(type, Type)
   when Type =:= '101'; Type =:= '104' -> Type;
+
+check_setting(confirm_timeout, ConfirmTimeout)
+  when is_integer(ConfirmTimeout) -> ConfirmTimeout;
 
 check_setting(connection, Settings)
   when is_map(Settings) -> Settings;

@@ -390,11 +390,16 @@ update_queue(#update_state{
   State =
     receive
       % Real-time updates from esubscribe
-      {Name, update, Update, _, Actor} when Actor =/= Owner ->
-        enqueue_update(?UPDATE_PRIORITY, ?COT_SPONT, Update, InState),
+      {Name, update, Update, _, Actor} ->
+        if
+          Actor =/= Owner ->
+            enqueue_update(?UPDATE_PRIORITY, ?COT_SPONT, Update, InState);
+          true ->
+            ignore
+        end,
         InState;
 
-      % Confirmation of the ticket reference from
+    % Confirmation of the ticket reference from
       {confirm, TicketRef} ->
         InState#update_state{tickets = maps:remove(TicketRef, Tickets)};
 

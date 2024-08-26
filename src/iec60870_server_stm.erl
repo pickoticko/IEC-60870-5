@@ -480,7 +480,9 @@ check_tickets(InState) ->
     '$end_of_table' ->
       InState;
     NextPointer ->
+      ?LOGDEBUG("NextPointer: ~p",[NextPointer]),
       Updates = get_pointer_updates(NextPointer, InState),
+      ?LOGDEBUG("pointer updates: ~p",[Updates]),
       State = send_updates(Updates, NextPointer, InState),
       check_gi_termination(State)
   end.
@@ -578,6 +580,7 @@ collect_group_updates(GroupID, Storage) ->
   end.
 
 send_update(SendQueue, Priority, ASDU) ->
+  ?LOGDEBUG("enqueue ASDU: ~p",[ASDU]),
   SendQueue ! {send_confirm, self(), Priority, ASDU},
   receive {accepted, TicketRef} -> TicketRef end.
 
@@ -591,12 +594,15 @@ enqueue_update(Priority, COT, {IOA, #{type := Type}}, #update_state{
   },
   case ets:lookup(IndexIOA, IOA) of
     [] ->
+      ?LOGDEBUG("enqueue update ioa: ~p, priority: ~p",[ IOA, Priority ]),
       ets:insert(UpdateQueue, {Order, true}),
       ets:insert(IndexIOA, {IOA, Order});
-    [{#order{pointer = #pointer{priority = HasPriority}}, _}] when HasPriority < Priority ->
+    [{_, #order{pointer = #pointer{priority = HasPriority}}}] when HasPriority < Priority ->
       % We cannot lower the existing priority
+      ?LOGDEBUG("ignore update ioa: ~p, priority: ~p, has prority: ~p",[ IOA, Priority, HasPriority ]),
       ignore;
-    [{PrevOrder, _}] ->
+    [{ _, PrevOrder}] ->
+      ?LOGDEBUG("update priority ioa: ~p, priority: ~p, previous order: ~p",[ IOA, Priority, PrevOrder ]),
       ets:delete(UpdateQueue, PrevOrder),
       ets:insert(UpdateQueue, {Order, true}),
       ets:insert(IndexIOA, {IOA, Order})

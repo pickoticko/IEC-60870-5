@@ -38,6 +38,7 @@
   connection,
   current_connection,
   asdu,
+  idle_timer,
   state_acc
 }).
 
@@ -91,7 +92,8 @@
 -define(GI_INITIALIZATION, gi_initialization).
 
 %% Timeout for confirmations to requests
--define(CONFIRM_TIMEOUT, 10000).
+-define(IDLE_TIMEOUT, 30000).
+-define(CONFIRM_TIMEOUT, 180000).
 
 %% Remote control timeout
 -define(RC_TIMEOUT, 10000).
@@ -138,6 +140,7 @@ init({Owner, #{
     connections = Connections,
     esubscribe = EsubscribePID,
     owner = Owner,
+    idle_timer = restart_timer(undefined),
     name = Name,
     storage = Storage,
     asdu = ASDU,
@@ -150,13 +153,23 @@ init({Owner, #{
 
 handle_event(
     info,
+    idle_timeout,
+    _State,
+    #data{name = Name, current_connection = Connection, idle_timer = IdleTimer} = Data
+) ->
+  ?LOGINFO("client ~p connection ~p: idle timeout!", [Name, Connection]),
+  {keep_state, Data#data{idle_timer = restart_timer(IdleTimer)}};
+
+handle_event(
+    info,
     {asdu, Connection, ASDU},
     _State,
-    #data{name = Name, connection = Connection, asdu = ASDUSettings, current_connection = CurrentConnection} = Data
+    #data{name = Name, idle_timer = IdleTimer, connection = Connection, asdu = ASDUSettings, current_connection = CurrentConnection} = Data
 ) ->
   try
     ParsedASDU = iec60870_asdu:parse(ASDU, ASDUSettings),
-    {keep_state_and_data, [{next_event, internal, ParsedASDU}]}
+    NewIdleTimer = restart_timer(IdleTimer),
+    {keep_state, Data#data{idle_timer = NewIdleTimer}, [{next_event, internal, ParsedASDU}]}
   catch
     _:{invalid_object, _Value} = Error ->
       {stop, Error, Data};
@@ -251,7 +264,7 @@ handle_event(
     enter,
     _PrevState,
     #gi{state = confirm, id = ID},
-    #data{name = Name, asdu = ASDUSettings, connection = Connection, current_connection = CurrentConnection}
+    #data{name = Name, asdu = ASDUSettings, connection = Connection, current_connection = CurrentConnection, idle_timer = IdleTimer} = Data
 ) ->
   ?LOGDEBUG("client ~p connection ~p: sending GI REQUEST for group ~p", [Name, CurrentConnection, ID]),
   [GroupRequest] = iec60870_asdu:build(#asdu{
@@ -261,7 +274,7 @@ handle_event(
     objects = [{_IOA = 0, ID}]
   }, ASDUSettings),
   send_asdu(Connection, GroupRequest),
-  {keep_state_and_data, [{state_timeout, ?CONFIRM_TIMEOUT, timeout}]};
+  {keep_state, Data#data{idle_timer = restart_timer(IdleTimer)}};
 
 %% GI Confirm
 handle_event(
@@ -284,8 +297,8 @@ handle_event(
   {next_state, State#gi{state = error}, Data};
 
 handle_event(
-    state_timeout,
-    timeout,
+    info,
+    idle_timeout,
     #gi{state = confirm, id = ID} = State,
     #data{name = Name, current_connection = CurrentConnection} = Data
 ) ->
@@ -485,7 +498,7 @@ handle_event(
     enter,
     _PrevState,
     #rc{state = confirm, type = Type, ioa = IOA, value = Value},
-    #data{connection = Connection, asdu = ASDUSettings}
+    #data{connection = Connection, asdu = ASDUSettings, idle_timer = IdleTimer} = Data
 ) ->
   [ASDU] = iec60870_asdu:build(#asdu{
     type = Type,
@@ -494,7 +507,7 @@ handle_event(
     objects = [{IOA, Value}]
   }, ASDUSettings),
   send_asdu(Connection, ASDU),
-  {keep_state_and_data, [{state_timeout, ?CONFIRM_TIMEOUT, timeout}]};
+  {keep_state, Data#data{idle_timer = restart_timer(IdleTimer)}, [{state_timeout, ?CONFIRM_TIMEOUT, timeout}]};
 
 %% Remote control command confirmation
 handle_event(
@@ -513,6 +526,14 @@ handle_event(
     Data
 ) ->
   {next_state, ?CONNECTED, Data, [{reply, From, {error, reject}}]};
+
+handle_event(
+    info,
+    idle_timeout,
+    #rc{state = confirm, from = From},
+    Data
+) ->
+  {next_state, ?CONNECTED, Data, [{reply, From, {error, confirm_timeout}}]};
 
 handle_event(
     state_timeout,
@@ -711,6 +732,18 @@ code_change(_OldVsn, State, _Extra) ->
 %%% +--------------------------------------------------------------+
 %%% |                       Helper functions                       |
 %%% +--------------------------------------------------------------+
+
+restart_timer(TimerReference) when is_reference(TimerReference) ->
+  erlang:cancel_timer(TimerReference),
+  drop_timer(),
+  erlang:send_after(?IDLE_TIMEOUT, self(), idle_timeout);
+restart_timer(_) ->
+  erlang:send_after(?IDLE_TIMEOUT, self(), idle_timeout).
+
+drop_timer() ->
+  receive idle_timeout -> drop_timer()
+  after 0 -> ok
+  end.
 
 %% Sending data objects
 send_items(Items, Connection, COT, ASDUSettings) ->

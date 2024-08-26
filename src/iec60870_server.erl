@@ -296,17 +296,6 @@ check_setting(groups, undefined) ->
 check_setting(Key, _) ->
   throw({invalid_settings, Key}).
 
-%% Checking whether the object binaries are equal
-is_equal(NewObject, #{type := Type, value := _Value} = OldObject) ->
-  try
-    iec60870_type:create_information_element(Type, NewObject) =:=
-      iec60870_type:create_information_element(Type, OldObject)
-  catch
-    _:_ -> false
-  end;
-is_equal(_Value, _PrevValue) ->
-  false.
-
 %% The object data must contain a 'value' key
 check_value(#{value := Value} = ObjectData) when is_number(Value) ->
   ObjectData;

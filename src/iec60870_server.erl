@@ -164,18 +164,13 @@ update_value(#?MODULE{name = Name, storage = Storage}, ID, NewObject) ->
       }
     end,
   MergedObject = maps:merge(OldObject, NewObject),
-  case is_equal(MergedObject, OldObject) of
-    true ->
-      ok;
-    _ ->
-      % Value must contain 'value' parameter
-      NewValue = check_value(MergedObject),
-      ets:insert(Storage, {ID, NewValue}),
-      % Any updates notification
-      esubscribe:notify(Name, update, {ID, NewValue}),
-      % Only address notification
-      esubscribe:notify(Name, ID, NewValue)
-  end.
+  % Value must contain 'value' parameter
+  NewValue = check_value(MergedObject),
+  ets:insert(Storage, {ID, NewValue}),
+  % Any updates notification
+  esubscribe:notify(Name, update, {ID, NewValue}),
+  % Only address notification
+  esubscribe:notify(Name, ID, NewValue).
 
 %% +--------------------------------------------------------------+
 %% |                       Internal functions                     |

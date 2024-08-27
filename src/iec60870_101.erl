@@ -137,22 +137,32 @@ connect(#state{attempts = Attempts} = State) ->
 connect(Attempts, #state{
   address = Address
 } = StateIn) when Attempts > 0 ->
-  % TODO: Diagnostic log: Reset Link = false, Request Status link = false
-  case reset_link(StateIn) of
+
+%------------Step 1. Request link------------------------------------
+  case request_status_link(StateIn) of
     error ->
-      ?LOGERROR("RESET LINK is ERROR. Address: ~p", [Address]),
-      error;
-    StateReset ->
-      % TODO: Diagnostic log: Reset Link = true
-      ?LOGDEBUG("RESET LINK is OK. Address: ~p", [Address]),
-      case request_status_link(StateReset) of
+      ?LOGWARNING("REQUEST STATUS LINK 1 is ERROR. Address: ~p", [Address]),
+      connect(Attempts - 1, StateIn);
+    StateRequestLink ->
+%------------Step 2. Reset link------------------------------------
+      % TODO: Diagnostic log: Request Status Link = true, Connected = true
+      ?LOGDEBUG("REQUEST STATUS LINK 1 is OK. Address: ~p", [Address]),
+      case reset_link( StateRequestLink ) of
         error ->
-          ?LOGWARNING("REQUEST STATUS LINK is ERROR. Address: ~p", [Address]),
+          ?LOGERROR("RESET LINK is ERROR. Address: ~p", [Address]),
           connect(Attempts - 1, StateIn);
-        StateOut ->
-          % TODO: Diagnostic log: Request Status Link = true, Connected = true
-          ?LOGDEBUG("REQUEST STATUS LINK is OK. Address: ~p", [Address]),
-          StateOut
+        StateResetLink ->
+%------------Step 3. Request link------------------------------------
+          % TODO: Diagnostic log: Reset Link = true
+          ?LOGDEBUG("RESET LINK is OK. Address: ~p", [Address]),
+          case request_status_link( StateResetLink ) of
+            error ->
+              ?LOGWARNING("REQUEST STATUS LINK 2 is ERROR. Address: ~p", [Address]),
+              connect(Attempts - 1, StateIn);
+            StateConnected ->
+              ?LOGDEBUG("REQUEST STATUS LINK 2. Address: ~p", [Address]),
+              StateConnected
+          end
       end
   end;
 connect(_Attempts = 0, #state{

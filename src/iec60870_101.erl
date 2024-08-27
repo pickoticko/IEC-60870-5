@@ -183,9 +183,11 @@ reset_link(Attempts, #state{
   address = Address
 } = State) ->
   Request = build_request(?RESET_REMOTE_LINK, _Data = undefined, State),
+  ?LOGDEBUG("SEND RESET LINK. Address: ~p", [ Address ]),
   iec60870_ft12:send(PortFT12, Request),
   case wait_response(?ACKNOWLEDGE, undefined, State) of
     {ok, _} ->
+      ?LOGDEBUG("RESET LINK OK. Address: ~p", [ Address ]),
       State#state{fcb = 0};
     error ->
       ?LOGWARNING("FT12 ~p, address ~p: no response received for RESET LINK", [PortFT12, Address]),
@@ -201,9 +203,11 @@ request_status_link(#state{
   address = Address
 } = State) ->
   Request = build_request(?REQUEST_STATUS_LINK, _Data = undefined, State),
+  ?LOGDEBUG("SEND REQUEST STATUS LINK. Address: ~p", [ Address ]),
   iec60870_ft12:send(PortFT12, Request),
   case wait_response(?STATUS_LINK_ACCESS_DEMAND, undefined, State) of
     {ok, _} ->
+      ?LOGDEBUG("RESET LINK OK. Address: ~p", [ Address ]),
       State#state{fcb = 0};
     error ->
       ?LOGWARNING("FT12 port ~p, address ~p: no response received for REQUEST STATUS LINK", [PortFT12, Address]),

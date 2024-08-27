@@ -77,6 +77,7 @@ send(Port, Frame) ->
       Port ! {send, self(), Frame},
       ok;
     _ ->
+      ?LOGWARNING("FT12. send error: port is closed"),
       throw(port_is_closed)
   end.
 
@@ -190,10 +191,13 @@ loop(#state{
       exit(Reason);
 
     {tcp_closed, Connection} ->
+      ?LOGERROR("FT12 ~p: tcp closed", [Name]),
       exit(closed);
     {tcp_error, Connection, Reason} ->
+      ?LOGERROR("FT12 ~p: tcp error: ~p", [Name, Reason]),
       exit(Reason);
     {tcp_passive, Connection} ->
+      ?LOGERROR("FT12 ~p: tcp passive", [Name]),
       exit(tcp_passive);
 
     Unexpected ->

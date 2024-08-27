@@ -161,7 +161,8 @@ send_data_class_request(DataClass, #data{
 send_request(Port, Function) ->
   Port ! {request, self(), Function},
   receive
-    {Port, Result} -> Result
+    {Port, Result} -> Result;
+    {'DOWN', _, process, Port, Reason} -> exit( Reason )
   end.
 
 send_asdu(ASDU, #data{

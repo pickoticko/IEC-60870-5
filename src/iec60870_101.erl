@@ -130,40 +130,31 @@ connect(#{
 
 %% Connection transmission procedure
 %% Sequence:
-%%   1. Reset of remote link
-%%   2. Request status of link
+%%   1. Request status of link
+%%   2. Reset of remote link
+%%   3. Request status of link
 connect(#state{attempts = Attempts} = State) ->
   connect(Attempts, State).
 connect(Attempts, #state{
   address = Address
 } = StateIn) when Attempts > 0 ->
 
-%------------Step 1. Request link------------------------------------
-  case request_status_link(StateIn) of
-    error ->
-      ?LOGWARNING("REQUEST STATUS LINK 1 is ERROR. Address: ~p", [Address]),
+  StateRequestLink1 = request_status_link( StateIn ),
+  StateResetLink = reset_link( StateIn ),
+  StateRequestLink2 = request_status_link( StateIn ),
+
+  if
+    StateRequestLink1 =:= error; StateResetLink =:= error; StateRequestLink2 =:= error ->
+      ?LOGWARNING("CONNECTION ATTEMPT ERROR. REQUEST LINK 1 ~p, RESET LINK ~p, REQUEST LINK 2 ~p. Address: ~p", [
+        StateRequestLink1 =/= error,
+        StateResetLink =/= error,
+        StateRequestLink2 =/= error,
+        Address
+      ]),
+      ?LOGDEBUG("Retrying connection, left attempts ~p. Address: ~p", [ Attempts-1 ,Address ]),
       connect(Attempts - 1, StateIn);
-    StateRequestLink ->
-%------------Step 2. Reset link------------------------------------
-      % TODO: Diagnostic log: Request Status Link = true, Connected = true
-      ?LOGDEBUG("REQUEST STATUS LINK 1 is OK. Address: ~p", [Address]),
-      case reset_link( StateRequestLink ) of
-        error ->
-          ?LOGERROR("RESET LINK is ERROR. Address: ~p", [Address]),
-          connect(Attempts - 1, StateIn);
-        StateResetLink ->
-%------------Step 3. Request link------------------------------------
-          % TODO: Diagnostic log: Reset Link = true
-          ?LOGDEBUG("RESET LINK is OK. Address: ~p", [Address]),
-          case request_status_link( StateResetLink ) of
-            error ->
-              ?LOGWARNING("REQUEST STATUS LINK 2 is ERROR. Address: ~p", [Address]),
-              connect(Attempts - 1, StateIn);
-            StateConnected ->
-              ?LOGDEBUG("REQUEST STATUS LINK 2. Address: ~p", [Address]),
-              StateConnected
-          end
-      end
+    true ->
+      StateRequestLink2
   end;
 connect(_Attempts = 0, #state{
   address = Address

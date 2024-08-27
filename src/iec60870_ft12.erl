@@ -173,8 +173,8 @@ loop(#state{
           _ ->
             State
         end,
-      ?LOGDEBUG("FT12 ~p: sending frame: ~p", [Name, Frame]),
       Packet = build_frame(Frame, AddressSize),
+      ?LOGDEBUG("FT12 ~p: sending frame: ~p, packet ~p", [Name, Frame, Packet]),
       send(Type, Connection, Packet),
       loop(OutState);
 
@@ -220,7 +220,7 @@ send(serial, SerialPort, Data) ->
 parse(Owner, Name, BinaryData, AddressSize) ->
   case parse_frame(BinaryData, AddressSize) of
     {#frame{} = Frame, Tail} ->
-      ?LOGDEBUG("FT12 ~p: received frame: ~p", [Name, Frame]),
+      ?LOGDEBUG("FT12 ~p: received frame: ~p, data ~p", [Name, Frame, build_frame( Frame, AddressSize )]),
       Owner ! {data, self(), Frame},
       Tail;
     {_NoFrame, Tail} ->

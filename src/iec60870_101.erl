@@ -130,30 +130,31 @@ connect(#{
 
 %% Connection transmission procedure
 %% Sequence:
-%%   1. Reset of remote link
-%%   2. Request status of link
+%%   1. Request status of link
+%%   2. Reset of remote link
+%%   3. Request status of link
 connect(#state{attempts = Attempts} = State) ->
   connect(Attempts, State).
 connect(Attempts, #state{
   address = Address
-} = StateIn) when Attempts > 0 ->
-  % TODO: Diagnostic log: Reset Link = false, Request Status link = false
-  case reset_link(StateIn) of
-    error ->
-      ?LOGERROR("RESET LINK is ERROR. Address: ~p", [Address]),
-      error;
-    StateReset ->
-      % TODO: Diagnostic log: Reset Link = true
-      ?LOGDEBUG("RESET LINK is OK. Address: ~p", [Address]),
-      case request_status_link(StateReset) of
-        error ->
-          ?LOGWARNING("REQUEST STATUS LINK is ERROR. Address: ~p", [Address]),
-          connect(Attempts - 1, StateIn);
-        StateOut ->
-          % TODO: Diagnostic log: Request Status Link = true, Connected = true
-          ?LOGDEBUG("REQUEST STATUS LINK is OK. Address: ~p", [Address]),
-          StateOut
-      end
+} = State) when Attempts > 0 ->
+
+  StateRequestLink1 = request_status_link( State ),
+  StateResetLink = reset_link( State ),
+  StateRequestLink2 = request_status_link( State ),
+
+  if
+    StateRequestLink1 =:= error; StateResetLink =:= error; StateRequestLink2 =:= error ->
+      ?LOGWARNING("CONNECTION ATTEMPT ERROR. REQUEST LINK 1 ~p, RESET LINK ~p, REQUEST LINK 2 ~p. Address: ~p", [
+        StateRequestLink1,
+        StateResetLink,
+        StateRequestLink2,
+        Address
+      ]),
+      ?LOGDEBUG("Retrying connection, left attempts ~p. Address: ~p", [ Attempts-1 ,Address ]),
+      connect(Attempts - 1, State );
+    true ->
+      State#state{fcb = 0}
   end;
 connect(_Attempts = 0, #state{
   address = Address
@@ -170,25 +171,20 @@ user_data_confirm(ASDU, #state{attempts = Attempts} = State) ->
 %%% +--------------------------------------------------------------+
 %%% |                  Reset link request sequence                 |
 %%% +--------------------------------------------------------------+
-
-reset_link(#state{attempts = Attempts} = State) ->
-  reset_link(Attempts, State).
-
-reset_link(0 = _Attempts, _State) ->
-  ?LOGERROR("no attempts left for the reset link..."),
-  error;
-reset_link(Attempts, #state{
+reset_link(#state{
   portFT12 = PortFT12,
   address = Address
 } = State) ->
   Request = build_request(?RESET_REMOTE_LINK, _Data = undefined, State),
+  ?LOGDEBUG("SEND RESET LINK. Address: ~p", [ Address ]),
   iec60870_ft12:send(PortFT12, Request),
   case wait_response(?ACKNOWLEDGE, undefined, State) of
     {ok, _} ->
-      State#state{fcb = 0};
+      ?LOGDEBUG("RESET LINK OK. Address: ~p", [ Address ]),
+      ok;
     error ->
       ?LOGWARNING("FT12 ~p, address ~p: no response received for RESET LINK", [PortFT12, Address]),
-      reset_link(Attempts - 1, State)
+      error
   end.
 
 %%% +--------------------------------------------------------------+
@@ -200,10 +196,12 @@ request_status_link(#state{
   address = Address
 } = State) ->
   Request = build_request(?REQUEST_STATUS_LINK, _Data = undefined, State),
+  ?LOGDEBUG("SEND REQUEST STATUS LINK. Address: ~p", [ Address ]),
   iec60870_ft12:send(PortFT12, Request),
   case wait_response(?STATUS_LINK_ACCESS_DEMAND, undefined, State) of
     {ok, _} ->
-      State#state{fcb = 0};
+      ?LOGDEBUG("RESET LINK OK. Address: ~p", [ Address ]),
+      ok;
     error ->
       ?LOGWARNING("FT12 port ~p, address ~p: no response received for REQUEST STATUS LINK", [PortFT12, Address]),
       error

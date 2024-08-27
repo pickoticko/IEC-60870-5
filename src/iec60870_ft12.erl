@@ -60,22 +60,24 @@ start_link(InOptions) ->
   Options = maps:merge(?DEFAULT_OPTIONS, InOptions),
   check_settings(Options),
   Self = self(),
-  process_flag(trap_exit, true),
+  OldFlag = process_flag(trap_exit, true),
   PID = spawn_link(fun() -> init(Self, Options) end),
   receive
     {ready, PID} ->
+      process_flag(trap_exit, OldFlag),
       PID;
     {'EXIT', PID, Reason} ->
+      process_flag(trap_exit, OldFlag),
       throw({error, Reason})
   end.
 
 send(Port, Frame) ->
-  case is_process_alive( Port ) of
+  case is_process_alive(Port) of
     true ->
       Port ! {send, self(), Frame},
       ok;
-    _->
-      throw( port_is_closed )
+    _ ->
+      throw(port_is_closed)
   end.
 
 stop(Port) ->

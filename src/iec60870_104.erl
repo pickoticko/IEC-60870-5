@@ -119,7 +119,6 @@ start_client(InSettings) ->
 %% Waiting for incoming connections (clients)
 wait_connection(ListenSocket, #{port := Port} = Settings, Root) ->
   spawn(fun() ->
-    process_flag(trap_exit, true),
     link(Root),
     Socket = accept_loop(ListenSocket, Root),
     % Handle the ListenSocket to the next process
@@ -151,31 +150,19 @@ wait_connection(ListenSocket, #{port := Port} = Settings, Root) ->
   end).
 
 accept_loop(ListenSocket, Root) ->
-  case gen_tcp:accept(ListenSocket, _Timeout = 2000) of
+  case gen_tcp:accept(ListenSocket) of
     {ok, Socket} ->
       Socket;
-    {error, timeout} ->
-      receive
-        {'EXIT', Root, Reason} ->
-          ?LOGERROR("connection is down due to owner process shutdown"),
-          timer:sleep(1000),
-          catch gen_tcp:close(ListenSocket),
-          exit(Reason)
-      after
-        0 -> accept_loop(ListenSocket, Root)
-      end;
     {error, Error} ->
       catch gen_tcp:close(ListenSocket),
       exit(Root, Error),
       exit(Error)
   end.
 
-
 init_loop(#state{
   connection = Connection,
   settings = #{w := W}
 } = State0) ->
-  process_flag(trap_exit, true),
   link(Connection),
   State = start_t3(State0),
   loop(State#state{
@@ -187,7 +174,6 @@ init_loop(#state{
 
 loop(#state{
   settings = #{k := K},
-  connection = Connection,
   buffer = Buffer,
   socket = Socket,
   sent = Sent
@@ -224,12 +210,6 @@ loop(#state{
       exit(Reason);
     {tcp_passive, Socket} ->
       exit(tcp_passive);
-
-    % Connection exit signal
-    {'EXIT', Connection, Reason} ->
-      ?LOGERROR("connection is down due to a reason: ~p", [Reason]),
-      gen_tcp:close(Socket),
-      exit(Reason);
 
     % If an ASDU packet isn't accepted because we are waiting for confirmation,
     % we should compare the sent packets with K to avoid ignoring other ASDUs

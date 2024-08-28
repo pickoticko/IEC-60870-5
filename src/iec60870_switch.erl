@@ -34,8 +34,10 @@
 
 start(Options) ->
   Owner = self(),
-  PID = spawn(fun() -> init_switch(Owner, Options) end),
+  PID = spawn_link(fun() -> init_switch(Owner, Options) end),
   receive
+    {ready, PID, PID} ->
+      PID;
     {ready, PID, Switch} ->
       link(Switch),
       Switch

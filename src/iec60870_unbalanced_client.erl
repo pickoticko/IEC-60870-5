@@ -179,8 +179,10 @@ send_asdu(ASDU, #data{
 
 start_port(Options) ->
   Client = self(),
-  PID = spawn(fun() -> init_port(Client, Options) end),
+  PID = spawn_link(fun() -> init_port(Client, Options) end),
   receive
+    {ready, PID, PID} ->
+      PID;
     {ready, PID, Port} ->
       link(Port),
       Port

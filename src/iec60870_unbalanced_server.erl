@@ -60,7 +60,7 @@ start(Root, Options) ->
   end.
 
 stop(PID) ->
-  PID ! {stop, self()}.
+  catch exit(PID, shutdown).
 
 %%% +--------------------------------------------------------------+
 %%% |                      Internal functions                      |
@@ -86,7 +86,6 @@ init(Root, #{
 start_connection(Root) ->
   case iec60870_server:start_connection(Root, {?MODULE, self()}, self()) of
     {ok, NewConnection} ->
-      erlang:monitor(process, NewConnection),
       NewConnection;
     error ->
       exit(server_stm_start_failed)
@@ -94,12 +93,10 @@ start_connection(Root) ->
 
 loop(#data{
   name = Name,
-  root = Root,
   switch = Switch,
   address = Address,
   fcb = FCB,
-  sent_frame = SentFrame,
-  connection = Connection
+  sent_frame = SentFrame
 } = Data) ->
   receive
     {data, Switch, #frame{address = ReqAddress}} when ReqAddress =/= Address ->
@@ -121,16 +118,7 @@ loop(#data{
             _ -> ignore
           end,
           loop(Data)
-      end;
-    {'DOWN', _, process, Connection, _Error} ->
-      ?LOGWARNING("~p server w/ link address ~p is down", [Name, Address]),
-      NewConnection = start_connection( Root ),
-      loop(Data#data{connection = NewConnection});
-    {'DOWN', _, process, Switch, SwitchError} ->
-      ?LOGWARNING("~p server w/ link address ~p is down because of the switch error: ~p", [Name, Address, SwitchError]),
-      exit( SwitchError );
-    {stop, Root} ->
-      ?LOGWARNING("server w/ link address ~p has been terminated by the owner", [Address])
+      end
   after
     ?CONNECTION_TIMEOUT ->
       ?LOGWARNING("server ~p w/ address ~p: connection timeout!", [Name, Address]),

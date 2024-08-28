@@ -58,7 +58,7 @@ start(Direction, Options) ->
   end.
 
 stop(PID) ->
-  PID ! {stop, self()}.
+  catch exit(PID, shutdown).
 
 %%% +--------------------------------------------------------------+
 %%% |                      Internal functions                      |
@@ -152,8 +152,6 @@ loop(#data{
             State1
         end,
       loop(Data#data{state = NewState});
-    {stop, Owner} ->
-      iec60870_ft12:stop(Port);
     Unexpected ->
       ?LOGWARNING("unexpected message ~p", [Unexpected]),
       loop(Data)

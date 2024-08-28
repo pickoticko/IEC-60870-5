@@ -68,15 +68,11 @@
 start(InSettings) ->
   Settings = check_settings(maps:merge(?DEFAULT_SETTINGS, InSettings)),
   Self = self(),
-  % ???
-  OldFlag = process_flag(trap_exit, true),
   PID = spawn_link(fun() -> init_server(Self, Settings) end),
   receive
     {ready, PID, ServerRef} ->
-      process_flag(trap_exit, OldFlag),
       ServerRef;
     {'EXIT', PID, Reason} ->
-      process_flag(trap_exit, OldFlag),
       ?LOGERROR("server failed to start due to a reason: ~p", [Reason]),
       throw(Reason)
   end.
@@ -149,11 +145,20 @@ find_group_items(#?MODULE{storage = Storage}, GroupID) ->
   ets:match_object(Storage, {'_', #{group => GroupID}}).
 
 start_connection(Root, Server, Connection) ->
-  % ??? set/reset Monitor here
-  Root ! {start_connection, Server, self(), Connection},
-  receive
-    {Root, PID} when is_pid(PID) -> {ok, PID};
-    {Root, error} -> error
+  MonitorRef = erlang:monitor(process, Root),
+  try
+    Root ! {start_connection, Server, self(), Connection},
+    receive
+      {Root, PID} when is_pid(PID) ->
+        {ok, PID};
+      {Root, error} ->
+        error;
+      {'DOWN', MonitorRef, process, Root, _Reason} ->
+        ?LOGWARNING("failed to start server connection due to root process is down"),
+        error
+    end
+  after
+    erlang:demonitor(MonitorRef)
   end.
 
 update_value(#?MODULE{name = Name, storage = Storage}, ID, NewObject) ->
@@ -184,7 +189,6 @@ init_server(Owner, #{
   connection := Connection,
   command_handler := Handler
 } = Settings) ->
-  process_flag(trap_exit, true),
   Module = iec60870_lib:get_driver_module(Type),
   Server =
     try
@@ -225,9 +229,7 @@ init_server(Owner, #{
   }).
 
 await_connection(#state{
-  module = Module,
   server = Server,
-  esubscribe = EsubscribePID,
   connection_settings = ConnectionSettings
 } = State) ->
   receive
@@ -240,11 +242,6 @@ await_connection(#state{
           From ! {self(), error}
       end,
       await_connection(State);
-    {'EXIT', _, StopReason} ->
-      ?LOGINFO("stop server, reason: ~p", [StopReason]),
-      exit(EsubscribePID, shutdown),
-      Module:stop_server(Server),
-      exit(StopReason);
     Unexpected ->
       ?LOGWARNING("unexpected mesaage ~p", [Unexpected]),
       await_connection(State)

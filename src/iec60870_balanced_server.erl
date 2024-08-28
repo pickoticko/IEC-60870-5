@@ -26,7 +26,7 @@ start(Root, Options) ->
   end.
 
 stop(PID) ->
-  exit(PID, shutdown).
+  catch exit(PID, shutdown).
 
 %%% +--------------------------------------------------------------+
 %%% |                      Internal functions                      |
@@ -34,22 +34,30 @@ stop(PID) ->
 
 init(Root, Options)->
   process_flag(trap_exit, true),
-  Port = iec60870_balanced:start(_Direction = ?FROM_B_TO_A, Options),
+  Port = start_connection(Root, Options),
   Root ! {ready, self()},
-  wait_connection(Root, Port, Options).
+  accept_connection(Root, Port, Options).
 
-wait_connection(Root, Port, Options)->
+start_connection(Root, Options) ->
+  try iec60870_balanced:start(_Direction = ?FROM_B_TO_A, Options)
+  catch
+    _:E ->
+      exit(Root, {transport_error, E}),
+      exit(E)
+  end.
+
+accept_connection(Root, Port, Options)->
   receive
     {connected, Port} ->
       case iec60870_server:start_connection(Root, {?MODULE, self()}, Port) of
         {ok, Connection} ->
           Port ! {connection, self(), Connection},
-          wait_connection(Root, Port, Options);
+          accept_connection(Root, Port, Options);
         error ->
-          unlink(Port),
+          unlink(Root),
           exit(Port, shutdown),
-          NewPort = iec60870_balanced:start(_Direction = ?FROM_B_TO_A, Options),
-          wait_connection(Root, NewPort, Options)
+          NewPort = start_connection(Root, Options),
+          accept_connection(Root, NewPort, Options)
       end;
     {'EXIT', Port, Reason} ->
       case Reason of
@@ -58,8 +66,9 @@ wait_connection(Root, Port, Options)->
         _ ->
           ?LOGWARNING("port exit reason: ~p",[Reason])
       end,
-      NewPort = iec60870_balanced:start(_Direction = ?FROM_B_TO_A, Options),
-      wait_connection(Root, NewPort, Options);
+      NewPort = start_connection(Root, Options),
+      accept_connection(Root, NewPort, Options);
     {'EXIT', Root, Reason} ->
-      exit(Port, Reason)
+      exit(Port, Reason),
+      exit(Reason)
   end.

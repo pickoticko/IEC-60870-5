@@ -60,14 +60,11 @@ start_link(InOptions) ->
   Options = maps:merge(?DEFAULT_OPTIONS, InOptions),
   check_settings(Options),
   Self = self(),
-  OldFlag = process_flag(trap_exit, true),
   PID = spawn_link(fun() -> init(Self, Options) end),
   receive
     {ready, PID} ->
-      process_flag(trap_exit, OldFlag),
       PID;
     {'EXIT', PID, Reason} ->
-      process_flag(trap_exit, OldFlag),
       throw({error, Reason})
   end.
 
@@ -81,8 +78,8 @@ send(Port, Frame) ->
       throw(port_is_closed)
   end.
 
-stop(Port) ->
-  Port ! {stop, self()}.
+stop(PortFT12) ->
+  catch exit(PortFT12, shutdown).
 
 %%% +--------------------------------------------------------------+
 %%% |                      Internal functions                      |
@@ -97,7 +94,6 @@ init(Owner, #{
 } = ConnectionSettings) ->
   case start_connection(ConnectionSettings) of
     {ok, Connection} ->
-      erlang:monitor(process, Owner),
       Owner ! {ready, self()},
       loop(#state{
         name = String,
@@ -137,7 +133,6 @@ start_connection(#{
   case eserial:open(Name, maps:without([type, name], PortOptions)) of
     {ok, SerialPort} ->
       ?LOGDEBUG("FT12 ~p: eserial is opened!", [Name]),
-      erlang:monitor(process, SerialPort),
       {ok, SerialPort};
     {error, Error} ->
       {error, Error}
@@ -178,17 +173,6 @@ loop(#state{
       ?LOGDEBUG("FT12 ~p: sending frame: ~p, packet ~p", [Name, Frame, Packet]),
       send(Type, Connection, Packet),
       loop(OutState);
-
-    {stop, Owner} ->
-      ?LOGDEBUG("FT12 ~p: closed by owner", [Name]),
-      close_connection(Type, Connection);
-
-    {'DOWN', _, process, Owner, Reason} ->
-      ?LOGERROR("FT12 ~p: exit by owner, reason: ~p", [Name, Reason]),
-      exit(Reason);
-    {'DOWN', _, process, Connection, Reason} ->
-      ?LOGERROR("FT12 ~p: exit by port, reason: ~p", [Name, Reason]),
-      exit(Reason);
 
     {tcp_closed, Connection} ->
       ?LOGERROR("FT12 ~p: tcp closed", [Name]),

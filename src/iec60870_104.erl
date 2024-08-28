@@ -119,6 +119,7 @@ start_client(InSettings) ->
 %% Waiting for incoming connections (clients)
 wait_connection(ListenSocket, #{port := Port} = Settings, Root) ->
   spawn(fun() ->
+    % ??? Monitor
     link(Root),
     Socket = accept_loop(ListenSocket, Root),
     % Handle the ListenSocket to the next process
@@ -163,6 +164,7 @@ init_loop(#state{
   connection = Connection,
   settings = #{w := W}
 } = State0) ->
+  % ??? move to state_m
   link(Connection),
   State = start_t3(State0),
   loop(State#state{

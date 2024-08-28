@@ -98,6 +98,7 @@ init({Root, Connection, #{
   {ok, SendQueue} = start_link_send_queue(Name, Connection),
   {ok, UpdateQueue} = start_link_update_queue(Name, Storage, SendQueue, ASDUSettings),
   process_flag(trap_exit, true),
+  % ??? link connection
   erlang:monitor(process, Root),
   init_group_requests(Groups),
   {ok, ?RUNNING, #state{

@@ -68,6 +68,7 @@
 start(InSettings) ->
   Settings = check_settings(maps:merge(?DEFAULT_SETTINGS, InSettings)),
   Self = self(),
+  % ???
   OldFlag = process_flag(trap_exit, true),
   PID = spawn_link(fun() -> init_server(Self, Settings) end),
   receive
@@ -148,6 +149,7 @@ find_group_items(#?MODULE{storage = Storage}, GroupID) ->
   ets:match_object(Storage, {'_', #{group => GroupID}}).
 
 start_connection(Root, Server, Connection) ->
+  % ??? set/reset Monitor here
   Root ! {start_connection, Server, self(), Connection},
   receive
     {Root, PID} when is_pid(PID) -> {ok, PID};

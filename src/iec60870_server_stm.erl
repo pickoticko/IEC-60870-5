@@ -135,31 +135,12 @@ handle_event(info, {update_group, GroupID, Timer}, ?RUNNING, #state{
   timer:send_after(Timer, {update_group, GroupID, Timer}),
   keep_state_and_data;
 
-handle_event(info, {'EXIT', UpdateQueue, Reason}, _AnyState, #state{
+handle_event(info, {'EXIT', PID, Reason}, _AnyState, #state{
   settings = #{
     name := Name
-  },
-  update_queue = UpdateQueue
+  }
 }) ->
-  ?LOGERROR("server ~p: received EXIT from update queue process, reason: ~p", [Name, Reason]),
-  {stop, Reason};
-
-handle_event(info, {'EXIT', SendQueue, Reason}, _AnyState, #state{
-  settings = #{
-    name := Name
-  },
-  send_queue = SendQueue
-}) ->
-  ?LOGERROR("server ~p: received EXIT from send queue process, reason: ~p", [Name, Reason]),
-  {stop, Reason};
-
-handle_event(info, {'EXIT', Connection, Reason}, _AnyState, #state{
-  settings = #{
-    name := Name
-  },
-  connection = Connection
-}) ->
-  ?LOGERROR("server ~p: received EXIT from connection, reason: ~p", [Name, Reason]),
+  ?LOGERROR("server ~p: received EXIT from PID: ~p, reason: ~p", [Name, PID, Reason]),
   {stop, Reason};
 
 handle_event(EventType, EventContent, _AnyState, #state{

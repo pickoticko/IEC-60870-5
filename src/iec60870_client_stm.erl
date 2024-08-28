@@ -674,23 +674,25 @@ handle_event(
 
 handle_event(
   info,
-  {'EXIT', Esubscribe, Reason},
-  _AnyState,
-  #data{name = Name, esubscribe = Esubscribe, current_connection = CurrentConnection}
-) ->
-  ?LOGERROR("client ~p connection ~p: received EXIT from esubscribe, reason: ~p", [
-    Name, CurrentConnection, Reason
-  ]),
-  {stop, Reason};
-
-handle_event(
-  info,
   {'EXIT', Connection, Reason},
-  _AnyState,
+  CurrentState,
   #data{name = Name, connection = Connection, current_connection = CurrentConnection}
 ) ->
   ?LOGERROR("client ~p connection ~p: received EXIT from connection, reason: ~p", [
     Name, CurrentConnection, Reason
+  ]),
+  {next_state, #connecting{next_state = CurrentState, error = Reason, failed = [CurrentConnection]}, #data{
+    current_connection = switch_connection(CurrentConnection)
+  }};
+
+handle_event(
+  info,
+  {'EXIT', PID, Reason},
+  _AnyState,
+  #data{name = Name, current_connection = CurrentConnection}
+) ->
+  ?LOGERROR("client ~p connection ~p: received EXIT from PID: ~p, reason: ~p", [
+    Name, CurrentConnection, PID, Reason
   ]),
   {stop, Reason};
 

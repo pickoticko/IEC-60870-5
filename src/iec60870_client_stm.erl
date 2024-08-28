@@ -669,17 +669,39 @@ handle_event(
     _AnyState,
     #data{name = Name, current_connection = CurrentConnection, connection = Connection}
 ) ->
-  ?LOGWARNING("client ~p connection ~p: failed to send packet, error: ~p", [Name, CurrentConnection, Error]),
+  ?LOGERROR("client ~p connection ~p: failed to send packet, error: ~p", [Name, CurrentConnection, Error]),
   keep_state_and_data;
 
 handle_event(
-    EventType,
-    EventContent,
-    _AnyState,
-    #data{name = Name}
+  info,
+  {'EXIT', Esubscribe, Reason},
+  _AnyState,
+  #data{name = Name, esubscribe = Esubscribe, current_connection = CurrentConnection}
 ) ->
-  ?LOGWARNING("client ~p connection ~p: received unexpected event type: ~p, content ~p", [
-    Name, EventType, EventContent
+  ?LOGERROR("client ~p connection ~p: received EXIT from esubscribe, reason: ~p", [
+    Name, CurrentConnection, Reason
+  ]),
+  {stop, Reason};
+
+handle_event(
+  info,
+  {'EXIT', Connection, Reason},
+  _AnyState,
+  #data{name = Name, connection = Connection, current_connection = CurrentConnection}
+) ->
+  ?LOGERROR("client ~p connection ~p: received EXIT from connection, reason: ~p", [
+    Name, CurrentConnection, Reason
+  ]),
+  {stop, Reason};
+
+handle_event(
+  EventType,
+  EventContent,
+  _AnyState,
+  #data{name = Name, current_connection = CurrentConnection}
+) ->
+  ?LOGERROR("client ~p connection ~p: received unexpected event type: ~p, content ~p", [
+    Name, CurrentConnection, EventType, EventContent
   ]),
   keep_state_and_data.
 
@@ -691,7 +713,7 @@ terminate(Reason, _, #data{
 }) ->
   catch exit(Connection, shutdown),
   catch exit(Esubscribe, shutdown),
-  ?LOGWARNING("client ~p connection ~p: termination with reason: ~p", [Name, CurrentConnection, Reason]),
+  ?LOGERROR("client ~p connection ~p: termination with reason: ~p", [Name, CurrentConnection, Reason]),
   ok.
 
 code_change(_OldVsn, State, _Extra) ->

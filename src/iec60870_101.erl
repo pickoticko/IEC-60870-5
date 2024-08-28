@@ -200,7 +200,7 @@ request_status_link(#state{
   iec60870_ft12:send(PortFT12, Request),
   case wait_response(?STATUS_LINK_ACCESS_DEMAND, undefined, State) of
     {ok, _} ->
-      ?LOGDEBUG("RESET LINK OK. Address: ~p", [ Address ]),
+      ?LOGDEBUG("REQUEST LINK OK. Address: ~p", [ Address ]),
       ok;
     error ->
       ?LOGWARNING("FT12 port ~p, address ~p: no response received for REQUEST STATUS LINK", [PortFT12, Address]),

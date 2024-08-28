@@ -198,7 +198,7 @@ init_port(Client, #{transport := #{name := Name}} = Options) ->
       end;
     true ->
       case catch iec60870_ft12:start_link(maps:with([transport, address_size], Options)) of
-        {error, Error} ->
+        {'EXIT', Error} ->
           ?LOGERROR("shared port ~p failed to start transport, error: ~p", [Name, Error]),
           exit({transport_init_fail, Error});
         PortFT12 ->

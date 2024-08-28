@@ -65,6 +65,7 @@ start_link(InOptions) ->
     {ready, PID} ->
       PID;
     {'EXIT', PID, Reason} ->
+      ?LOGERROR("FT12 failed to start w/ reason: ~p", [Reason]),
       throw({error, Reason})
   end.
 
@@ -120,6 +121,7 @@ start_connection(#{
       ?LOGDEBUG("FT12 ~p: socket ~p is opened!", [String, Socket]),
       {ok, Socket};
     {error, Error} ->
+      ?LOGERROR("FT12 ~p: failed to connect to socket, error: ~p", [String, Error]),
       {error, Error}
   end;
 
@@ -135,6 +137,7 @@ start_connection(#{
       ?LOGDEBUG("FT12 ~p: eserial is opened!", [Name]),
       {ok, SerialPort};
     {error, Error} ->
+      ?LOGERROR("FT12 ~p: failed to start eserial, error: ~p", [Name, Error]),
       {error, Error}
   end.
 

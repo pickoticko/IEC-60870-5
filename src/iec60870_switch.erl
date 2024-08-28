@@ -64,7 +64,7 @@ init_switch(ServerPID, #{transport := #{name := PortName}} = Options) ->
     % Succeeded to register port, start the switch
     true ->
       case catch iec60870_ft12:start_link(maps:with([transport, address_size], Options)) of
-        {error, Error} ->
+        {'EXIT', Error} ->
           ?LOGERROR("switch ~p failed to start transport, error: ~p", [PortName, Error]),
           exit({transport_init_fail, Error});
         PortFT12 ->

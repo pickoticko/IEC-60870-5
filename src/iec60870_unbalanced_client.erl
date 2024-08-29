@@ -66,7 +66,7 @@ start(Owner, Options) ->
   end.
 
 stop(Port) ->
-  exit(Port, shutdown).
+  catch exit(Port, shutdown).
 
 %%% +--------------------------------------------------------------+
 %%% |                      Internal functions                      |
@@ -75,7 +75,6 @@ stop(Port) ->
 init_client(Owner, #{cycle := Cycle, transport := #{name := PortName}} = Options) ->
   Port = start_port(Options),
   State = connect(Port, Options),
-  erlang:monitor(process, Owner),
   Owner ! {connected, self()},
   self() ! {update, self()},
   loop(#data{
@@ -87,21 +86,17 @@ init_client(Owner, #{cycle := Cycle, transport := #{name := PortName}} = Options
   }).
 
 connect(Port, Options) ->
-  erlang:monitor(process, Port),
   Port ! {add_client, self(), Options},
   receive
     {ok, Port, ClientState} ->
       ClientState;
     {error, Port, ConnectError} ->
-      exit(ConnectError);
-    {'DOWN', _, process, Port, Reason} ->
-      exit(Reason)
+      exit(ConnectError)
   end.
 
 loop(#data{
   name = Name,
   owner = Owner,
-  port = Port,
   cycle = Cycle
 } = Data) ->
   receive
@@ -118,12 +113,6 @@ loop(#data{
       Owner!{confirm, Reference},
       NewData = send_asdu(ASDU, Data),
       loop(NewData);
-    {'DOWN', _, process, Owner, Reason} ->
-      ?LOGWARNING("~p client down because of the owner exit: ~p", [Name, Reason]),
-      exit({down_port, Reason});
-    {'DOWN', _, process, Port, Reason} ->
-      ?LOGWARNING("~p client down because of the port error: ~p", [Name, Reason]),
-      exit({down_port, Reason});
     Unexpected ->
       ?LOGWARNING("~p client received unexpected message: ~p", [Name, Unexpected]),
       loop(Data)
@@ -190,12 +179,13 @@ send_asdu(ASDU, #data{
 
 start_port(Options) ->
   Client = self(),
-  PID = spawn(fun() -> init_port(Client, Options) end),
+  PID = spawn_link(fun() -> init_port(Client, Options) end),
   receive
+    {ready, PID, PID} ->
+      PID;
     {ready, PID, Port} ->
-      Port;
-    {error, PID, InitError} ->
-      exit(InitError)
+      link(Port),
+      Port
   end.
 
 init_port(Client, #{transport := #{name := Name}} = Options) ->
@@ -210,12 +200,12 @@ init_port(Client, #{transport := #{name := Name}} = Options) ->
       end;
     true ->
       case catch iec60870_ft12:start_link(maps:with([transport, address_size], Options)) of
-        {error, Error} ->
+        {'EXIT', Error} ->
           ?LOGERROR("shared port ~p failed to start transport, error: ~p", [Name, Error]),
-          Client ! {error, self(), transport_init_fail};
+          exit({transport_init_fail, Error});
         PortFT12 ->
+          process_flag(trap_exit, true),
           ?LOGDEBUG("shared port ~p is started", [Name]),
-          erlang:monitor(process, PortFT12),
           Client ! {ready, self(), self()},
           port_loop(#port_state{port_ft12 = PortFT12, clients = #{}, name = Name})
       end
@@ -241,18 +231,17 @@ port_loop(#port_state{port_ft12 = PortFT12, clients = Clients, name = Name} = Sh
           port_loop(State1);
         ClientState ->
           ?LOGDEBUG("shared port ~p added a client ~p", [Name, Client]),
-          erlang:monitor(process, Client),
           Client ! {ok, self(), ClientState},
           port_loop(SharedState#port_state{clients = Clients#{Client => true}})
       end;
 
-  % Port FT12 is down, transport level is unavailable
-    {'DOWN', _, process, PortFT12, Reason} ->
+    % Port FT12 is down, transport level is unavailable
+    {'EXIT', PortFT12, Reason} ->
       ?LOGERROR("shared port ~p exit, ft12 transport error: ~p", [Name, Reason]),
-      exit(Reason);
+      exit({transport_error, Reason});
 
-  % Client is down due to some reason
-    {'DOWN', _, process, Client, Reason} ->
+    % Client is down due to some reason
+    {'EXIT', Client, Reason} ->
       ?LOGDEBUG("shared port ~p client ~p exit, reason ~p", [Name, Client, Reason]),
       State1 = check_stop(SharedState#port_state{clients = maps:remove(Client, Clients)}),
       port_loop(State1);
@@ -272,7 +261,7 @@ check_stop(#port_state{
     map_size(Clients) =:= 0 ->
       ?LOGINFO("shared port ~p has been shutdown due to no clients remaining", [Name]),
       iec60870_ft12:stop(PortFT12),
-      exit(normal);
+      exit(shutdown);
     true ->
       State
   end.

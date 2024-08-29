@@ -196,7 +196,6 @@ handle_event(
   Module = iec60870_lib:get_driver_module(Type),
   try
     Connection = Module:start_client(maps:get(CurrentConnection, Connections)),
-    erlang:monitor(process, Connection),
     ?LOGINFO("client ~p started ~p connection", [Name, CurrentConnection]),
     {next_state, NextState, Data#data{connection = Connection}}
   catch
@@ -670,39 +669,53 @@ handle_event(
     _AnyState,
     #data{name = Name, current_connection = CurrentConnection, connection = Connection}
 ) ->
-  ?LOGWARNING("client ~p connection ~p: failed to send packet, error: ~p", [Name, CurrentConnection, Error]),
+  ?LOGERROR("client ~p connection ~p: failed to send packet, error: ~p", [Name, CurrentConnection, Error]),
   keep_state_and_data;
 
-%% The root process is down
-handle_event(info, {'DOWN', _, process, Connection, Reason}, CurrentState, #data{
-  name = Name,
-  current_connection = CurrentConnection,
-  connection = Connection
-}) ->
-  ?LOGWARNING("client ~p connection ~p: termination, reason: ~p", [Name, CurrentConnection, Reason]),
+handle_event(
+  info,
+  {'EXIT', Connection, Reason},
+  CurrentState,
+  #data{name = Name, connection = Connection, current_connection = CurrentConnection}
+) ->
+  ?LOGERROR("client ~p connection ~p: received EXIT from connection, reason: ~p", [
+    Name, CurrentConnection, Reason
+  ]),
   {next_state, #connecting{next_state = CurrentState, error = Reason, failed = [CurrentConnection]}, #data{
     current_connection = switch_connection(CurrentConnection)
   }};
 
 handle_event(
-    EventType,
-    EventContent,
-    _AnyState,
-    #data{name = Name}
+  info,
+  {'EXIT', PID, Reason},
+  _AnyState,
+  #data{name = Name, current_connection = CurrentConnection}
 ) ->
-  ?LOGWARNING("client ~p connection ~p: received unexpected event type: ~p, content ~p", [
-    Name, EventType, EventContent
+  ?LOGERROR("client ~p connection ~p: received EXIT from PID: ~p, reason: ~p", [
+    Name, CurrentConnection, PID, Reason
+  ]),
+  {stop, Reason};
+
+handle_event(
+  EventType,
+  EventContent,
+  _AnyState,
+  #data{name = Name, current_connection = CurrentConnection}
+) ->
+  ?LOGERROR("client ~p connection ~p: received unexpected event type: ~p, content ~p", [
+    Name, CurrentConnection, EventType, EventContent
   ]),
   keep_state_and_data.
 
-terminate(Reason, _, #data{name = Name, current_connection = CurrentConnection, esubscribe = PID})
-  when Reason =:= normal; Reason =:= shutdown ->
-  exit(PID, shutdown),
-  ?LOGWARNING("client ~p connection ~p: termination with reason: ~p", [Name, CurrentConnection, Reason]),
-  ok;
-
-terminate(Reason, _, #data{name = Name, current_connection = CurrentConnection}) ->
-  ?LOGWARNING("client ~p connection ~p: termination with reason: ~p", [Name, CurrentConnection, Reason]),
+terminate(Reason, _, #data{
+  name = Name,
+  connection = Connection,
+  current_connection = CurrentConnection,
+  esubscribe = Esubscribe
+}) ->
+  catch exit(Connection, shutdown),
+  catch exit(Esubscribe, shutdown),
+  ?LOGERROR("client ~p connection ~p: termination with reason: ~p", [Name, CurrentConnection, Reason]),
   ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -740,9 +753,9 @@ send_asdu(Connection, ASDU) ->
   receive
     {confirm, Ref} ->
       ok;
-    {'DOWN', _, process, Connection, Reason} = DownMessage ->
+    {'EXIT', Connection, Reason} = ExitMessage ->
       ?LOGWARNING("connection ~p is down w/ reason: ~p", [Connection, Reason]),
-      self() ! DownMessage,
+      self() ! ExitMessage,
       ok
   end.
 

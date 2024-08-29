@@ -94,12 +94,11 @@ init({Root, Connection, #{
   storage := Storage,
   asdu := ASDUSettings
 } = Settings}) ->
+  process_flag(trap_exit, true),
+  link(Connection),
   ?LOGINFO("server ~p: initiating incoming connection...", [Name]),
   {ok, SendQueue} = start_link_send_queue(Name, Connection),
   {ok, UpdateQueue} = start_link_update_queue(Name, Storage, SendQueue, ASDUSettings),
-  process_flag(trap_exit, true),
-  % ??? link connection
-  erlang:monitor(process, Root),
   init_group_requests(Groups),
   {ok, ?RUNNING, #state{
     root = Root,
@@ -125,7 +124,7 @@ handle_event(info, {asdu, Connection, ASDU}, _AnyState, #state{
     handle_asdu(ParsedASDU, State)
   catch
     _Exception:Error ->
-      ?LOGERROR("~p server received invalid ASDU. ASDU: ~p, Error: ~p", [Name, ASDU, Error]),
+      ?LOGERROR("server ~p: received invalid ASDU. ASDU: ~p, Error: ~p", [Name, ASDU, Error]),
       keep_state_and_data
   end;
 
@@ -136,53 +135,36 @@ handle_event(info, {update_group, GroupID, Timer}, ?RUNNING, #state{
   timer:send_after(Timer, {update_group, GroupID, Timer}),
   keep_state_and_data;
 
-%% The connection is down
-handle_event(info, {'EXIT', Connection, Reason}, _AnyState, #state{
-  connection = Connection
+handle_event(info, {'EXIT', PID, Reason}, _AnyState, #state{
+  settings = #{
+    name := Name
+  }
 }) ->
-  ?LOGWARNING("server connection terminated. Reason: ~p", [Reason]),
+  ?LOGERROR("server ~p: received EXIT from PID: ~p, reason: ~p", [Name, PID, Reason]),
   {stop, Reason};
 
-%% The send queue process is down
-handle_event(info, {'EXIT', SendQueue, Reason}, _AnyState, #state{
-  send_queue = SendQueue
+handle_event(EventType, EventContent, _AnyState, #state{
+  settings = #{
+    name := Name
+  }
 }) ->
-  ?LOGWARNING("server send queue process terminated. Reason: ~p", [Reason]),
-  {stop, Reason};
-
-%% The update queue process is down
-handle_event(info, {'EXIT', UpdateQueue, Reason}, _AnyState, #state{
-  update_queue = UpdateQueue
-}) ->
-  ?LOGWARNING("server update queue process terminated. Reason: ~p", [Reason]),
-  {stop, Reason};
-
-%% The root process is down
-handle_event(info, {'DOWN', _, process, Root, Reason}, _AnyState, #state{
-  root = Root
-}) ->
-  ?LOGWARNING("incoming server connection terminated. Reason: ~p", [Reason]),
-  {stop, Reason};
-
-handle_event(EventType, EventContent, _AnyState, _Data) ->
-  ?LOGWARNING("incoming server connection received unexpected event type. Event: ~p, Content: ~p", [
-    EventType, EventContent
+  ?LOGWARNING("server ~p: connection received unexpected event type. Event: ~p, Content: ~p", [
+    Name, EventType, EventContent
   ]),
   keep_state_and_data.
 
 terminate(Reason, _, #state{
   update_queue = UpdateQueue,
-  send_queue = SendQueue
-}) when Reason =:= normal; Reason =:= shutdown ->
-  ?LOGWARNING("incoming server connection is terminated normally. Reason: ~p", [Reason]),
-  exit(SendQueue, server_state_machine_terminated),
-  exit(UpdateQueue, server_state_machine_terminated),
-  ok;
-terminate({connection_closed, Reason}, _, _State)->
-  ?LOGWARNING("incoming server connection is closed. Reason: ~p", [Reason]),
-  ok;
-terminate(Reason, _, _Data) ->
-  ?LOGWARNING("incoming server connection is terminated abnormally. Reason: ~p", [Reason]),
+  send_queue = SendQueue,
+  connection = Connection,
+  settings = #{
+    name := Name
+  }
+}) ->
+  catch exit(SendQueue, shutdown),
+  catch exit(UpdateQueue, shutdown),
+  catch exit(Connection, shutdown),
+  ?LOGERROR("server ~p: connection is terminated w/ reason: ~p", [Name, Reason]),
   ok.
 
 code_change(_OldVsn, State, _Extra) ->

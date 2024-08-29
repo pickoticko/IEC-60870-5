@@ -139,9 +139,9 @@ connect(Attempts, #state{
   address = Address
 } = State) when Attempts > 0 ->
 
-  StateRequestLink1 = request_status_link( State ),
-  StateResetLink = reset_link( State ),
-  StateRequestLink2 = request_status_link( State ),
+  StateRequestLink1 = request_status_link(State),
+  StateResetLink = reset_link(State),
+  StateRequestLink2 = request_status_link(State),
 
   if
     StateRequestLink1 =:= error; StateResetLink =:= error; StateRequestLink2 =:= error ->
@@ -151,8 +151,8 @@ connect(Attempts, #state{
         StateRequestLink2,
         Address
       ]),
-      ?LOGDEBUG("Retrying connection, left attempts ~p. Address: ~p", [ Attempts-1 ,Address ]),
-      connect(Attempts - 1, State );
+      ?LOGDEBUG("Retrying connection, left attempts ~p. Address: ~p", [Attempts - 1, Address]),
+      connect(Attempts - 1, State);
     true ->
       State#state{fcb = 0}
   end;
@@ -171,6 +171,7 @@ user_data_confirm(ASDU, #state{attempts = Attempts} = State) ->
 %%% +--------------------------------------------------------------+
 %%% |                  Reset link request sequence                 |
 %%% +--------------------------------------------------------------+
+
 reset_link(#state{
   portFT12 = PortFT12,
   address = Address
@@ -287,7 +288,9 @@ wait_response(Response1, Response2, #state{
     {data, PortFT12, UnexpectedFrame} ->
       % TODO: Diagnostic. PortFT12, UnexpectedFrame
       ?LOGWARNING("~p received unexpected frame: ~p", [Address, UnexpectedFrame]),
-      wait_response(Response1, Response2, State)
+      wait_response(Response1, Response2, State);
+    {'EXIT', PortFT12, Reason} ->
+      exit({transport_error, Reason})
   after
     Timeout -> error
   end.

@@ -88,7 +88,7 @@ start_server(InSettings) ->
   } = check_settings(maps:merge(?DEFAULT_SETTINGS, InSettings)),
   case gen_tcp:listen(Port, [binary, {active, true}, {packet, raw}]) of
     {ok, ListenSocket} ->
-      wait_connection(ListenSocket, Settings, Root),
+      accept_connection(ListenSocket, Settings, Root),
       ListenSocket;
     {error, Reason} ->
       throw({transport_error, Reason})
@@ -117,14 +117,11 @@ start_client(InSettings) ->
 %%% +--------------------------------------------------------------+
 
 %% Waiting for incoming connections (clients)
-wait_connection(ListenSocket, #{port := Port} = Settings, Root) ->
+accept_connection(ListenSocket, #{port := Port} = Settings, Root) ->
   spawn(fun() ->
-    % ??? Monitor
-    link(Root),
     Socket = accept_loop(ListenSocket, Root),
     % Handle the ListenSocket to the next process
-    unlink(Root),
-    wait_connection(ListenSocket, Settings, Root),
+    accept_connection(ListenSocket, Settings, Root),
     ?LOGDEBUG("server on port ~p: accepted an incoming connection, waiting for START ACTIVATE", [Port]),
     case wait_activate(Socket, ?START_DT_ACTIVATE, <<>>) of
       {ok, Buffer} ->
@@ -138,10 +135,10 @@ wait_connection(ListenSocket, #{port := Port} = Settings, Root) ->
               settings = Settings,
               buffer = Buffer
             });
-          {error, InternalError} ->
-            ?LOGERROR("unable to start a process to handle the incoming connection with error: ~p", [InternalError]),
+          error ->
+            ?LOGERROR("unable to start a process to handle the incoming connection with internal error"),
             gen_tcp:close(Socket),
-            exit(InternalError)
+            exit(start_connection_error)
         end;
       {error, ActivateError} ->
         ?LOGWARNING("error activating incoming connection: ~p", [ActivateError]),
@@ -161,11 +158,8 @@ accept_loop(ListenSocket, Root) ->
   end.
 
 init_loop(#state{
-  connection = Connection,
   settings = #{w := W}
 } = State0) ->
-  % ??? move to state_m
-  link(Connection),
   State = start_t3(State0),
   loop(State#state{
     vs = 0,
@@ -196,7 +190,6 @@ loop(#state{
     {asdu, From, Reference, ASDU} when length(Sent) =< K ->
       From ! {confirm, Reference},
       State1 = send_i_packet(ASDU, State),
-
       State2 = start_t1(State1),
       loop(State2);
 

@@ -60,7 +60,6 @@
 
 start(InSettings) ->
   #{name := Name} = Settings = check_settings(InSettings),
-  OldFlag = process_flag(trap_exit, true),
   PID =
     case gen_statem:start_link(iec60870_client_stm, {_OwnerPID = self(), Settings}, []) of
       {ok, _PID} -> _PID;
@@ -68,14 +67,12 @@ start(InSettings) ->
     end,
   receive
     {ready, PID, Storage} ->
-      process_flag(trap_exit, OldFlag),
       #?MODULE{
         pid = PID,
         name = Name,
         storage = Storage
       };
     {'EXIT', PID, Reason} ->
-      process_flag(trap_exit, OldFlag),
       throw(Reason)
   end.
 

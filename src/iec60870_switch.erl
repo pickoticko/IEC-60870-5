@@ -139,25 +139,23 @@ switch_loop(#switch_state{
       ?LOGWARNING("switch on port ~p received unexpected message: ~p", [Name, Unexpected]),
       switch_loop(State)
   after
-    ?SILENT_TIMEOUT->
-      ?LOGWARNING("switch ~p silence timeout, transport reinitialization",[Name]),
-      NewState = restart_transport( State ),
-      ?LOGINFO("switch ~p reinialized after silence timeout",[Name]),
-      switch_loop( NewState )
+    ?SILENT_TIMEOUT ->
+      ?LOGWARNING("switch ~p silence timeout, transport reinitialization", [Name]),
+      NewState = restart_transport(State),
+      ?LOGINFO("switch ~p reinialized after silence timeout", [Name]),
+      switch_loop(NewState)
   end.
 
 restart_transport(#switch_state{
   name = Name,
   port_ft12 = PortFT12,
   options = Options
-} = State)->
-
-  ?LOGDEBUG("switch ~p stopping FT12 ~p",[Name, PortFT12]),
+} = State) ->
+  ?LOGDEBUG("switch ~p stopping FT12 ~p", [Name, PortFT12]),
   iec60870_ft12:stop(PortFT12),
-  wait_stopped( PortFT12 ),
-  ?LOGDEBUG("switch ~p FT12 ~p stopped ",[Name, PortFT12]),
-
-  case catch iec60870_ft12:start_link( Options ) of
+  wait_stopped(PortFT12),
+  ?LOGDEBUG("switch ~p FT12 ~p stopped ", [Name, PortFT12]),
+  case catch iec60870_ft12:start_link(Options) of
     {'EXIT', Error} ->
       ?LOGERROR("switch ~p failed to restart transport, error: ~p", [Name, Error]),
       exit({transport_init_fail, Error});
@@ -165,12 +163,12 @@ restart_transport(#switch_state{
       State#switch_state{port_ft12 = NewPortFT12}
   end.
 
-wait_stopped( PortFT12 )->
-  case is_process_alive( PortFT12 ) of
+wait_stopped(PortFT12) ->
+  case is_process_alive(PortFT12) of
     true ->
-      timer:sleep( 10 ),
-      wait_stopped( PortFT12 );
-    _->
+      timer:sleep(10),
+      wait_stopped(PortFT12);
+    _ ->
       ok
   end.
 

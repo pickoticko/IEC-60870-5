@@ -23,7 +23,7 @@
 %%% |                       Macros & Records                       |
 %%% +--------------------------------------------------------------+
 
--define(CONNECTION_TIMEOUT, 300000).
+-define(CONNECTION_TIMEOUT, 60000).
 
 -define(ACKNOWLEDGE_FRAME(Address), #frame{
   address = Address,

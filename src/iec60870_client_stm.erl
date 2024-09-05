@@ -145,6 +145,22 @@ init({Owner, #{
   }}.
 
 %%% +--------------------------------------------------------------+
+%%% |           Handling connection failure                        |
+%%% +--------------------------------------------------------------+
+handle_event(
+    info,
+    {'EXIT', Connection, Reason},
+    CurrentState,
+    #data{name = Name, connection = Connection, current_connection = CurrentConnection} = Data
+) ->
+  ?LOGERROR("client ~p connection ~p: received EXIT from connection, reason: ~p", [
+    Name, CurrentConnection, Reason
+  ]),
+  {next_state, #connecting{next_state = CurrentState, error = Reason, failed = [CurrentConnection]}, Data#data{
+    current_connection = switch_connection(CurrentConnection)
+  }};
+
+%%% +--------------------------------------------------------------+
 %%% |           Handling incoming ASDU packets                     |
 %%% +--------------------------------------------------------------+
 
@@ -671,19 +687,6 @@ handle_event(
 ) ->
   ?LOGERROR("client ~p connection ~p: failed to send packet, error: ~p", [Name, CurrentConnection, Error]),
   keep_state_and_data;
-
-handle_event(
-  info,
-  {'EXIT', Connection, Reason},
-  CurrentState,
-  #data{name = Name, connection = Connection, current_connection = CurrentConnection}
-) ->
-  ?LOGERROR("client ~p connection ~p: received EXIT from connection, reason: ~p", [
-    Name, CurrentConnection, Reason
-  ]),
-  {next_state, #connecting{next_state = CurrentState, error = Reason, failed = [CurrentConnection]}, #data{
-    current_connection = switch_connection(CurrentConnection)
-  }};
 
 handle_event(
   info,

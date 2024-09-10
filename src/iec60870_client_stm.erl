@@ -172,6 +172,7 @@ handle_event(
 ) ->
   try
     ParsedASDU = iec60870_asdu:parse(ASDU, ASDUSettings),
+    drop_duplicates(ParsedASDU, ASDU),
     {keep_state_and_data, [{next_event, internal, ParsedASDU}]}
   catch
     _:{invalid_object, _Value} = Error ->
@@ -609,10 +610,37 @@ handle_event(
   [Confirmation] = iec60870_asdu:build(#asdu{
     type = ?C_CS_NA_1,
     pn = ?POSITIVE_PN,
-    cot = ?COT_SPONT,
+    cot = ?COT_ACTCON,
     objects = Objects
   }, ASDUSettings),
   send_asdu(Connection, Confirmation),
+  keep_state_and_data;
+
+%%% +--------------------------------------------------------------+
+%%% |                 Counter interrogation request                |
+%%% +--------------------------------------------------------------+
+%%% NOTE: NOT SUPPORTED
+
+handle_event(
+    internal,
+    #asdu{type = ?C_CI_NA_1, objects = Objects},
+    _AnyState,
+    #data{asdu = ASDUSettings, connection = Connection}
+) ->
+  [Confirmation] = iec60870_asdu:build(#asdu{
+    type = ?C_CI_NA_1,
+    pn = ?POSITIVE_PN,
+    cot = ?COT_ACTCON,
+    objects = Objects
+  }, ASDUSettings),
+  send_asdu(Connection, Confirmation),
+  [Termination] = iec60870_asdu:build(#asdu{
+    type = ?C_CI_NA_1,
+    pn = ?POSITIVE_PN,
+    cot = ?COT_ACTTERM,
+    objects = Objects
+  }, ASDUSettings),
+  send_asdu(Connection, Termination),
   keep_state_and_data;
 
 %%% +--------------------------------------------------------------+
@@ -727,6 +755,16 @@ code_change(_OldVsn, State, _Extra) ->
 %%% +--------------------------------------------------------------+
 %%% |                       Helper functions                       |
 %%% +--------------------------------------------------------------+
+
+drop_duplicates(#asdu{type = Type}, ASDU) when Type =:= ?C_SC_NA_1; Type =:= ?C_CI_NA_1 ->
+  drop_duplicates(ASDU);
+drop_duplicates(_ParsedASDU, _ASDU) ->
+  ok.
+
+drop_duplicates(ASDU) ->
+  receive {asdu, _Connection, ASDU} -> drop_duplicates(ASDU)
+  after 0 -> ok
+  end.
 
 %% Sending data objects
 send_items(Items, Connection, COT, ASDUSettings) ->

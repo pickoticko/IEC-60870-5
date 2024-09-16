@@ -185,7 +185,7 @@ handle_asdu(#asdu{
   objects = Objects
 }, #state{
   settings = #{
-    command_handler := Handler,
+    is_remote_control_enabled := IsRCEnabled,
     root := Root
   }
 })
@@ -193,7 +193,7 @@ handle_asdu(#asdu{
     orelse (Type >= ?M_SP_TB_1 andalso Type =< ?M_EP_TD_1)
     orelse (Type =:= ?M_EI_NA_1) ->
   % When a command handler is defined, any information data objects should be ignored
-  case is_function(Handler) of
+  case IsRCEnabled of
     true ->
       ignore;
     false ->

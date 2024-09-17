@@ -185,7 +185,7 @@ handle_asdu(#asdu{
   objects = Objects
 }, #state{
   settings = #{
-    is_remote_control_enabled := IsRCEnabled,
+    io_updates_enabled := IOUpdatesEnabled,
     root := Root
   }
 })
@@ -193,11 +193,11 @@ handle_asdu(#asdu{
     orelse (Type >= ?M_SP_TB_1 andalso Type =< ?M_EP_TD_1)
     orelse (Type =:= ?M_EI_NA_1) ->
   % When a command handler is defined, any information data objects should be ignored
-  case IsRCEnabled of
+  case IOUpdatesEnabled of
     true ->
-      ignore;
+      [iec60870_server:update_value(Root, IOA, Value) || {IOA, Value} <- Objects];
     false ->
-      [iec60870_server:update_value(Root, IOA, Value) || {IOA, Value} <- Objects]
+      ignore
   end,
   keep_state_and_data;
 

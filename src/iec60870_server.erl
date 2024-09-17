@@ -59,7 +59,7 @@
   connection => ?REQUIRED,
   groups => [],
   command_handler => undefined,
-  is_remote_control_enabled => false
+  io_updates_enabled => false
 }, ?DEFAULT_ASDU_SETTINGS)).
 
 %% +--------------------------------------------------------------+
@@ -189,7 +189,7 @@ init_server(Owner, #{
   type := Type,
   connection := Connection,
   command_handler := Handler,
-  is_remote_control_enabled := IsRCEnabled
+  io_updates_enabled := IsRCEnabled
 } = Settings) ->
   Module = iec60870_lib:get_driver_module(Type),
   Server =
@@ -220,7 +220,7 @@ init_server(Owner, #{
     root => Ref,
     groups => maps:get(groups, Settings),
     command_handler => Handler,
-    is_remote_control_enabled => IsRCEnabled,
+    io_updates_enabled => IsRCEnabled,
     asdu => iec60870_asdu:get_settings(maps:with(maps:keys(?DEFAULT_ASDU_SETTINGS), Settings))
   },
   Owner ! {ready, self(), Ref},
@@ -274,7 +274,7 @@ check_setting(command_handler, undefined) ->
 check_setting(command_handler, HandlerFunction)
   when is_function(HandlerFunction, ?COMMAND_HANDLER_ARITY) -> HandlerFunction;
 
-check_setting(is_remote_control_enabled, IsRCEnabled)
+check_setting(io_updates_enabled, IsRCEnabled)
   when is_boolean(IsRCEnabled) -> IsRCEnabled;
 
 check_setting(type, Type)

@@ -15,7 +15,9 @@
 
 -export([
   parse_information_element/2,
-  create_information_element/2
+  create_information_element/2,
+  get_cp24/1,
+  parse_cp24/1
 ]).
 
 %%% +--------------------------------------------------------------+
@@ -598,7 +600,7 @@ get_cp24(TotalMillis) when is_integer(TotalMillis) ->
   try
     Remainder = TotalMillis rem ?MILLIS_IN_MINUTE,
     {Millis, Minutes} =
-      case TotalMillis / ?MILLIS_IN_MINUTE of
+      case TotalMillis div ?MILLIS_IN_MINUTE of
         %% Max value of 6 bits for the minutes field
         Value when Value > 63 ->
           {Remainder + round(Value - 63) * ?MILLIS_IN_MINUTE, 63};

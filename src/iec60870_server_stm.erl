@@ -184,9 +184,10 @@ handle_asdu(#asdu{
   type = Type,
   objects = Objects
 }, #state{
+  update_queue = UpdateQueuePID,
   settings = #{
     io_updates_enabled := IOUpdatesEnabled,
-    root := Root
+    name := Name
   }
 })
   when (Type >= ?M_SP_NA_1 andalso Type =< ?M_ME_ND_1)
@@ -195,7 +196,7 @@ handle_asdu(#asdu{
   % When a command handler is defined, any information data objects should be ignored
   case IOUpdatesEnabled of
     true ->
-      [iec60870_server:update_value(Root, IOA, Value) || {IOA, Value} <- Objects];
+      [UpdateQueuePID ! {Name, update, Object, _, UpdateQueuePID} || Object <- Objects];
     false ->
       ignore
   end,

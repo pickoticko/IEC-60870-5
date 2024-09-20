@@ -196,7 +196,7 @@ handle_asdu(#asdu{
   % When a command handler is defined, any information data objects should be ignored
   case IOUpdatesEnabled of
     true ->
-      [UpdateQueuePID ! {Name, update, Object, _, UpdateQueuePID} || Object <- Objects];
+      [UpdateQueuePID ! {Name, update, Object, none, UpdateQueuePID} || Object <- Objects];
     false ->
       ignore
   end,

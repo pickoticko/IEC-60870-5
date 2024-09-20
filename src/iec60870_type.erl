@@ -530,8 +530,8 @@ create_information_element(?C_BO_TA_1, #{value := BSI} = Object) ->
 %% Type 70. End of initialization
 create_information_element(?M_EI_NA_1, #{value := Value} = Object) ->
   COI = maps:get(coi, Object, 0),
-  <<COI:1, _Ignore:7>> = <<COI>>,
-  <<COI:1, (round(Value)):7>>;
+  <<InitValue:1, _Ignore:7>> = <<COI>>,
+  <<InitValue:1, (round(Value)):7>>;
 
 %% Type 100. Group request
 create_information_element(?C_IC_NA_1, GroupID) ->

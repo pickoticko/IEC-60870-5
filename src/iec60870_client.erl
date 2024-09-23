@@ -97,9 +97,9 @@ read(_, _) ->
 write(#?MODULE{pid = PID}, IOA, InDataObject) when is_map(InDataObject) ->
   case is_process_alive(PID) of
     true ->
-      OutDataObject = check_value(InDataObject),
-      case is_remote_command(OutDataObject) of
+      case is_remote_command(InDataObject) of
         true ->
+          OutDataObject = check_value(InDataObject),
           %% This call returns 'ok' either {error, Reason}.
           case gen_statem:call(PID, {write, IOA, OutDataObject}) of
             ok ->
@@ -109,7 +109,7 @@ write(#?MODULE{pid = PID}, IOA, InDataObject) when is_map(InDataObject) ->
               throw(Reason)
           end;
         false ->
-          PID ! {write, IOA, OutDataObject},
+          PID ! {write, IOA, InDataObject},
           ok
       end;
     false ->

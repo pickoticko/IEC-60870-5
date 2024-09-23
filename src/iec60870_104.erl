@@ -19,6 +19,8 @@
   start_client/1
 ]).
 
+%%-export([test_server/1]).
+
 %%% +--------------------------------------------------------------+
 %%% |                       Macros & Records                       |
 %%% +--------------------------------------------------------------+
@@ -80,22 +82,78 @@
 %%% +--------------------------------------------------------------+
 %%% |                    Server API implementation                 |
 %%% +--------------------------------------------------------------+
-
 start_server(InSettings) ->
+
   Root = self(),
   Settings = #{
     port := Port
   } = check_settings(maps:merge(?DEFAULT_SETTINGS, InSettings)),
-  case gen_tcp:listen(Port, [binary, {active, true}, {packet, raw}]) of
+
+  SocketParams = [binary, {active, true}, {packet, raw}],
+  case gen_tcp:listen(Port, SocketParams) of
     {ok, ListenSocket} ->
       accept_connection(ListenSocket, Settings, Root),
       ListenSocket;
+    {error, eaddrinuse}->
+      ?LOGWARNING("~p port is in use, try to reuse",[ Port ]),
+      ?LOGWARNING("ENSURE OTHER APPLICATIONS DO NOT USE PORT ~p, THIS MAY LEAD TO CONFLICTS",[ Port ]),
+      ?LOGWARNING("trying to open port ~p in shared mode",[Port]),
+      case gen_tcp:listen(Port, [{reuseaddr, true} | SocketParams]) of
+        {ok, ListenSocket} ->
+          ?LOGWARNING("port ~p opened in shared mode",[Port]),
+          accept_connection(ListenSocket, Settings, Root),
+          ListenSocket;
+        {error, Reason} ->
+          throw({transport_error, Reason})
+      end;
     {error, Reason} ->
       throw({transport_error, Reason})
   end.
 
 stop_server(ServerPort) ->
   gen_tcp:close(ServerPort).
+
+%%%%----------------------------------------------------------------------
+%%%% DELETE ME
+%%%%----------------------------------------------------------------------
+%%test_server( Port )->
+%%  spawn(fun()-> init_test_server( Port ) end).
+%%
+%%init_test_server( Port )->
+%%  case gen_tcp:listen(Port, [binary, {active, true}, {packet, raw},{reuseaddr, true}]) of
+%%    {ok, ListenSocket} ->
+%%      ?LOGINFO("listen port ~p, socket ~p",[ Port, ListenSocket ]),
+%%      Self = self(),
+%%      %spawn(fun()-> test_guard( Self, ListenSocket ) end),
+%%      test_accept( ListenSocket ),
+%%      timer:sleep( infinity );
+%%
+%%    {error, Error}->
+%%      ?LOGERROR("start listen socket error: ~p",[ Error ])
+%%  end.
+%%
+%%test_accept( ListenSocket )->
+%%  spawn(fun()->
+%%    case gen_tcp:accept(ListenSocket) of
+%%      {ok, Socket} ->
+%%        ?LOGINFO("accept connection, socket ~p",[ Socket ]),
+%%        test_accept( ListenSocket ),
+%%        timer:sleep( 50000 ),
+%%        ?LOGINFO("close connection, socket ~p",[ Socket ]);
+%%      {error, Error} ->
+%%        ?LOGINFO("accept connection error: ~p",[ Error ]),
+%%        catch gen_tcp:close(ListenSocket)
+%%    end
+%%  end).
+%%
+%%test_guard(Owner, ListenSocket )->
+%%  erlang:monitor( process, Owner ),
+%%  receive
+%%    {'DOWN', _, process, Owner, Reason}->
+%%      ?LOGINFO("~p owner is down, reason: ~p, close the listen socket ~p",[Owner, Reason, gen_tcp:close( ListenSocket )]),
+%%      gen_tcp:close( ListenSocket )
+%%  end.
+
 
 %%% +--------------------------------------------------------------+
 %%% |                    Client API implementation                 |

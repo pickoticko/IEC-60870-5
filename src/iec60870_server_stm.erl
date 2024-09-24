@@ -187,6 +187,7 @@ handle_asdu(#asdu{
   update_queue = UpdateQueuePID,
   settings = #{
     io_updates_enabled := IOUpdatesEnabled,
+    storage := Storage,
     name := Name
   }
 })
@@ -196,7 +197,18 @@ handle_asdu(#asdu{
   % When a command handler is defined, any information data objects should be ignored
   case IOUpdatesEnabled of
     true ->
-      [UpdateQueuePID ! {Name, update, Object, none, UpdateQueuePID} || Object <- Objects];
+      [begin
+         {IOA, NewObject} = Object,
+         OldObject =
+           case ets:lookup(Storage, IOA) of
+             [{_, Map}] -> Map;
+             _ -> #{type => Type, group => undefined}
+           end,
+         MergedObject = {IOA, maps:merge(OldObject, NewObject)},
+         ets:insert(Storage, MergedObject),
+         UpdateQueuePID ! {Name, update, MergedObject, none, UpdateQueuePID}
+         end
+        || Object <- Objects];
     false ->
       ignore
   end,

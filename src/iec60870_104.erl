@@ -23,8 +23,11 @@
 %%% |                       Macros & Records                       |
 %%% +--------------------------------------------------------------+
 
+-define(DEFAULT_SOCKET_PARAMS, [binary, {active, true}, {packet, raw}]).
+
 %% Default port settings
 -define(DEFAULT_SETTINGS, #{
+  address => local,
   port => ?DEFAULT_PORT,
   t1 => 30000,
   t2 => 5000,
@@ -84,9 +87,10 @@
 start_server(InSettings) ->
   Root = self(),
   Settings = #{
-    port := Port
+    port := Port,
+    address := Address
   } = check_settings(maps:merge(?DEFAULT_SETTINGS, InSettings)),
-  SocketParams = [binary, {active, true}, {packet, raw}],
+  SocketParams = get_socket_params(Address),
   case gen_tcp:listen(Port, SocketParams) of
     {ok, ListenSocket} ->
       accept_connection(ListenSocket, Settings, Root),
@@ -520,6 +524,11 @@ check_settings(Settings) ->
   end,
   maps:from_list([{K, check_setting(K, V)} || {K, V} <- SettingsList]).
 
+check_setting(address, local = Address) ->
+  Address;
+check_setting(address, Address)
+  when is_list(Address) -> Address;
+
 check_setting(host, Host) when is_tuple(Host) ->
   case tuple_to_list(Host) of
     IP when length(IP) =:= 4 ->
@@ -554,6 +563,12 @@ check_setting(Key, Value)->
 %% +--------------------------------------------------------------+
 %% |                       Helper functions                       |
 %% +--------------------------------------------------------------+
+
+get_socket_params(Address) when is_list(Address) ->
+  {ok, ParsedAddress} = inet:parse_address(Address),
+  ?DEFAULT_SOCKET_PARAMS ++ [{ip, ParsedAddress}];
+get_socket_params(_Other) ->
+  ?DEFAULT_SOCKET_PARAMS.
 
 confirm_sent_counter(ReceiveCounter, #state{
   sent = Sent,

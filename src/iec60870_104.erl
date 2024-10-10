@@ -318,6 +318,7 @@ create_apdu(Frame) ->
 
 split_into_packets(Data) ->
   split_into_packets(Data, []).
+
 split_into_packets(<<?START_BYTE, Size:8, Rest/binary>> = Data, Packets) ->
   case Rest of
     <<Packet:Size/binary, Tail/binary>>->
@@ -325,6 +326,10 @@ split_into_packets(<<?START_BYTE, Size:8, Rest/binary>> = Data, Packets) ->
     _ ->
       {lists:reverse(Packets), Data}
   end;
+split_into_packets(<<?START_BYTE, _Size:8>>, Packets) ->
+  {lists:reverse(Packets), <<>>};
+split_into_packets(<<?START_BYTE>>, Packets) ->
+  {lists:reverse(Packets), <<>>};
 split_into_packets(<<>>, Packets) ->
   {lists:reverse(Packets), <<>>};
 split_into_packets(InvalidData, _) ->

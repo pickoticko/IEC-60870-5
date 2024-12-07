@@ -15,9 +15,7 @@
 
 -export([
   parse_information_element/2,
-  create_information_element/2,
-  get_cp24/1,
-  parse_cp24/1
+  create_information_element/2
 ]).
 
 %%% +--------------------------------------------------------------+
@@ -576,11 +574,12 @@ parse_cp56(<<
   Year:7
 >> = Timestamp) ->
   try
+    MillisRemainder = Millis rem 1000,
     DateTime =
       {{Year + ?CURRENT_MILLENNIUM, Month, Day}, {Hours, Minutes, millis_to_seconds(Millis)}},
     [UTC] = calendar:local_time_to_universal_time_dst(DateTime),
     GregorianSeconds = calendar:datetime_to_gregorian_seconds(UTC),
-    seconds_to_millis(GregorianSeconds - ?UNIX_EPOCH_SECONDS)
+    seconds_to_millis(GregorianSeconds - ?UNIX_EPOCH_SECONDS) + MillisRemainder
   catch
     _:Error ->
       ?LOGERROR("CP56 parse error: ~p, timestamp: ~p", [Error, Timestamp]),
@@ -619,12 +618,13 @@ get_cp24(Anything) ->
 
 get_cp56(PosixTimestamp) when is_integer(PosixTimestamp) ->
   try
+    MillisRemainder = PosixTimestamp rem 1000,
     GregorianSeconds = millis_to_seconds(PosixTimestamp) + ?UNIX_EPOCH_SECONDS,
     UTC = calendar:gregorian_seconds_to_datetime(GregorianSeconds),
     {{Year, Month, Day}, {Hour, Minute, Seconds}} =
       calendar:universal_time_to_local_time(UTC),
     WeekDay = calendar:day_of_the_week(Year, Month, Day),
-    <<(seconds_to_millis(Seconds)):16/little-integer,
+    <<(seconds_to_millis(Seconds) + MillisRemainder):16/little-integer,
       16#00:2,
       Minute:6,
       16#00:3,

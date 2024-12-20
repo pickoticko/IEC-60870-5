@@ -560,11 +560,7 @@ send_updates(Updates, #pointer{
     pn = ?POSITIVE_PN,
     objects = Updates
   }, ASDUSettings),
-  Tickets = lists:foldl(
-    fun(ASDU, AccIn) ->
-      Ticket = send_update(SendQueuePID, Priority, ASDU),
-      AccIn#{Ticket => wait}
-    end, #{}, ListASDU),
+  Tickets = send_update(SendQueuePID, Priority, ListASDU),
   State#update_state{
     tickets = Tickets,
     pointer = Pointer
@@ -580,10 +576,10 @@ collect_group_updates(GroupID, Storage) ->
       []
   end.
 
-send_update(SendQueue, Priority, ASDU) ->
-  ?LOGDEBUG("enqueue ASDU: ~p",[ASDU]),
-  SendQueue ! {send_confirm, self(), Priority, ASDU},
-  receive {accepted, TicketRef} -> TicketRef end.
+send_update(SendQueue, Priority, ASDUs) ->
+  ?LOGDEBUG("enqueue asdu list: ~p", [ASDUs]),
+  SendQueue ! {send_confirm, self(), Priority, ASDUs},
+  receive {accepted, TicketRefs} -> TicketRefs end.
 
 enqueue_update(Priority, COT, {IOA, #{type := Type}}, #update_state{
   ioa_index = IndexIOA,
@@ -644,20 +640,27 @@ send_queue(#send_state{
   send_queue = SendQueue,
   name = Name,
   tickets = Tickets,
-  counter = Counter
+  counter = CurrentCounter
 } = InState) ->
   State =
     receive
       {confirm, Reference} ->
         return_confirmation(Tickets, Reference),
         InState#send_state{tickets = maps:remove(Reference, Tickets)};
-      {send_confirm, Sender, Priority, ASDU} ->
-        Sender ! {accepted, Counter},
-        ets:insert(SendQueue, {{Priority, Counter}, {Sender, ASDU}}),
-        InState#send_state{counter = Counter + 1};
+      {send_confirm, Sender, Priority, ASDUs} ->
+        Count = length(ASDUs),
+        TicketNumbers = lists:seq(CurrentCounter, CurrentCounter + Count - 1),
+        TicketRefs = maps:from_list([{Counter, wait} || Counter <- TicketNumbers]),
+        Sender ! {accepted, TicketRefs},
+        BulkInsert =
+          [begin
+            {{Priority, Counter}, {Sender, ASDU}}
+          end || {Counter, ASDU} <- lists:zip(TicketNumbers, ASDUs)],
+        ets:insert(SendQueue, BulkInsert),
+        InState#send_state{counter = CurrentCounter + Count};
       {send_no_confirm, _Sender, Priority, ASDU} ->
-        ets:insert(SendQueue, {{Priority, Counter}, {none, ASDU}}),
-        InState#send_state{counter = Counter + 1};
+        ets:insert(SendQueue, {{Priority, CurrentCounter}, {none, ASDU}}),
+        InState#send_state{counter = CurrentCounter + 1};
       Unexpected ->
         ?LOGWARNING("send queue ~p process received unexpected message: ~p", [Name, Unexpected]),
         InState

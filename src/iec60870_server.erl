@@ -166,19 +166,21 @@ update_value(#?MODULE{name = Name, storage = Storage}, ID, NewObject) ->
   OldObject =
     case ets:lookup(Storage, ID) of
       [{_, Map}] -> Map;
-      _ -> #{
-        % All object types have this key
-        group => undefined
-      }
+      _ -> #{group => undefined}
     end,
-  MergedObject = maps:merge(OldObject, NewObject),
-  % Value must contain 'value' parameter
+
+  MergedObject = merge_objects(OldObject, NewObject),
   NewValue = check_value(MergedObject),
+
   ets:insert(Storage, {ID, NewValue}),
-  % Any updates notification
+
   esubscribe:notify(Name, update, {ID, NewValue}),
-  % Only address notification
   esubscribe:notify(Name, ID, NewValue).
+
+merge_objects(OldObject, #{ts := _} = NewObject) ->
+  maps:merge(OldObject, NewObject);
+merge_objects(OldObject, NewObject) ->
+  maps:merge(OldObject, NewObject#{ts => erlang:system_time(millisecond)}).
 
 %% +--------------------------------------------------------------+
 %% |                       Internal functions                     |

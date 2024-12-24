@@ -770,24 +770,25 @@ send_asdu(Connection, ASDU) ->
       ok
   end.
 
-update_value(Name, Storage, ID, InValue) ->
-  OldValue =
+update_value(Name, Storage, ID, NewObject) ->
+  OldObject =
     case ets:lookup(Storage, ID) of
-      [{_, Map}] -> Map;
+      [{_, Map}] ->
+        Map;
       _ -> #{
-        % All object types have these keys
         value => undefined,
         group => undefined
       }
     end,
-  NewValue = maps:merge(OldValue, InValue#{
+
+  MergedObject = maps:merge(OldObject, NewObject#{
     accept_ts => erlang:system_time(millisecond)
   }),
-  ets:insert(Storage, {ID, NewValue}),
-  % Any updates notification
-  esubscribe:notify(Name, update, {ID, NewValue}),
-  % Only address notification
-  esubscribe:notify(Name, ID, NewValue).
+
+  ets:insert(Storage, {ID, MergedObject}),
+
+  esubscribe:notify(Name, update, {ID, MergedObject}),
+  esubscribe:notify(Name, ID, MergedObject).
 
 %% Alternating between connections
 switch_connection(_Connection = main) -> redundant;

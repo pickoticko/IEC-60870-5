@@ -64,6 +64,7 @@
 
 -define(CONNECT_TIMEOUT, 5000).
 -define(WAIT_ACTIVATE, 5000).
+-define(RESTART_WAIT, 1000).
 
 -record(state, {
   socket,
@@ -96,6 +97,7 @@ start_server(InSettings) ->
       accept_connection(ListenSocket, Settings, Root),
       ListenSocket;
     {error, eaddrinuse} ->
+      timer:sleep(?RESTART_WAIT),
       ?LOGWARNING("~p port is in use, trying to reuse", [Port]),
       ?LOGWARNING("ENSURE OTHER APPLICATIONS DO NOT USE PORT ~p, THIS MAY LEAD TO CONFLICTS", [Port]),
       ?LOGWARNING("trying to open port ~p in shared mode", [Port]),

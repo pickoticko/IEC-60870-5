@@ -156,9 +156,10 @@ handle_event(
   ?LOGERROR("client ~p connection ~p: received EXIT from connection, reason: ~p", [
     Name, CurrentConnection, Reason
   ]),
-  {next_state, #connecting{next_state = CurrentState, error = Reason, failed = [CurrentConnection]}, Data#data{
-    current_connection = switch_connection(CurrentConnection)
-  }};
+
+  ?LOGINFO("client ~p connection ~p try to recover connection",[Name, CurrentConnection]),
+
+  {next_state, #connecting{next_state = CurrentState, error = Reason, failed = []}, Data};
 
 %%% +--------------------------------------------------------------+
 %%% |           Handling incoming ASDU packets                     |

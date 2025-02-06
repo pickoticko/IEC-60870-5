@@ -501,7 +501,7 @@ handle_event(
   enter,
   _PrevState,
   #rc{state = confirm, type = Type, ioa = IOA, value = Value},
-  #data{connection = Connection, asdu = ASDUSettings}
+  #data{name = Name, connection = Connection, asdu = ASDUSettings}
 ) ->
   [ASDU] = iec60870_asdu:build(#asdu{
     type = Type,
@@ -510,6 +510,9 @@ handle_event(
     objects = [{IOA, Value}]
   }, ASDUSettings),
   send_asdu(Connection, ASDU),
+  ?LOGINFO("client ~p connection ~p: sent RC command activation! IOA: ~p, Type: ~p, Data object: ~p", [
+    Name, Connection, IOA, Type, Value
+  ]),
   {keep_state_and_data, [{state_timeout, ?CONFIRM_TIMEOUT, timeout}]};
 
 %% Remote control command confirmation
@@ -517,8 +520,11 @@ handle_event(
   internal,
   #asdu{type = Type, cot = ?COT_ACTCON, pn = ?POSITIVE_PN, objects = [{IOA, _}]},
   #rc{state = confirm, ioa = IOA, type = Type} = State,
-  Data
+  #data{name = Name, current_connection = CurrentConnection} = Data
 ) ->
+  ?LOGINFO("client ~p connection ~p: RC command confirmation! IOA: ~p, Type: ~p", [
+    CurrentConnection, Name, IOA, Type
+  ]),
   {next_state, State#rc{state = run}, Data};
 
 %% Remote control command rejected
@@ -526,16 +532,22 @@ handle_event(
   internal,
   #asdu{type = Type, cot = ?COT_ACTCON, pn = ?NEGATIVE_PN, objects = [{IOA, _}]},
   #rc{state = confirm, ioa = IOA, type = Type, from = From},
-  Data
+  #data{name = Name, current_connection = CurrentConnection} = Data
 ) ->
+  ?LOGWARNING("client ~p connection ~p: RC command rejected! IOA: ~p, Type: ~p", [
+    Name, CurrentConnection, IOA, Type
+  ]),
   {next_state, ?CONNECTED, Data, [{reply, From, {error, reject}}]};
 
 handle_event(
   state_timeout,
   timeout,
-  #rc{state = confirm, from = From},
-  Data
+  #rc{state = confirm, ioa = IOA, type = Type, from = From},
+  #data{name = Name, current_connection = CurrentConnection} = Data
 ) ->
+  ?LOGWARNING("client ~p connection ~p: RC command confirmation timeout! IOA: ~p, Type: ~p", [
+    Name, CurrentConnection, IOA, Type
+  ]),
   {next_state, ?CONNECTED, Data, [{reply, From, {error, confirm_timeout}}]};
 
 %% Remote control command running
@@ -552,8 +564,11 @@ handle_event(
   internal,
   #asdu{type = Type, cot = ?COT_ACTTERM, pn = ?POSITIVE_PN, objects = [{IOA, _}]},
   #rc{state = run, ioa = IOA, type = Type, from = From},
-  Data
+  #data{name = Name, current_connection = CurrentConnection} = Data
 ) ->
+  ?LOGINFO("client ~p connection ~p: RC command positive termination! IOA: ~p, Type: ~p", [
+    Name, CurrentConnection, IOA, Type
+  ]),
   {next_state, ?CONNECTED, Data, [{reply, From, ok}]};
 
 % Not executed
@@ -561,15 +576,22 @@ handle_event(
   internal,
   #asdu{type = Type, cot = ?COT_ACTTERM, pn = ?NEGATIVE_PN, objects = [{IOA, _}]},
   #rc{state = run, ioa = IOA, type = Type, from = From},
-  Data
+  #data{name = Name, current_connection = CurrentConnection} = Data
 ) ->
+  ?LOGWARNING("client ~p connection ~p: RC command negative termination! IOA: ~p, Type: ~p", [
+    Name, CurrentConnection, IOA, Type
+  ]),
   {next_state, ?CONNECTED, Data, [{reply, From, {error, not_executed}}]};
 
 handle_event(
   state_timeout,
   timeout,
-  #rc{state = run, from = From}, Data
+  #rc{state = run, ioa = IOA, type = Type, from = From},
+  #data{name = Name, current_connection = CurrentConnection} = Data
 ) ->
+  ?LOGWARNING("client ~p connection ~p: RC command termination timeout! IOA: ~p, Type: ~p", [
+    Name, CurrentConnection, IOA, Type
+  ]),
   {next_state, ?CONNECTED, Data, [{reply, From, {error, execute_timeout}}]};
 
 %%% +--------------------------------------------------------------+
